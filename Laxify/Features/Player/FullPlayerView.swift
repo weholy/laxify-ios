@@ -58,7 +58,6 @@ struct FullPlayerView: View {
             }
             .scrollBounceBehavior(.basedOnSize)
         }
-        .frame(width: UIScreen.main.bounds.width, height: UIScreen.main.bounds.height)
         .onGeometryChange(for: CGSize.self, of: { $0.size }) { newSize in
             AppLogger.log("fullplayer: screen size \(Int(newSize.width))x\(Int(newSize.height))")
         }
@@ -81,23 +80,22 @@ struct FullPlayerView: View {
 
     @ViewBuilder
     private var background: some View {
-        ZStack {
-            Color.black
-
-            if let url = player.currentSong?.coverURL {
-                AsyncImage(url: url) { phase in
-                    if let image = phase.image {
-                        image
-                            .resizable()
-                            .scaledToFill()
+        Color.black
+            .overlay {
+                if let url = player.currentSong?.coverURL {
+                    AsyncImage(url: url) { phase in
+                        if let image = phase.image {
+                            image
+                                .resizable()
+                                .scaledToFill()
+                                .blur(radius: 60)
+                        }
                     }
                 }
-                .blur(radius: 60)
             }
-
-            Color.black.opacity(0.55)
-        }
-        .ignoresSafeArea()
+            .overlay(Color.black.opacity(0.55))
+            .clipped()
+            .ignoresSafeArea()
     }
 
     private var topBar: some View {

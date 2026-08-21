@@ -22,23 +22,22 @@ struct LyricsView: View {
 
     @ViewBuilder
     private var background: some View {
-        ZStack {
-            Color.black
-
-            if let url = player.currentSong?.coverURL {
-                AsyncImage(url: url) { phase in
-                    if let image = phase.image {
-                        image
-                            .resizable()
-                            .scaledToFill()
+        Color.black
+            .overlay {
+                if let url = player.currentSong?.coverURL {
+                    AsyncImage(url: url) { phase in
+                        if let image = phase.image {
+                            image
+                                .resizable()
+                                .scaledToFill()
+                                .blur(radius: 70)
+                        }
                     }
                 }
-                .blur(radius: 70)
             }
-
-            Color.black.opacity(0.65)
-        }
-        .ignoresSafeArea()
+            .overlay(Color.black.opacity(0.65))
+            .clipped()
+            .ignoresSafeArea()
     }
 
     private var header: some View {
