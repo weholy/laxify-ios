@@ -29,6 +29,8 @@ final class HomeViewModel {
             content = try await service.homeContent()
         } catch MusicServiceError.missingAccessKey {
             errorMessage = "Добавьте ключ доступа в Профиле"
+        } catch MusicServiceError.notFound {
+            errorMessage = "Библиотека пока недоступна в вашем регионе"
         } catch {
             errorMessage = "Не удалось загрузить главную (\(error))"
         }

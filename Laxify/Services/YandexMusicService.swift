@@ -8,24 +8,38 @@ actor YandexMusicService: MusicService {
 
     private init() {}
 
+    private static let fallbackSearchTerms = ["хиты", "поп музыка", "рэп", "рок"]
+
     func homeContent() async throws -> HomeContent {
         try await ensureReady()
-
-        let newPlaylists = try await run { YMClient.shared.getNewPlaylists(completion: $0) }
-        let playlistIds = (newPlaylists.newPlaylists ?? []).prefix(10)
 
         var collections: [MusicCollection] = []
         var recommendedTracks: [Song] = []
 
-        for playlistId in playlistIds {
-            guard let playlists = try? await run({ completion in
-                YMClient.shared.getPlaylists(userId: String(playlistId.uid), playlistsId: [String(playlistId.kind)], completion: completion)
-            }), let playlist = playlists.first else { continue }
+        if let newPlaylists = try? await run({ YMClient.shared.getNewPlaylists(completion: $0) }) {
+            let playlistIds = (newPlaylists.newPlaylists ?? []).prefix(10)
+            for playlistId in playlistIds {
+                guard let playlists = try? await run({ completion in
+                    YMClient.shared.getPlaylists(userId: String(playlistId.uid), playlistsId: [String(playlistId.kind)], completion: completion)
+                }), let playlist = playlists.first else { continue }
 
-            collections.append(collection(from: playlist))
-            if recommendedTracks.isEmpty {
-                recommendedTracks = (playlist.tracks ?? []).compactMap(\.track).map(song(from:))
+                collections.append(collection(from: playlist))
+                if recommendedTracks.isEmpty {
+                    recommendedTracks = (playlist.tracks ?? []).compactMap(\.track).map(song(from:))
+                }
             }
+        }
+
+        if recommendedTracks.isEmpty {
+            for term in Self.fallbackSearchTerms {
+                guard let results = try? await search(query: term) else { continue }
+                recommendedTracks.append(contentsOf: results.tracks)
+                if recommendedTracks.count >= 15 { break }
+            }
+        }
+
+        guard !collections.isEmpty || !recommendedTracks.isEmpty else {
+            throw MusicServiceError.notFound
         }
 
         return HomeContent(collections: collections, recommendedTracks: recommendedTracks)

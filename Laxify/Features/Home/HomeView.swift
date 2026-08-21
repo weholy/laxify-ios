@@ -59,10 +59,17 @@ struct HomeView: View {
     @ViewBuilder
     private var homeContent: some View {
         if let errorMessage = viewModel.errorMessage {
-            Text(errorMessage)
-                .font(LaxifyTypography.body)
-                .foregroundStyle(LaxifyPalette.textSecondary)
-                .padding(.horizontal, LaxifyMetrics.screenPadding)
+            VStack(alignment: .leading, spacing: 14) {
+                Text(errorMessage)
+                    .font(LaxifyTypography.body)
+                    .foregroundStyle(LaxifyPalette.textSecondary)
+
+                Button("Повторить") {
+                    Task { await viewModel.reload() }
+                }
+                .buttonStyle(.laxifySecondary)
+            }
+            .padding(.horizontal, LaxifyMetrics.screenPadding)
         } else if viewModel.isLoading && viewModel.content == nil {
             ProgressView()
                 .frame(maxWidth: .infinity)
