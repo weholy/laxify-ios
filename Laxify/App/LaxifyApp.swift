@@ -4,7 +4,7 @@ import SwiftUI
 struct LaxifyApp: App {
     var body: some Scene {
         WindowGroup {
-            RootPlaceholderView()
+            RootView()
         }
     }
 }
