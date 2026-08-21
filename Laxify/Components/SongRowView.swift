@@ -27,6 +27,7 @@ struct SongRowView: View {
                 Image(systemName: "star.fill")
                     .font(.system(size: 14))
                     .foregroundStyle(LaxifyPalette.accent)
+                    .transition(.scale.combined(with: .opacity))
             }
 
             Text(formattedDuration)

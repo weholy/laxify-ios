@@ -56,10 +56,31 @@ actor YandexMusicService: MusicService {
             YMClient.shared.search(text: query, noCorrect: false, type: .all, page: 0, includeBestPlaylists: false, completion: completion)
         }
 
-        return SearchResults(
+        let results = SearchResults(
             tracks: (result.tracks?.results ?? []).map(song(from:)),
             artists: (result.artists?.results ?? []).map(musicArtist(from:)),
             albums: (result.albums?.results ?? []).map(musicAlbum(from:))
+        )
+
+        guard results.isEmpty else { return results }
+
+        // Nothing matched as typed — retry with the spelling correction the
+        // service suggests, so a typo shows close matches instead of a dead end.
+        guard let corrected = result.misspellResult,
+              !corrected.isEmpty,
+              corrected.caseInsensitiveCompare(query) != .orderedSame else {
+            return results
+        }
+
+        let retry = try await run { completion in
+            YMClient.shared.search(text: corrected, noCorrect: true, type: .all, page: 0, includeBestPlaylists: false, completion: completion)
+        }
+
+        return SearchResults(
+            tracks: (retry.tracks?.results ?? []).map(song(from:)),
+            artists: (retry.artists?.results ?? []).map(musicArtist(from:)),
+            albums: (retry.albums?.results ?? []).map(musicAlbum(from:)),
+            correctedQuery: corrected
         )
     }
 

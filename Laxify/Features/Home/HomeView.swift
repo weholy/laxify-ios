@@ -6,7 +6,6 @@ struct HomeView: View {
     @State private var query = ""
     @State private var searchResults: SearchResults?
     @State private var isSearching = false
-    @State private var selectedCollection: MusicCollection?
     @State private var selectedArtistId: String?
     @Query(sort: \FavoriteTrack.addedAt, order: .reverse) private var favorites: [FavoriteTrack]
     @Query private var dislikedTracks: [DislikedTrack]
@@ -63,9 +62,6 @@ struct HomeView: View {
             searchResults = try? await YandexMusicService.shared.search(query: trimmedQuery)
             isSearching = false
         }
-        .fullScreenCover(item: $selectedCollection) { collection in
-            PlaylistDetailView(collection: collection)
-        }
         .fullScreenCover(isPresented: Binding(
             get: { selectedArtistId != nil },
             set: { if !$0 { selectedArtistId = nil } }
@@ -94,11 +90,9 @@ struct HomeView: View {
             ProgressView()
                 .frame(maxWidth: .infinity)
                 .padding(.top, 60)
-        } else if let content = viewModel.content {
-            collectionsGrid(content.collections)
-
+        } else if viewModel.content != nil {
             if !waveTracks.isEmpty {
-                songSection(title: "Ваша волна", songs: waveTracks)
+                trackListSection(title: "Ваша волна", songs: waveTracks)
             } else if viewModel.isLoadingWave {
                 VStack(alignment: .leading, spacing: 14) {
                     sectionTitle("Ваша волна")
@@ -108,7 +102,25 @@ struct HomeView: View {
                 }
             }
 
-            songSection(title: "Рекомендованные треки", songs: recommendedTracks)
+            trackListSection(title: "Для вас", songs: recommendedTracks)
+        }
+    }
+
+    private func trackListSection(title: String, songs: [Song]) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            sectionTitle(title)
+
+            LazyVStack(spacing: 12) {
+                ForEach(songs) { song in
+                    Button {
+                        AudioPlayerController.shared.play(song, queue: songs)
+                    } label: {
+                        SongRowView(song: song)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, LaxifyMetrics.screenPadding)
         }
     }
 
@@ -189,39 +201,6 @@ struct HomeView: View {
         .padding(.horizontal, LaxifyMetrics.screenPadding)
     }
 
-    private func collectionsGrid(_ collections: [MusicCollection]) -> some View {
-        LazyVGrid(columns: [GridItem(.flexible(), spacing: LaxifyMetrics.itemSpacing), GridItem(.flexible())], spacing: LaxifyMetrics.itemSpacing) {
-            ForEach(collections) { collection in
-                Button {
-                    selectedCollection = collection
-                } label: {
-                    CollectionCardView(collection: collection)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, LaxifyMetrics.screenPadding)
-    }
-
-    private func songSection(title: String, songs: [Song]) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            sectionTitle(title)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: LaxifyMetrics.itemSpacing) {
-                    ForEach(songs) { song in
-                        Button {
-                            AudioPlayerController.shared.play(song, queue: songs)
-                        } label: {
-                            SongCardView(song: song)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, LaxifyMetrics.screenPadding)
-            }
-        }
-    }
 }
 
 #Preview {

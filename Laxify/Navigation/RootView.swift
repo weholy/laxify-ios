@@ -43,7 +43,7 @@ struct RootView: View {
             get: { router.pendingAlbum },
             set: { router.pendingAlbum = $0 }
         )) { album in
-            AlbumDetailView(album: album)
+            AlbumDetailView(album: album) { router.pendingAlbum = nil }
         }
         .fullScreenCover(item: Binding(
             get: { router.pendingCollection },

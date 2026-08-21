@@ -215,11 +215,16 @@ struct FullPlayerView: View {
             Spacer()
 
             Button {
-                toggleFavorite()
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.5)) {
+                    toggleFavorite()
+                }
             } label: {
                 Image(systemName: isFavorite ? "star.fill" : "star")
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(isFavorite ? LaxifyPalette.accent : .white)
+                    .scaleEffect(isFavorite ? 1.15 : 1)
+                    .symbolEffect(.bounce, value: isFavorite)
+                    .contentTransition(.symbolEffect(.replace))
             }
             .buttonStyle(.plain)
         }

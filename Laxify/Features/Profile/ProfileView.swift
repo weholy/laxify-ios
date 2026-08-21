@@ -4,6 +4,7 @@ import SwiftData
 struct ProfileView: View {
     @Query private var profiles: [UserProfile]
     var stats = ListeningStatsService.shared
+    @State private var isEditPresented = false
 
     private var profile: UserProfile? { profiles.first }
 
@@ -12,6 +13,7 @@ struct ProfileView: View {
             VStack(spacing: LaxifyMetrics.sectionSpacing) {
                 if let profile {
                     identitySection(profile)
+                    editButton
                 }
 
                 statsSection
@@ -20,6 +22,20 @@ struct ProfileView: View {
             .padding(.bottom, LaxifyMetrics.tabBarHeight + LaxifyMetrics.miniPlayerHeight + 40)
         }
         .background(profileBackground)
+        .fullScreenCover(isPresented: $isEditPresented) {
+            if let profile {
+                EditProfileView(profile: profile) { isEditPresented = false }
+            }
+        }
+    }
+
+    private var editButton: some View {
+        Button {
+            isEditPresented = true
+        } label: {
+            Label("Изменить профиль", systemImage: "pencil")
+        }
+        .buttonStyle(.laxifySecondary)
     }
 
     private var profileBackground: some View {

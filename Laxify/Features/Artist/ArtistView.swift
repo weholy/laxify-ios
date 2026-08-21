@@ -49,7 +49,7 @@ struct ArtistView: View {
             }
             .padding(.bottom, LaxifyMetrics.miniPlayerHeight + 40)
         }
-        .background(LaxifyPalette.background.ignoresSafeArea())
+        .background(artistBackground)
         .overlay(alignment: .top) {
             dismissButton
                 .padding(.horizontal, LaxifyMetrics.screenPadding)
@@ -59,15 +59,43 @@ struct ArtistView: View {
             await viewModel.loadIfNeeded()
         }
         .fullScreenCover(item: $selectedAlbum) { album in
-            AlbumDetailView(album: album)
+            AlbumDetailView(album: album) { selectedAlbum = nil }
         }
         .fullScreenCover(isPresented: $isAllTracksPresented) {
             ArtistAllTracksView(
                 artistId: artistId,
                 artistName: viewModel.detail?.artist.name ?? ""
-            )
+            ) { isAllTracksPresented = false }
         }
         .withMiniPlayer()
+    }
+
+    private var artistBackground: some View {
+        ZStack {
+            LaxifyPalette.background
+
+            if let url = viewModel.detail?.artist.imageURL {
+                AsyncImage(url: url) { phase in
+                    if let image = phase.image {
+                        image
+                            .resizable()
+                            .scaledToFill()
+                            .blur(radius: 90)
+                            .opacity(0.4)
+                    }
+                }
+                .frame(height: 520)
+                .frame(maxHeight: .infinity, alignment: .top)
+            }
+
+            LinearGradient(
+                colors: [.clear, LaxifyPalette.background.opacity(0.9), LaxifyPalette.background],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
+        .clipped()
+        .ignoresSafeArea()
     }
 
     private var dismissButton: some View {
@@ -88,16 +116,29 @@ struct ArtistView: View {
 
     private func header(_ detail: ArtistDetail) -> some View {
         ZStack(alignment: .bottomLeading) {
-            AsyncCoverImage(url: detail.artist.imageURL, cornerRadius: 0)
-                .frame(height: 320)
+            Color.clear
+                .frame(height: 340)
+                .overlay {
+                    if let url = detail.artist.imageURL {
+                        AsyncImage(url: url) { phase in
+                            if let image = phase.image {
+                                image
+                                    .resizable()
+                                    .scaledToFill()
+                            }
+                        }
+                    } else {
+                        LaxifyPalette.surface
+                    }
+                }
                 .clipped()
 
             LinearGradient(
-                colors: [.clear, .black.opacity(0.75)],
+                colors: [.black.opacity(0.35), .clear, .black.opacity(0.85)],
                 startPoint: .top,
                 endPoint: .bottom
             )
-            .frame(height: 320)
+            .frame(height: 340)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(detail.artist.name)

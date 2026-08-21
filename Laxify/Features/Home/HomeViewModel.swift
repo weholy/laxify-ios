@@ -53,7 +53,7 @@ final class HomeViewModel {
         } catch MusicServiceError.missingAccessKey {
             errorMessage = "Добавьте ключ доступа в Профиле"
         } catch MusicServiceError.notFound {
-            errorMessage = "Библиотека пока недоступна в вашем регионе"
+            errorMessage = "Похоже, сеть блокирует доступ к музыке. Если включён VPN, попробуйте отключить его или пропустить музыку мимо туннеля"
         } catch {
             errorMessage = "Не удалось загрузить главную (\(error))"
         }

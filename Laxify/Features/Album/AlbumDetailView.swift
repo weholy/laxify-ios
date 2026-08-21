@@ -1,8 +1,8 @@
 import SwiftUI
 
 struct AlbumDetailView: View {
-    @Environment(\.dismiss) private var dismiss
     let album: MusicAlbum
+    var onClose: () -> Void
 
     @State private var loadedAlbum: MusicAlbum?
     @State private var songs: [Song] = []
@@ -20,11 +20,9 @@ struct AlbumDetailView: View {
             }
             .padding(.bottom, LaxifyMetrics.miniPlayerHeight + 40)
         }
-        .background(LaxifyPalette.background.ignoresSafeArea())
+        .background(albumBackground)
         .overlay(alignment: .topTrailing) {
-            Button {
-                dismiss()
-            } label: {
+            Button(action: onClose) {
                 Image(systemName: "checkmark")
             }
             .buttonStyle(.laxifyCheckmark)
@@ -35,6 +33,34 @@ struct AlbumDetailView: View {
             await load()
         }
         .withMiniPlayer()
+    }
+
+    private var albumBackground: some View {
+        ZStack {
+            LaxifyPalette.background
+
+            if let url = displayed.coverURL {
+                AsyncImage(url: url) { phase in
+                    if let image = phase.image {
+                        image
+                            .resizable()
+                            .scaledToFill()
+                            .blur(radius: 80)
+                            .opacity(0.45)
+                    }
+                }
+                .frame(height: 460)
+                .frame(maxHeight: .infinity, alignment: .top)
+            }
+
+            LinearGradient(
+                colors: [.clear, LaxifyPalette.background.opacity(0.85), LaxifyPalette.background],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
+        .clipped()
+        .ignoresSafeArea()
     }
 
     private var header: some View {

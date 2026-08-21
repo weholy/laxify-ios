@@ -1,9 +1,9 @@
 import SwiftUI
 
 struct ArtistAllTracksView: View {
-    @Environment(\.dismiss) private var dismiss
     let artistId: String
     let artistName: String
+    var onClose: () -> Void
 
     @State private var songs: [Song] = []
     @State private var page = 0
@@ -69,9 +69,7 @@ struct ArtistAllTracksView: View {
 
             Spacer()
 
-            Button {
-                dismiss()
-            } label: {
+            Button(action: onClose) {
                 Image(systemName: "checkmark")
             }
             .buttonStyle(.laxifyCheckmark)

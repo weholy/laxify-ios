@@ -200,6 +200,16 @@ struct SearchView: View {
                     .foregroundStyle(LaxifyPalette.textSecondary)
                     .padding(.top, 40)
             } else {
+                if let corrected = results.correctedQuery {
+                    HStack(spacing: 4) {
+                        Text("Показано по запросу")
+                            .foregroundStyle(LaxifyPalette.textSecondary)
+                        Text("«\(corrected)»")
+                            .foregroundStyle(LaxifyPalette.textPrimary)
+                    }
+                    .font(LaxifyTypography.footnote)
+                }
+
                 if !results.artists.isEmpty {
                     Text("Артисты")
                         .font(LaxifyTypography.title)
