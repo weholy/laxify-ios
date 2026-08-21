@@ -2,7 +2,7 @@ import Foundation
 @preconcurrency import YMAPI
 
 extension YandexMusicService {
-    func run<T>(_ operation: @escaping (@escaping (Result<T, YMError>) -> Void) -> Void) async throws -> T {
+    func run<T: Sendable>(_ operation: @escaping (@escaping (Result<T, YMError>) -> Void) -> Void) async throws -> T {
         try await withCheckedThrowingContinuation { continuation in
             operation { result in
                 switch result {
