@@ -103,8 +103,16 @@ actor YandexMusicService: MusicService {
         }
 
         let device = YMDevice.generateWebMimicDevice(uuid: DeviceIdentity.uuid)
-        _ = YMClient.initialize(device: device, lang: .ru, uid: -1, token: "", xToken: key)
 
+        _ = YMClient.initialize(device: device, lang: .ru, uid: -1, token: key, xToken: key)
+        if let status = try? await run({ YMClient.shared.getAccountStatus(completion: $0) }),
+           let uid = status.account?.uid {
+            _ = YMClient.initialize(device: device, lang: .ru, uid: uid, token: key, xToken: key)
+            isReady = true
+            return
+        }
+
+        _ = YMClient.initialize(device: device, lang: .ru, uid: -1, token: "", xToken: key)
         _ = try await run { completion in
             YMClient.shared.generateYMTokenFromXToken(xToken: key, completion: completion)
         }
