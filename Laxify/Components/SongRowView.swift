@@ -33,6 +33,7 @@ struct SongRowView: View {
                 .font(LaxifyTypography.footnote)
                 .foregroundStyle(LaxifyPalette.textTertiary)
         }
+        .contentShape(Rectangle())
     }
 
     private var formattedDuration: String {

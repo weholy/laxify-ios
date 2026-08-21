@@ -15,6 +15,7 @@ final class AudioPlayerController {
     private(set) var isLoading = false
     private(set) var currentTime: TimeInterval = 0
     private(set) var duration: TimeInterval = 0
+    private(set) var errorMessage: String?
 
     var hasNext: Bool { currentIndex + 1 < queue.count }
     var hasPrevious: Bool { currentIndex > 0 }
@@ -72,6 +73,7 @@ final class AudioPlayerController {
         currentTime = 0
         duration = song.duration
         isLoading = true
+        errorMessage = nil
         teardownPlayer()
 
         Task {
@@ -90,6 +92,7 @@ final class AudioPlayerController {
             } catch {
                 isLoading = false
                 isPlaying = false
+                errorMessage = "Не удалось воспроизвести трек"
             }
         }
     }
@@ -139,43 +142,48 @@ final class AudioPlayerController {
         let center = MPRemoteCommandCenter.shared()
 
         center.playCommand.addTarget { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self, !self.isPlaying, self.player != nil else { return .commandFailed }
-                self.togglePlayPause()
-                return .success
+            guard let self else { return .commandFailed }
+            Task { @MainActor in
+                if !self.isPlaying, self.player != nil {
+                    self.togglePlayPause()
+                }
             }
+            return .success
         }
 
         center.pauseCommand.addTarget { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self, self.isPlaying else { return .commandFailed }
-                self.togglePlayPause()
-                return .success
+            guard let self else { return .commandFailed }
+            Task { @MainActor in
+                if self.isPlaying {
+                    self.togglePlayPause()
+                }
             }
+            return .success
         }
 
         center.nextTrackCommand.addTarget { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self, self.hasNext else { return .commandFailed }
+            guard let self else { return .commandFailed }
+            Task { @MainActor in
                 self.next()
-                return .success
             }
+            return .success
         }
 
         center.previousTrackCommand.addTarget { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self, self.hasPrevious else { return .commandFailed }
+            guard let self else { return .commandFailed }
+            Task { @MainActor in
                 self.previous()
-                return .success
             }
+            return .success
         }
 
         center.changePlaybackPositionCommand.addTarget { [weak self] event in
-            MainActor.assumeIsolated {
-                guard let self, let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
-                self.seek(to: event.positionTime)
-                return .success
+            guard let self, let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
+            let position = event.positionTime
+            Task { @MainActor in
+                self.seek(to: position)
             }
+            return .success
         }
     }
 

@@ -23,6 +23,10 @@ final class FavoriteTrack {
         self.addedAt = addedAt
     }
 
+    var coverURL: URL? {
+        coverURLString.flatMap(URL.init(string:))
+    }
+
     var song: Song {
         Song(
             id: id,

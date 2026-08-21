@@ -8,6 +8,7 @@ struct SearchView: View {
 
     @State private var query = ""
     @State private var viewModel = SearchViewModel()
+    @State private var selectedArtistId: String?
     @FocusState private var isFocused: Bool
 
     private var trimmedQuery: String {
@@ -39,6 +40,14 @@ struct SearchView: View {
         }
         .onAppear {
             isFocused = true
+        }
+        .fullScreenCover(isPresented: Binding(
+            get: { selectedArtistId != nil },
+            set: { if !$0 { selectedArtistId = nil } }
+        )) {
+            if let artistId = selectedArtistId {
+                ArtistView(artistId: artistId)
+            }
         }
     }
 
@@ -181,6 +190,7 @@ struct SearchView: View {
                         ForEach(results.artists) { artist in
                             Button {
                                 recordHistory(id: artist.id, title: artist.name, subtitle: "Исполнитель", coverURL: artist.imageURL)
+                                selectedArtistId = artist.id
                             } label: {
                                 ArtistRowView(artist: artist)
                             }

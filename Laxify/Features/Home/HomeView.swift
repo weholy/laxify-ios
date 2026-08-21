@@ -8,6 +8,7 @@ struct HomeView: View {
     @State private var searchResults: SearchResults?
     @State private var isSearching = false
     @State private var selectedCollection: MusicCollection?
+    @State private var selectedArtistId: String?
     @Query(sort: \FavoriteTrack.addedAt, order: .reverse) private var favorites: [FavoriteTrack]
 
     private let chips = ["Все", "Музыка", "Подкасты", "Аудиокниги"]
@@ -57,6 +58,14 @@ struct HomeView: View {
         }
         .fullScreenCover(item: $selectedCollection) { collection in
             PlaylistDetailView(collection: collection)
+        }
+        .fullScreenCover(isPresented: Binding(
+            get: { selectedArtistId != nil },
+            set: { if !$0 { selectedArtistId = nil } }
+        )) {
+            if let artistId = selectedArtistId {
+                ArtistView(artistId: artistId)
+            }
         }
     }
 
@@ -113,7 +122,12 @@ struct HomeView: View {
                     sectionTitle("Артисты")
                     VStack(spacing: 12) {
                         ForEach(results.artists) { artist in
-                            ArtistRowView(artist: artist)
+                            Button {
+                                selectedArtistId = artist.id
+                            } label: {
+                                ArtistRowView(artist: artist)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                     .padding(.horizontal, LaxifyMetrics.screenPadding)

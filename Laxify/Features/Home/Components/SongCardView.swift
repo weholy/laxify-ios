@@ -19,5 +19,6 @@ struct SongCardView: View {
                 .lineLimit(1)
         }
         .frame(width: 150, alignment: .leading)
+        .contentShape(Rectangle())
     }
 }

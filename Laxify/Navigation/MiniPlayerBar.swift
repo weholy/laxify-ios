@@ -15,9 +15,9 @@ struct MiniPlayerBar: View {
                         .font(LaxifyTypography.subheadline)
                         .foregroundStyle(LaxifyPalette.textPrimary)
                         .lineLimit(1)
-                    Text(song.artistName)
+                    Text(player.errorMessage ?? song.artistName)
                         .font(LaxifyTypography.caption)
-                        .foregroundStyle(LaxifyPalette.textSecondary)
+                        .foregroundStyle(player.errorMessage == nil ? LaxifyPalette.textSecondary : LaxifyPalette.accent)
                         .lineLimit(1)
                 }
 
@@ -26,10 +26,15 @@ struct MiniPlayerBar: View {
                 Button {
                     player.togglePlayPause()
                 } label: {
-                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(LaxifyPalette.textPrimary)
-                        .frame(width: 32, height: 32)
+                    if player.isLoading {
+                        ProgressView()
+                            .frame(width: 32, height: 32)
+                    } else {
+                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(LaxifyPalette.textPrimary)
+                            .frame(width: 32, height: 32)
+                    }
                 }
                 .buttonStyle(.plain)
 
