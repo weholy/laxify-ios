@@ -29,7 +29,7 @@ struct SearchView: View {
             }
             .padding(.horizontal, LaxifyMetrics.screenPadding)
             .padding(.top, 12)
-            .padding(.bottom, 40)
+            .padding(.bottom, LaxifyMetrics.miniPlayerHeight + 40)
         }
         .background(LaxifyPalette.background.ignoresSafeArea())
         .task(id: trimmedQuery) {
@@ -49,6 +49,7 @@ struct SearchView: View {
                 ArtistView(artistId: artistId)
             }
         }
+        .withMiniPlayer()
     }
 
     private var header: some View {
@@ -123,7 +124,12 @@ struct SearchView: View {
     private func historyRow(_ entry: SearchHistoryEntry) -> some View {
         HStack(spacing: 12) {
             Button {
-                query = entry.title
+                switch entry.kind {
+                case .artist:
+                    selectedArtistId = entry.id
+                case .track:
+                    playFromHistory(entry)
+                }
             } label: {
                 HStack(spacing: 12) {
                     if entry.coverURL != nil {
@@ -174,6 +180,19 @@ struct SearchView: View {
             ProgressView()
                 .frame(maxWidth: .infinity)
                 .padding(.top, 40)
+        } else if viewModel.hasError {
+            VStack(spacing: 14) {
+                Text("Не удалось выполнить поиск")
+                    .font(LaxifyTypography.body)
+                    .foregroundStyle(LaxifyPalette.textSecondary)
+
+                Button("Повторить") {
+                    Task { await viewModel.search(query: trimmedQuery) }
+                }
+                .buttonStyle(.laxifySecondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.top, 40)
         } else if let results = viewModel.results {
             if results.artists.isEmpty && results.tracks.isEmpty {
                 Text("Ничего не найдено")
@@ -189,7 +208,7 @@ struct SearchView: View {
                     VStack(spacing: 12) {
                         ForEach(results.artists) { artist in
                             Button {
-                                recordHistory(id: artist.id, title: artist.name, subtitle: "Исполнитель", coverURL: artist.imageURL)
+                                recordHistory(id: artist.id, title: artist.name, subtitle: "Исполнитель", coverURL: artist.imageURL, kind: .artist)
                                 selectedArtistId = artist.id
                             } label: {
                                 ArtistRowView(artist: artist)
@@ -207,7 +226,7 @@ struct SearchView: View {
                     VStack(spacing: 12) {
                         ForEach(results.tracks) { song in
                             Button {
-                                recordHistory(id: song.id, title: song.title, subtitle: song.artistName, coverURL: song.coverURL)
+                                recordHistory(id: song.id, title: song.title, subtitle: song.artistName, coverURL: song.coverURL, kind: .track)
                                 AudioPlayerController.shared.play(song, queue: results.tracks)
                             } label: {
                                 SongRowView(song: song)
@@ -220,12 +239,20 @@ struct SearchView: View {
         }
     }
 
-    private func recordHistory(id: String, title: String, subtitle: String?, coverURL: URL?) {
+    private func recordHistory(id: String, title: String, subtitle: String?, coverURL: URL?, kind: SearchHistoryKind) {
         if let existing = history.first(where: { $0.id == id }) {
             existing.searchedAt = .now
         } else {
-            let entry = SearchHistoryEntry(id: id, title: title, subtitle: subtitle, coverURLString: coverURL?.absoluteString)
+            let entry = SearchHistoryEntry(id: id, title: title, subtitle: subtitle, coverURLString: coverURL?.absoluteString, kind: kind)
             modelContext.insert(entry)
+        }
+    }
+
+    private func playFromHistory(_ entry: SearchHistoryEntry) {
+        entry.searchedAt = .now
+        Task {
+            guard let song = try? await YandexMusicService.shared.song(id: entry.id) else { return }
+            AudioPlayerController.shared.play(song, queue: [song])
         }
     }
 }

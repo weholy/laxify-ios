@@ -42,7 +42,7 @@ struct ArtistView: View {
                     }
                 }
             }
-            .padding(.bottom, 40)
+            .padding(.bottom, LaxifyMetrics.miniPlayerHeight + 40)
         }
         .background(LaxifyPalette.background.ignoresSafeArea())
         .overlay(alignment: .top) {
@@ -53,6 +53,7 @@ struct ArtistView: View {
         .task {
             await viewModel.loadIfNeeded()
         }
+        .withMiniPlayer()
     }
 
     private var dismissButton: some View {

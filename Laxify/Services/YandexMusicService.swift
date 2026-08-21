@@ -110,6 +110,16 @@ actor YandexMusicService: MusicService {
         return url
     }
 
+    func song(id: String) async throws -> Song {
+        try await ensureReady()
+
+        let tracks = try await run { YMClient.shared.getTracks(trackIds: [id], positions: false, completion: $0) }
+        guard let track = tracks.first else {
+            throw MusicServiceError.notFound
+        }
+        return song(from: track)
+    }
+
     func playlistTracks(collectionId: String) async throws -> (title: String, songs: [Song]) {
         try await ensureReady()
 

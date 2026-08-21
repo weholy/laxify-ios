@@ -5,6 +5,7 @@ import Foundation
 final class SearchViewModel {
     private(set) var results: SearchResults?
     private(set) var isSearching = false
+    private(set) var hasError = false
 
     private let service: any MusicService
 
@@ -16,10 +17,17 @@ final class SearchViewModel {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             results = nil
+            hasError = false
             return
         }
         isSearching = true
-        results = try? await service.search(query: trimmed)
+        hasError = false
+        do {
+            results = try await service.search(query: trimmed)
+        } catch {
+            results = nil
+            hasError = true
+        }
         isSearching = false
     }
 }
