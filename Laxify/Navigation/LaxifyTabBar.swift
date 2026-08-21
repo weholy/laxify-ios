@@ -54,6 +54,7 @@ struct LaxifyTabBar: View {
                         .matchedGeometryEffect(id: "tabSelection", in: selectionNamespace)
                 }
             }
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
     }
