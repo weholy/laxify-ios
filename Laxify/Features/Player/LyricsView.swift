@@ -134,40 +134,28 @@ struct LyricsView: View {
         let text = line.text.isEmpty ? "♪" : line.text
 
         if isActive {
-            Text(text)
-                .font(.system(size: 26, weight: .bold))
-                .foregroundStyle(.white.opacity(0.28))
-                .overlay(alignment: .leading) {
-                    Text(text)
+            let words = text.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+            let progress = viewModel.lineProgress(at: player.currentTime)
+            let spoken = progress * Double(words.count)
+
+            WordFlowLayout(horizontalSpacing: 7, lineSpacing: 6) {
+                ForEach(Array(words.enumerated()), id: \.offset) { index, word in
+                    let isSung = Double(index) < spoken
+                    Text(word)
                         .font(.system(size: 26, weight: .bold))
-                        .foregroundStyle(.white)
-                        .shadow(color: .white.opacity(0.25), radius: 12)
-                        .mask(fillMask(progress: viewModel.lineProgress(at: player.currentTime)))
+                        .foregroundStyle(isSung ? .white : .white.opacity(0.3))
+                        .shadow(color: .white.opacity(isSung ? 0.3 : 0), radius: 10)
+                        .scaleEffect(isSung ? 1 : 0.95, anchor: .bottom)
+                        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSung)
                 }
-                .scaleEffect(1, anchor: .leading)
-                .animation(.linear(duration: 0.12), value: player.currentTime)
+            }
         } else {
             Text(text)
                 .font(.system(size: 21, weight: .semibold))
-                .foregroundStyle(.white.opacity(isPast ? 0.28 : 0.42))
-                .blur(radius: 0.6)
+                .foregroundStyle(.white.opacity(isPast ? 0.26 : 0.42))
+                .blur(radius: 0.5)
                 .scaleEffect(0.94, anchor: .leading)
         }
-    }
-
-    private func fillMask(progress: Double) -> some View {
-        let clamped = min(max(progress, 0), 1)
-        let soft = 0.06
-        return LinearGradient(
-            stops: [
-                .init(color: .white, location: 0),
-                .init(color: .white, location: max(clamped - soft, 0)),
-                .init(color: .clear, location: min(clamped + soft, 1)),
-                .init(color: .clear, location: 1)
-            ],
-            startPoint: .leading,
-            endPoint: .trailing
-        )
     }
 
     private func plainScroll(_ text: String) -> some View {

@@ -4,9 +4,12 @@ struct AlbumDetailView: View {
     @Environment(\.dismiss) private var dismiss
     let album: MusicAlbum
 
+    @State private var loadedAlbum: MusicAlbum?
     @State private var songs: [Song] = []
     @State private var isLoading = false
     @State private var hasError = false
+
+    private var displayed: MusicAlbum { loadedAlbum ?? album }
 
     var body: some View {
         ScrollView {
@@ -35,30 +38,32 @@ struct AlbumDetailView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            AsyncCoverImage(url: album.coverURL, cornerRadius: LaxifyMetrics.cardCornerRadius)
-                .frame(width: 200, height: 200)
-                .shadow(color: .black.opacity(0.25), radius: 20, y: 10)
-                .frame(maxWidth: .infinity, alignment: .center)
+        VStack(spacing: 16) {
+            AsyncCoverImage(url: displayed.coverURL, cornerRadius: 24)
+                .frame(width: 210, height: 210)
+                .shadow(color: .black.opacity(0.3), radius: 24, y: 12)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(album.title)
-                    .font(LaxifyTypography.largeTitle)
+            VStack(spacing: 6) {
+                Text(displayed.title)
+                    .font(.system(size: 28, weight: .bold))
                     .foregroundStyle(LaxifyPalette.textPrimary)
+                    .multilineTextAlignment(.center)
                     .lineLimit(3)
 
                 Text(subtitle)
                     .font(LaxifyTypography.footnote)
                     .foregroundStyle(LaxifyPalette.textSecondary)
+                    .multilineTextAlignment(.center)
             }
             .padding(.horizontal, LaxifyMetrics.screenPadding)
         }
+        .frame(maxWidth: .infinity)
         .padding(.top, 56)
     }
 
     private var subtitle: String {
-        var parts: [String] = [album.artistName]
-        if let year = album.year {
+        var parts: [String] = [displayed.artistName]
+        if let year = displayed.year {
             parts.append(String(year))
         }
         if !songs.isEmpty {
@@ -73,6 +78,7 @@ struct AlbumDetailView: View {
                 playAll(shuffled: false)
             } label: {
                 Label("Слушать", systemImage: "play.fill")
+                    .frame(maxWidth: .infinity)
             }
             .buttonStyle(.laxifyPrimary)
 
@@ -80,8 +86,14 @@ struct AlbumDetailView: View {
                 playAll(shuffled: true)
             } label: {
                 Label("Перемешать", systemImage: "shuffle")
+                    .frame(maxWidth: .infinity)
             }
             .buttonStyle(.laxifySecondary)
+
+            ShareLink(item: ShareText.album(displayed)) {
+                Image(systemName: "square.and.arrow.up")
+            }
+            .buttonStyle(.laxifyIcon)
         }
         .disabled(songs.isEmpty)
         .opacity(songs.isEmpty ? 0.5 : 1)
@@ -141,7 +153,9 @@ struct AlbumDetailView: View {
         isLoading = true
         hasError = false
         do {
-            songs = try await YandexMusicService.shared.albumTracks(albumId: album.id)
+            let detail = try await YandexMusicService.shared.albumDetail(albumId: album.id)
+            loadedAlbum = detail.album
+            songs = detail.songs
         } catch {
             hasError = true
         }

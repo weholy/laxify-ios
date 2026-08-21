@@ -122,6 +122,7 @@ struct ArtistView: View {
                 playAll(detail.topTracks, shuffled: false)
             } label: {
                 Label("Слушать", systemImage: "play.fill")
+                    .frame(maxWidth: .infinity)
             }
             .buttonStyle(.laxifyPrimary)
 
@@ -129,8 +130,14 @@ struct ArtistView: View {
                 playAll(detail.topTracks, shuffled: true)
             } label: {
                 Label("Перемешать", systemImage: "shuffle")
+                    .frame(maxWidth: .infinity)
             }
             .buttonStyle(.laxifySecondary)
+
+            ShareLink(item: ShareText.artist(detail.artist)) {
+                Image(systemName: "square.and.arrow.up")
+            }
+            .buttonStyle(.laxifyIcon)
         }
         .padding(.horizontal, LaxifyMetrics.screenPadding)
     }

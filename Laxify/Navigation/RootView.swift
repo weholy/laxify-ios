@@ -4,6 +4,7 @@ struct RootView: View {
     @State private var selectedTab: AppTab = .home
     @State private var isSearchPresented = false
     @State private var isPlayerPresented = false
+    var router = DeepLinkRouter.shared
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -29,6 +30,26 @@ struct RootView: View {
         }
         .fullScreenCover(isPresented: $isPlayerPresented) {
             FullPlayerView()
+        }
+        .fullScreenCover(isPresented: Binding(
+            get: { router.pendingArtistId != nil },
+            set: { if !$0 { router.pendingArtistId = nil } }
+        )) {
+            if let artistId = router.pendingArtistId {
+                ArtistView(artistId: artistId)
+            }
+        }
+        .fullScreenCover(item: Binding(
+            get: { router.pendingAlbum },
+            set: { router.pendingAlbum = $0 }
+        )) { album in
+            AlbumDetailView(album: album)
+        }
+        .fullScreenCover(item: Binding(
+            get: { router.pendingCollection },
+            set: { router.pendingCollection = $0 }
+        )) { collection in
+            PlaylistDetailView(collection: collection)
         }
     }
 

@@ -51,6 +51,14 @@
                 <string>com.googleusercontent.apps.429672118190-bpqosadr0dorkdjocdm0vntflcq4mhbm</string>
             </array>
         </dict>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.laxify.app.deeplink</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>laxify</string>
+            </array>
+        </dict>
     </array>
 </dict>
 </plist>

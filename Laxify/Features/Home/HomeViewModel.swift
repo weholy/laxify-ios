@@ -11,10 +11,6 @@ final class HomeViewModel {
     private(set) var isLoadingWave = false
     private var waveSeed: [String] = []
 
-    private(set) var podcasts: [MusicCollection] = []
-    private(set) var isLoadingPodcasts = false
-    private(set) var podcastsError: String?
-
     private let service: any MusicService
 
     init(service: any MusicService = YandexMusicService.shared) {
@@ -48,17 +44,6 @@ final class HomeViewModel {
         isLoadingWave = false
     }
 
-    func loadPodcastsIfNeeded() async {
-        guard podcasts.isEmpty, !isLoadingPodcasts else { return }
-        isLoadingPodcasts = true
-        podcastsError = nil
-        do {
-            podcasts = try await service.podcastCollections()
-        } catch {
-            podcastsError = "Не удалось загрузить подкасты"
-        }
-        isLoadingPodcasts = false
-    }
 
     private func load() async {
         isLoading = true

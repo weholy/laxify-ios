@@ -3,7 +3,6 @@ import SwiftData
 
 struct HomeView: View {
     @State private var viewModel = HomeViewModel()
-    @State private var selectedChip = "Все"
     @State private var query = ""
     @State private var searchResults: SearchResults?
     @State private var isSearching = false
@@ -11,8 +10,6 @@ struct HomeView: View {
     @State private var selectedArtistId: String?
     @Query(sort: \FavoriteTrack.addedAt, order: .reverse) private var favorites: [FavoriteTrack]
     @Query private var dislikedTracks: [DislikedTrack]
-
-    private let chips = ["Все", "Музыка", "Подкасты", "Аудиокниги"]
 
     private var favoriteArtistIds: Set<String> {
         Set(favorites.compactMap(\.artistId))
@@ -40,7 +37,6 @@ struct HomeView: View {
                 searchField
 
                 if trimmedQuery.isEmpty {
-                    chipRow
                     homeContent
                 } else {
                     inlineSearchResults
@@ -55,10 +51,6 @@ struct HomeView: View {
         }
         .task(id: favoriteArtistIds) {
             await viewModel.refreshWave(seedArtistIds: Array(favoriteArtistIds))
-        }
-        .task(id: selectedChip) {
-            guard selectedChip == "Подкасты" else { return }
-            await viewModel.loadPodcastsIfNeeded()
         }
         .task(id: trimmedQuery) {
             guard !trimmedQuery.isEmpty else {
@@ -86,15 +78,7 @@ struct HomeView: View {
 
     @ViewBuilder
     private var homeContent: some View {
-        if selectedChip == "Подкасты" {
-            podcastsSection
-        } else if selectedChip == "Аудиокниги" {
-            Text("Раздел «Аудиокниги» скоро появится")
-                .font(LaxifyTypography.body)
-                .foregroundStyle(LaxifyPalette.textSecondary)
-                .padding(.horizontal, LaxifyMetrics.screenPadding)
-                .padding(.top, 40)
-        } else if let errorMessage = viewModel.errorMessage {
+        if let errorMessage = viewModel.errorMessage {
             VStack(alignment: .leading, spacing: 14) {
                 Text(errorMessage)
                     .font(LaxifyTypography.body)
@@ -125,30 +109,6 @@ struct HomeView: View {
             }
 
             songSection(title: "Рекомендованные треки", songs: recommendedTracks)
-        }
-    }
-
-    @ViewBuilder
-    private var podcastsSection: some View {
-        if let podcastsError = viewModel.podcastsError {
-            VStack(alignment: .leading, spacing: 14) {
-                Text(podcastsError)
-                    .font(LaxifyTypography.body)
-                    .foregroundStyle(LaxifyPalette.textSecondary)
-
-                Button("Повторить") {
-                    Task { await viewModel.loadPodcastsIfNeeded() }
-                }
-                .buttonStyle(.laxifySecondary)
-            }
-            .padding(.horizontal, LaxifyMetrics.screenPadding)
-            .padding(.top, 40)
-        } else if viewModel.isLoadingPodcasts && viewModel.podcasts.isEmpty {
-            ProgressView()
-                .frame(maxWidth: .infinity)
-                .padding(.top, 60)
-        } else {
-            collectionsGrid(viewModel.podcasts)
         }
     }
 
@@ -227,28 +187,6 @@ struct HomeView: View {
         .padding(.vertical, 12)
         .laxGlassCapsule()
         .padding(.horizontal, LaxifyMetrics.screenPadding)
-    }
-
-    private var chipRow: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(chips, id: \.self) { chip in
-                    let isSelected = chip == selectedChip
-                    Button {
-                        selectedChip = chip
-                    } label: {
-                        Text(chip)
-                            .font(LaxifyTypography.subheadline)
-                            .foregroundStyle(isSelected ? Color.white : LaxifyPalette.textPrimary)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                            .background(isSelected ? LaxifyPalette.accent : LaxifyPalette.surface, in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, LaxifyMetrics.screenPadding)
-        }
     }
 
     private func collectionsGrid(_ collections: [MusicCollection]) -> some View {

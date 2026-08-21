@@ -41,6 +41,7 @@ struct AppRootView: View {
             isRestoring = false
         }
         .onOpenURL { url in
+            guard !DeepLinkRouter.shared.handle(url) else { return }
             AuthService.shared.handle(url: url)
         }
     }

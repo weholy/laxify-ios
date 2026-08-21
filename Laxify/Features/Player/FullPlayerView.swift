@@ -20,7 +20,7 @@ struct FullPlayerView: View {
 
     private var shareText: String {
         guard let song = player.currentSong else { return "" }
-        return "\(song.title) — \(song.artistName)"
+        return ShareText.track(song)
     }
 
     var body: some View {

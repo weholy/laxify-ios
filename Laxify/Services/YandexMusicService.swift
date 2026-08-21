@@ -120,18 +120,15 @@ actor YandexMusicService: MusicService {
         return song(from: track)
     }
 
-    func albumTracks(albumId: String) async throws -> [Song] {
+    func albumDetail(albumId: String) async throws -> (album: MusicAlbum, songs: [Song]) {
         try await ensureReady()
 
-        let albums = try await run { YMClient.shared.getAlbums(albumIds: [albumId], completion: $0) }
-        guard let album = albums.first else {
-            throw MusicServiceError.notFound
-        }
+        let album = try await run { YMClient.shared.getAlbumWithTracksData(albumId: albumId, completion: $0) }
         let tracks = (album.volumes ?? []).flatMap { $0 }
         guard !tracks.isEmpty else {
             throw MusicServiceError.notFound
         }
-        return tracks.map(song(from:))
+        return (musicAlbum(from: album), tracks.map(song(from:)))
     }
 
     func artistTracks(artistId: String, page: Int) async throws -> [Song] {
@@ -141,31 +138,6 @@ actor YandexMusicService: MusicService {
             YMClient.shared.getArtistTracks(artistId: artistId, page: page, pageSize: 50, completion: completion)
         }
         return result.tracks.map(song(from:))
-    }
-
-    func podcastCollections() async throws -> [MusicCollection] {
-        try await ensureReady()
-
-        let landing = try await run { YMClient.shared.getPodcasts(completion: $0) }
-        let ids = (landing.podcasts ?? []).prefix(20).map(String.init)
-        guard !ids.isEmpty else {
-            throw MusicServiceError.notFound
-        }
-
-        let albums = try await run { YMClient.shared.getAlbums(albumIds: Array(ids), completion: $0) }
-        let collections = albums.compactMap { album -> MusicCollection? in
-            guard let id = album.id else { return nil }
-            return MusicCollection(
-                id: "album_\(id)",
-                title: album.title ?? "",
-                subtitle: album.trackCount.map { "\($0) выпусков" },
-                coverURL: coverURL(from: album.coverUri)
-            )
-        }
-        guard !collections.isEmpty else {
-            throw MusicServiceError.notFound
-        }
-        return collections
     }
 
     func waveTracks(seedArtistIds: [String]) async throws -> [Song] {

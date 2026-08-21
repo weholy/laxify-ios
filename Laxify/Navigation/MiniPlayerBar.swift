@@ -6,9 +6,9 @@ struct MiniPlayerBar: View {
 
     var body: some View {
         if let song = player.currentSong {
-            HStack(spacing: 12) {
-                AsyncCoverImage(url: song.coverURL, cornerRadius: 18)
-                    .frame(width: 44, height: 44)
+            HStack(spacing: 10) {
+                AsyncCoverImage(url: song.coverURL, cornerRadius: 16)
+                    .frame(width: 40, height: 40)
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text(song.title)
