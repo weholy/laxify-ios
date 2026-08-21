@@ -14,6 +14,8 @@ final class AudioPlayerController {
     private(set) var currentTime: TimeInterval = 0
     private(set) var duration: TimeInterval = 0
     private(set) var errorMessage: String?
+    private(set) var playbackRate: Double = 1.0
+    private(set) var sleepTimerDeadline: Date?
 
     var hasNext: Bool { currentIndex + 1 < queue.count }
     var hasPrevious: Bool { currentIndex > 0 }
@@ -23,6 +25,7 @@ final class AudioPlayerController {
     private var endObserver: NSObjectProtocol?
     private var statusObservation: NSKeyValueObservation?
     private var didLogFirstTick = false
+    private var sleepTimerTask: Task<Void, Never>?
     private let service: any MusicService
 
     private init(service: any MusicService = YandexMusicService.shared) {
@@ -42,7 +45,7 @@ final class AudioPlayerController {
         if isPlaying {
             player.pause()
         } else {
-            player.play()
+            player.rate = Float(playbackRate)
         }
         isPlaying.toggle()
     }
@@ -59,9 +62,46 @@ final class AudioPlayerController {
         loadAndPlayCurrent()
     }
 
+    func playIndex(_ index: Int) {
+        guard queue.indices.contains(index), index != currentIndex else { return }
+        currentIndex = index
+        loadAndPlayCurrent()
+    }
+
     func seek(to time: TimeInterval) {
         currentTime = time
         player?.seek(to: CMTime(seconds: time, preferredTimescale: 600))
+    }
+
+    func setPlaybackRate(_ rate: Double) {
+        playbackRate = rate
+        if isPlaying {
+            player?.rate = Float(rate)
+        }
+    }
+
+    func setSleepTimer(minutes: Int) {
+        sleepTimerTask?.cancel()
+        let totalSeconds = minutes * 60
+        sleepTimerDeadline = Date().addingTimeInterval(TimeInterval(totalSeconds))
+        sleepTimerTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(totalSeconds))
+            guard !Task.isCancelled else { return }
+            self?.pauseForSleepTimer()
+        }
+    }
+
+    func cancelSleepTimer() {
+        sleepTimerTask?.cancel()
+        sleepTimerTask = nil
+        sleepTimerDeadline = nil
+    }
+
+    private func pauseForSleepTimer() {
+        player?.pause()
+        isPlaying = false
+        sleepTimerTask = nil
+        sleepTimerDeadline = nil
     }
 
     private func loadAndPlayCurrent() {
@@ -92,8 +132,8 @@ final class AudioPlayerController {
                 player = newPlayer
                 attachObservers(to: item)
                 AppLogger.log("play: observers attached")
-                newPlayer.play()
-                AppLogger.log("play: play() called")
+                newPlayer.rate = Float(playbackRate)
+                AppLogger.log("play: rate set to \(playbackRate)")
                 isPlaying = true
                 isLoading = false
                 AppLogger.log("play: done (now-playing info skipped in diagnostic build)")

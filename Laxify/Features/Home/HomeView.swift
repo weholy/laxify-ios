@@ -10,6 +10,7 @@ struct HomeView: View {
     @State private var selectedCollection: MusicCollection?
     @State private var selectedArtistId: String?
     @Query(sort: \FavoriteTrack.addedAt, order: .reverse) private var favorites: [FavoriteTrack]
+    @Query private var dislikedTracks: [DislikedTrack]
 
     private let chips = ["Все", "Музыка", "Подкасты", "Аудиокниги"]
 
@@ -19,7 +20,9 @@ struct HomeView: View {
 
     private var recommendedTracks: [Song] {
         guard let content = viewModel.content else { return [] }
-        return WaveRanking.reorder(content.recommendedTracks, favoriteArtistIds: favoriteArtistIds)
+        let dislikedIds = Set(dislikedTracks.map(\.id))
+        let filtered = content.recommendedTracks.filter { !dislikedIds.contains($0.id) }
+        return WaveRanking.reorder(filtered, favoriteArtistIds: favoriteArtistIds)
     }
 
     private var trimmedQuery: String {

@@ -11,6 +11,6 @@ struct LaxifyApp: App {
         WindowGroup {
             RootView()
         }
-        .modelContainer(for: [FavoriteTrack.self, SearchHistoryEntry.self])
+        .modelContainer(for: [FavoriteTrack.self, SearchHistoryEntry.self, DislikedTrack.self])
     }
 }

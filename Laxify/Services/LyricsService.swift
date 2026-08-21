@@ -48,6 +48,7 @@ enum LyricsService {
 
             return LyricLine(timestamp: minutes * 60 + seconds, text: text)
         }
+        .sorted { $0.timestamp < $1.timestamp }
     }
 }
 
