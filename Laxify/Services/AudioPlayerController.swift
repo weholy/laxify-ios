@@ -69,6 +69,7 @@ final class AudioPlayerController {
     private func loadAndPlayCurrent() {
         guard queue.indices.contains(currentIndex) else { return }
         let song = queue[currentIndex]
+        AppLogger.log("play: start id=\(song.id) title=\(song.title)")
         currentSong = song
         currentTime = 0
         duration = song.duration
@@ -78,18 +79,29 @@ final class AudioPlayerController {
 
         Task {
             do {
+                AppLogger.log("play: requesting stream url")
                 let url = try await service.streamURL(for: song.id)
-                guard currentSong?.id == song.id else { return }
+                AppLogger.log("play: got url \(url.absoluteString)")
+                guard currentSong?.id == song.id else {
+                    AppLogger.log("play: song changed while loading, aborting")
+                    return
+                }
 
                 let item = AVPlayerItem(url: url)
+                AppLogger.log("play: created AVPlayerItem")
                 let newPlayer = AVPlayer(playerItem: item)
+                AppLogger.log("play: created AVPlayer")
                 player = newPlayer
                 attachObservers(to: item)
+                AppLogger.log("play: observers attached")
                 newPlayer.play()
+                AppLogger.log("play: play() called")
                 isPlaying = true
                 isLoading = false
                 updateNowPlayingInfo()
+                AppLogger.log("play: now playing info updated, done")
             } catch {
+                AppLogger.log("play: ERROR \(error)")
                 isLoading = false
                 isPlaying = false
                 errorMessage = "Не удалось воспроизвести трек"
