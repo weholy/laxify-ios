@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import MediaPlayer
 
 @MainActor
 @Observable
@@ -31,7 +32,7 @@ final class AudioPlayerController {
     private init(service: any MusicService = YandexMusicService.shared) {
         self.service = service
         configureAudioSession()
-        AppLogger.log("diagnostic build: lock-screen/remote-command integration disabled")
+        AppLogger.log("app: AudioPlayerController initialized")
     }
 
     func play(_ song: Song, queue newQueue: [Song] = []) {
@@ -48,6 +49,7 @@ final class AudioPlayerController {
             player.rate = Float(playbackRate)
         }
         isPlaying.toggle()
+        updateNowPlayingInfo()
     }
 
     func next() {
@@ -71,6 +73,7 @@ final class AudioPlayerController {
     func seek(to time: TimeInterval) {
         currentTime = time
         player?.seek(to: CMTime(seconds: time, preferredTimescale: 600))
+        updateNowPlayingInfo()
     }
 
     func setPlaybackRate(_ rate: Double) {
@@ -102,6 +105,7 @@ final class AudioPlayerController {
         isPlaying = false
         sleepTimerTask = nil
         sleepTimerDeadline = nil
+        updateNowPlayingInfo()
     }
 
     private func loadAndPlayCurrent() {
@@ -136,7 +140,8 @@ final class AudioPlayerController {
                 AppLogger.log("play: rate set to \(playbackRate)")
                 isPlaying = true
                 isLoading = false
-                AppLogger.log("play: done (now-playing info skipped in diagnostic build)")
+                updateNowPlayingInfo()
+                AppLogger.log("play: done")
             } catch {
                 AppLogger.log("play: ERROR \(error)")
                 isLoading = false
@@ -190,6 +195,7 @@ final class AudioPlayerController {
             next()
         } else {
             isPlaying = false
+            updateNowPlayingInfo()
         }
     }
 
@@ -211,5 +217,22 @@ final class AudioPlayerController {
     private func configureAudioSession() {
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
         try? AVAudioSession.sharedInstance().setActive(true)
+    }
+
+    private func updateNowPlayingInfo() {
+        guard let song = currentSong else { return }
+
+        var info: [String: Any] = [
+            MPMediaItemPropertyTitle: song.title,
+            MPMediaItemPropertyArtist: song.artistName,
+            MPMediaItemPropertyPlaybackDuration: duration,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTime,
+            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? playbackRate : 0
+        ]
+        if let albumTitle = song.albumTitle {
+            info[MPMediaItemPropertyAlbumTitle] = albumTitle
+        }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        AppLogger.log("now-playing: metadata updated (title only, no artwork/remote-commands)")
     }
 }
