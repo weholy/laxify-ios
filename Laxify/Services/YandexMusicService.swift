@@ -56,12 +56,7 @@ actor YandexMusicService: MusicService {
             YMClient.shared.search(text: query, noCorrect: false, type: .all, page: 0, includeBestPlaylists: false, completion: completion)
         }
 
-        let results = SearchResults(
-            tracks: (result.tracks?.results ?? []).map(song(from:)),
-            artists: (result.artists?.results ?? []).map(musicArtist(from:)),
-            albums: (result.albums?.results ?? []).map(musicAlbum(from:))
-        )
-
+        let results = mapSearch(result)
         guard results.isEmpty else { return results }
 
         // Nothing matched as typed — retry with the spelling correction the
@@ -76,11 +71,17 @@ actor YandexMusicService: MusicService {
             YMClient.shared.search(text: corrected, noCorrect: true, type: .all, page: 0, includeBestPlaylists: false, completion: completion)
         }
 
-        return SearchResults(
-            tracks: (retry.tracks?.results ?? []).map(song(from:)),
-            artists: (retry.artists?.results ?? []).map(musicArtist(from:)),
-            albums: (retry.albums?.results ?? []).map(musicAlbum(from:)),
-            correctedQuery: corrected
+        var corrected_results = mapSearch(retry)
+        corrected_results.correctedQuery = corrected
+        return corrected_results
+    }
+
+    private func mapSearch(_ result: Search) -> SearchResults {
+        SearchResults(
+            tracks: (result.tracks?.results ?? []).map(song(from:)),
+            artists: (result.artists?.results ?? []).map(musicArtist(from:)),
+            albums: (result.albums?.results ?? []).map(musicAlbum(from:)),
+            bestMatch: SearchBestMatch(rawValue: result.best?.type ?? "") ?? .other
         )
     }
 

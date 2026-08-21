@@ -9,6 +9,7 @@ struct SearchView: View {
     @State private var query = ""
     @State private var viewModel = SearchViewModel()
     @State private var selectedArtistId: String?
+    @State private var selectedAlbum: MusicAlbum?
     @FocusState private var isFocused: Bool
 
     private var trimmedQuery: String {
@@ -48,6 +49,9 @@ struct SearchView: View {
             if let artistId = selectedArtistId {
                 ArtistView(artistId: artistId)
             }
+        }
+        .fullScreenCover(item: $selectedAlbum) { album in
+            AlbumDetailView(album: album) { selectedAlbum = nil }
         }
         .withMiniPlayer()
     }
@@ -194,7 +198,7 @@ struct SearchView: View {
             .frame(maxWidth: .infinity)
             .padding(.top, 40)
         } else if let results = viewModel.results {
-            if results.artists.isEmpty && results.tracks.isEmpty {
+            if results.isEmpty {
                 Text("Ничего не найдено")
                     .font(LaxifyTypography.body)
                     .foregroundStyle(LaxifyPalette.textSecondary)
@@ -210,42 +214,83 @@ struct SearchView: View {
                     .font(LaxifyTypography.footnote)
                 }
 
-                if !results.artists.isEmpty {
-                    Text("Артисты")
-                        .font(LaxifyTypography.title)
-                        .foregroundStyle(LaxifyPalette.textPrimary)
-
-                    VStack(spacing: 12) {
-                        ForEach(results.artists) { artist in
-                            Button {
-                                recordHistory(id: artist.id, title: artist.name, subtitle: "Исполнитель", coverURL: artist.imageURL, kind: .artist)
-                                selectedArtistId = artist.id
-                            } label: {
-                                ArtistRowView(artist: artist)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
+                // Lead with whatever the query actually matched: searching a
+                // song title should not bury tracks under artist results.
+                if results.bestMatch == .artist {
+                    artistsBlock(results)
+                    tracksBlock(results)
+                } else {
+                    tracksBlock(results)
+                    artistsBlock(results)
                 }
 
-                if !results.tracks.isEmpty {
-                    Text("Треки")
-                        .font(LaxifyTypography.title)
-                        .foregroundStyle(LaxifyPalette.textPrimary)
+                albumsBlock(results)
+            }
+        }
+    }
 
-                    VStack(spacing: 12) {
-                        ForEach(results.tracks) { song in
-                            Button {
-                                recordHistory(id: song.id, title: song.title, subtitle: song.artistName, coverURL: song.coverURL, kind: .track)
-                                AudioPlayerController.shared.play(song, queue: results.tracks)
-                            } label: {
-                                SongRowView(song: song)
-                            }
-                            .buttonStyle(.plain)
+    @ViewBuilder
+    private func tracksBlock(_ results: SearchResults) -> some View {
+        if !results.tracks.isEmpty {
+            Text("Треки")
+                .font(LaxifyTypography.title)
+                .foregroundStyle(LaxifyPalette.textPrimary)
+
+            VStack(spacing: 12) {
+                ForEach(results.tracks) { song in
+                    Button {
+                        recordHistory(id: song.id, title: song.title, subtitle: song.artistName, coverURL: song.coverURL, kind: .track)
+                        AudioPlayerController.shared.play(song, queue: results.tracks)
+                    } label: {
+                        SongRowView(song: song)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func artistsBlock(_ results: SearchResults) -> some View {
+        if !results.artists.isEmpty {
+            Text("Артисты")
+                .font(LaxifyTypography.title)
+                .foregroundStyle(LaxifyPalette.textPrimary)
+
+            VStack(spacing: 12) {
+                ForEach(results.artists) { artist in
+                    Button {
+                        recordHistory(id: artist.id, title: artist.name, subtitle: "Исполнитель", coverURL: artist.imageURL, kind: .artist)
+                        selectedArtistId = artist.id
+                    } label: {
+                        ArtistRowView(artist: artist)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func albumsBlock(_ results: SearchResults) -> some View {
+        if !results.albums.isEmpty {
+            Text("Альбомы")
+                .font(LaxifyTypography.title)
+                .foregroundStyle(LaxifyPalette.textPrimary)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: LaxifyMetrics.itemSpacing) {
+                    ForEach(results.albums) { album in
+                        Button {
+                            selectedAlbum = album
+                        } label: {
+                            AlbumCardView(album: album)
                         }
+                        .buttonStyle(.plain)
                     }
                 }
             }
+            .scrollClipDisabled()
         }
     }
 

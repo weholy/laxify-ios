@@ -92,7 +92,7 @@ struct HomeView: View {
                 .padding(.top, 60)
         } else if viewModel.content != nil {
             if !waveTracks.isEmpty {
-                trackListSection(title: "Ваша волна", songs: waveTracks)
+                songCarousel(title: "Ваша волна", songs: waveTracks)
             } else if viewModel.isLoadingWave {
                 VStack(alignment: .leading, spacing: 14) {
                     sectionTitle("Ваша волна")
@@ -102,7 +102,32 @@ struct HomeView: View {
                 }
             }
 
-            trackListSection(title: "Для вас", songs: recommendedTracks)
+            songCarousel(title: "Для вас", songs: recommendedTracks)
+
+            if recommendedTracks.count > 6 {
+                trackListSection(title: "Ещё треки", songs: Array(recommendedTracks.dropFirst(6)))
+            }
+        }
+    }
+
+    private func songCarousel(title: String, songs: [Song]) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            sectionTitle(title)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: LaxifyMetrics.itemSpacing) {
+                    ForEach(songs) { song in
+                        Button {
+                            AudioPlayerController.shared.play(song, queue: songs)
+                        } label: {
+                            SongCardView(song: song)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, LaxifyMetrics.screenPadding)
+            }
+            .scrollClipDisabled()
         }
     }
 

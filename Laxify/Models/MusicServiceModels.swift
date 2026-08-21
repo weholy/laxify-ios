@@ -1,10 +1,18 @@
 import Foundation
 
+enum SearchBestMatch: String, Sendable {
+    case track
+    case artist
+    case album
+    case other
+}
+
 struct SearchResults: Sendable {
     var tracks: [Song] = []
     var artists: [MusicArtist] = []
     var albums: [MusicAlbum] = []
     var correctedQuery: String?
+    var bestMatch: SearchBestMatch = .other
 
     var isEmpty: Bool { tracks.isEmpty && artists.isEmpty && albums.isEmpty }
 }

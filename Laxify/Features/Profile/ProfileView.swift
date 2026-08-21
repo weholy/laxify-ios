@@ -13,15 +13,21 @@ struct ProfileView: View {
             VStack(spacing: LaxifyMetrics.sectionSpacing) {
                 if let profile {
                     identitySection(profile)
-                    editButton
                 }
 
                 statsSection
             }
-            .padding(.top, 32)
+            .padding(.top, 44)
             .padding(.bottom, LaxifyMetrics.tabBarHeight + LaxifyMetrics.miniPlayerHeight + 40)
         }
         .background(profileBackground)
+        .overlay(alignment: .topTrailing) {
+            if profile != nil {
+                editButton
+                    .padding(.horizontal, LaxifyMetrics.screenPadding)
+                    .padding(.top, 8)
+            }
+        }
         .fullScreenCover(isPresented: $isEditPresented) {
             if let profile {
                 EditProfileView(profile: profile) { isEditPresented = false }
@@ -33,9 +39,14 @@ struct ProfileView: View {
         Button {
             isEditPresented = true
         } label: {
-            Label("Изменить профиль", systemImage: "pencil")
+            Text("Изм.")
+                .font(LaxifyTypography.subheadline)
+                .foregroundStyle(LaxifyPalette.textPrimary)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 9)
+                .laxGlassCapsule(interactive: true)
         }
-        .buttonStyle(.laxifySecondary)
+        .buttonStyle(.plain)
     }
 
     private var profileBackground: some View {
@@ -78,19 +89,15 @@ struct ProfileView: View {
     }
 
     private var statsSection: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "headphones")
-                .font(.system(size: 20, weight: .semibold))
-                .foregroundStyle(LaxifyPalette.accent)
-
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
+        VStack(spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
                 Text(formattedHours)
-                    .font(.system(size: 48, weight: .bold, design: .rounded))
+                    .font(.system(size: 54, weight: .bold, design: .rounded))
                     .foregroundStyle(LaxifyPalette.textPrimary)
                     .contentTransition(.numericText())
                     .animation(.spring(response: 0.5, dampingFraction: 0.8), value: formattedHours)
                 Text("ч")
-                    .font(LaxifyTypography.title)
+                    .font(.system(size: 24, weight: .semibold, design: .rounded))
                     .foregroundStyle(LaxifyPalette.textSecondary)
             }
 
@@ -99,9 +106,6 @@ struct ProfileView: View {
                 .foregroundStyle(LaxifyPalette.textSecondary)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 26)
-        .laxGlassCard(cornerRadius: 26)
-        .padding(.horizontal, LaxifyMetrics.screenPadding)
     }
 
     private var formattedHours: String {
