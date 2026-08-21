@@ -1,20 +1,45 @@
 import SwiftUI
+import SwiftData
 
 struct SearchView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: \SearchHistoryEntry.searchedAt, order: .reverse) private var history: [SearchHistoryEntry]
+
     @State private var query = ""
+    @State private var viewModel = SearchViewModel()
+    @FocusState private var isFocused: Bool
+
+    private var trimmedQuery: String {
+        query.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: LaxifyMetrics.sectionSpacing) {
                 header
-
                 searchField
+
+                if trimmedQuery.isEmpty {
+                    historySection
+                } else {
+                    resultsSection
+                }
             }
             .padding(.horizontal, LaxifyMetrics.screenPadding)
             .padding(.top, 12)
+            .padding(.bottom, 40)
         }
         .background(LaxifyPalette.background.ignoresSafeArea())
+        .task(id: trimmedQuery) {
+            guard !trimmedQuery.isEmpty else { return }
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            await viewModel.search(query: trimmedQuery)
+        }
+        .onAppear {
+            isFocused = true
+        }
     }
 
     private var header: some View {
@@ -39,12 +64,158 @@ struct SearchView: View {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(LaxifyPalette.textTertiary)
             TextField("Треки, артисты", text: $query)
+                .focused($isFocused)
                 .foregroundStyle(LaxifyPalette.textPrimary)
+            if !query.isEmpty {
+                Button {
+                    query = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(LaxifyPalette.textTertiary)
+                }
+                .buttonStyle(.plain)
+            }
         }
         .font(LaxifyTypography.body)
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .laxGlassCapsule()
+    }
+
+    @ViewBuilder
+    private var historySection: some View {
+        if !history.isEmpty {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    Text("Недавние")
+                        .font(LaxifyTypography.title)
+                        .foregroundStyle(LaxifyPalette.textPrimary)
+
+                    Spacer()
+
+                    Button("Очистить") {
+                        for entry in history {
+                            modelContext.delete(entry)
+                        }
+                    }
+                    .font(LaxifyTypography.footnote)
+                    .foregroundStyle(LaxifyPalette.textSecondary)
+                }
+
+                VStack(spacing: 12) {
+                    ForEach(history) { entry in
+                        historyRow(entry)
+                    }
+                }
+            }
+        }
+    }
+
+    private func historyRow(_ entry: SearchHistoryEntry) -> some View {
+        HStack(spacing: 12) {
+            Button {
+                query = entry.title
+            } label: {
+                HStack(spacing: 12) {
+                    if entry.coverURL != nil {
+                        AsyncCoverImage(url: entry.coverURL, cornerRadius: LaxifyMetrics.smallCornerRadius)
+                            .frame(width: 44, height: 44)
+                    } else {
+                        Circle()
+                            .fill(LaxifyPalette.surface)
+                            .frame(width: 44, height: 44)
+                            .overlay {
+                                Image(systemName: "clock")
+                                    .foregroundStyle(LaxifyPalette.textTertiary)
+                            }
+                    }
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(entry.title)
+                            .font(LaxifyTypography.body)
+                            .foregroundStyle(LaxifyPalette.textPrimary)
+                            .lineLimit(1)
+                        if let subtitle = entry.subtitle {
+                            Text(subtitle)
+                                .font(LaxifyTypography.footnote)
+                                .foregroundStyle(LaxifyPalette.textSecondary)
+                        }
+                    }
+
+                    Spacer()
+                }
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                modelContext.delete(entry)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(LaxifyPalette.textTertiary)
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    @ViewBuilder
+    private var resultsSection: some View {
+        if viewModel.isSearching && viewModel.results == nil {
+            ProgressView()
+                .frame(maxWidth: .infinity)
+                .padding(.top, 40)
+        } else if let results = viewModel.results {
+            if results.artists.isEmpty && results.tracks.isEmpty {
+                Text("Ничего не найдено")
+                    .font(LaxifyTypography.body)
+                    .foregroundStyle(LaxifyPalette.textSecondary)
+                    .padding(.top, 40)
+            } else {
+                if !results.artists.isEmpty {
+                    Text("Артисты")
+                        .font(LaxifyTypography.title)
+                        .foregroundStyle(LaxifyPalette.textPrimary)
+
+                    VStack(spacing: 12) {
+                        ForEach(results.artists) { artist in
+                            Button {
+                                recordHistory(id: artist.id, title: artist.name, subtitle: "Исполнитель", coverURL: artist.imageURL)
+                            } label: {
+                                ArtistRowView(artist: artist)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+
+                if !results.tracks.isEmpty {
+                    Text("Треки")
+                        .font(LaxifyTypography.title)
+                        .foregroundStyle(LaxifyPalette.textPrimary)
+
+                    VStack(spacing: 12) {
+                        ForEach(results.tracks) { song in
+                            Button {
+                                recordHistory(id: song.id, title: song.title, subtitle: song.artistName, coverURL: song.coverURL)
+                            } label: {
+                                SongRowView(song: song)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func recordHistory(id: String, title: String, subtitle: String?, coverURL: URL?) {
+        if let existing = history.first(where: { $0.id == id }) {
+            existing.searchedAt = .now
+        } else {
+            let entry = SearchHistoryEntry(id: id, title: title, subtitle: subtitle, coverURLString: coverURL?.absoluteString)
+            modelContext.insert(entry)
+        }
     }
 }
 
