@@ -30,4 +30,17 @@ final class LyricsViewModel {
         }
         return result
     }
+
+    /// LRCLIB only provides line-level timestamps, not per-word ones. This
+    /// approximates a karaoke-style word reveal by spreading the active
+    /// line's words evenly across the window until the next line starts.
+    func wordRevealProgress(at time: TimeInterval) -> Double {
+        guard let lines = lyrics?.syncedLines, !lines.isEmpty,
+              let index = activeLineIndex(at: time) else { return 0 }
+        let line = lines[index]
+        let lineEnd = lines.indices.contains(index + 1) ? lines[index + 1].timestamp : line.timestamp + 4
+        let span = max(lineEnd - line.timestamp, 0.1)
+        let progress = (time - line.timestamp) / span
+        return min(max(progress, 0), 1)
+    }
 }

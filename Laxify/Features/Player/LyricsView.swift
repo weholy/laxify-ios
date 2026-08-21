@@ -102,10 +102,7 @@ struct LyricsView: View {
                     Color.clear.frame(height: 20)
 
                     ForEach(Array(lyrics.syncedLines.enumerated()), id: \.element.id) { index, line in
-                        Text(line.text.isEmpty ? "···" : line.text)
-                            .font(index == activeIndex ? LaxifyTypography.title : LaxifyTypography.body)
-                            .fontWeight(index == activeIndex ? .bold : .regular)
-                            .foregroundStyle(index == activeIndex ? .white : .white.opacity(0.4))
+                        lineView(line, isActive: index == activeIndex)
                             .id(index)
                             .contentShape(Rectangle())
                             .onTapGesture {
@@ -125,6 +122,37 @@ struct LyricsView: View {
                     proxy.scrollTo(newValue, anchor: .center)
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func lineView(_ line: LyricLine, isActive: Bool) -> some View {
+        if isActive {
+            karaokeText(for: line, progress: viewModel.wordRevealProgress(at: player.currentTime))
+                .font(LaxifyTypography.title)
+                .fontWeight(.bold)
+                .animation(.easeInOut(duration: 0.2), value: player.currentTime)
+        } else {
+            Text(line.text.isEmpty ? "···" : line.text)
+                .font(LaxifyTypography.body)
+                .fontWeight(.regular)
+                .foregroundStyle(.white.opacity(0.4))
+        }
+    }
+
+    private func karaokeText(for line: LyricLine, progress: Double) -> Text {
+        let words = line.text.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+        guard !words.isEmpty else {
+            return Text(line.text.isEmpty ? "···" : line.text).foregroundStyle(.white)
+        }
+
+        let revealCount = max(1, Int((progress * Double(words.count)).rounded(.up)))
+
+        return words.enumerated().reduce(Text("")) { partial, element in
+            let (index, word) = element
+            let piece = Text(word + (index < words.count - 1 ? " " : ""))
+                .foregroundStyle(index < revealCount ? .white : .white.opacity(0.4))
+            return partial + piece
         }
     }
 

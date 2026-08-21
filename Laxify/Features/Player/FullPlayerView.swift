@@ -47,6 +47,33 @@ struct FullPlayerView: View {
             .padding(.horizontal, LaxifyMetrics.screenPadding)
             .padding(.top, 16)
             .padding(.bottom, 24)
+            .background {
+                GeometryReader { proxy in
+                    Color.clear
+                        .onAppear {
+                            let screen = UIScreen.main.bounds
+                            AppLogger.log("fullplayer: content frame \(Int(proxy.size.width))x\(Int(proxy.size.height)), screen \(Int(screen.width))x\(Int(screen.height))")
+                        }
+                        .onChange(of: proxy.size) { _, newSize in
+                            AppLogger.log("fullplayer: content frame CHANGED to \(Int(newSize.width))x\(Int(newSize.height))")
+                        }
+                }
+            }
+        }
+        .onAppear {
+            AppLogger.log("fullplayer: appeared, song=\(player.currentSong?.id ?? "nil")")
+        }
+        .onDisappear {
+            AppLogger.log("fullplayer: disappeared")
+        }
+        .onChange(of: player.currentSong?.id) { _, newId in
+            AppLogger.log("fullplayer: currentSong changed to \(newId ?? "nil")")
+        }
+        .onChange(of: isLyricsPresented) { _, presented in
+            AppLogger.log("fullplayer: lyrics sheet presented=\(presented)")
+        }
+        .onChange(of: isQueuePresented) { _, presented in
+            AppLogger.log("fullplayer: queue sheet presented=\(presented)")
         }
         .sheet(isPresented: $isLyricsPresented) {
             LyricsView()
