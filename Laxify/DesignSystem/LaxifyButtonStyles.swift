@@ -40,6 +40,20 @@ struct LaxifyIconButtonStyle: ButtonStyle {
     }
 }
 
+struct LaxifyCheckmarkButtonStyle: ButtonStyle {
+    var diameter: CGFloat = 36
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 15, weight: .bold))
+            .foregroundStyle(.white)
+            .frame(width: diameter, height: diameter)
+            .background(LaxifyPalette.accent, in: Circle())
+            .scaleEffect(configuration.isPressed ? 0.9 : 1)
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: configuration.isPressed)
+    }
+}
+
 extension ButtonStyle where Self == LaxifyPrimaryButtonStyle {
     static var laxifyPrimary: LaxifyPrimaryButtonStyle { LaxifyPrimaryButtonStyle() }
 }
@@ -50,4 +64,8 @@ extension ButtonStyle where Self == LaxifySecondaryButtonStyle {
 
 extension ButtonStyle where Self == LaxifyIconButtonStyle {
     static var laxifyIcon: LaxifyIconButtonStyle { LaxifyIconButtonStyle() }
+}
+
+extension ButtonStyle where Self == LaxifyCheckmarkButtonStyle {
+    static var laxifyCheckmark: LaxifyCheckmarkButtonStyle { LaxifyCheckmarkButtonStyle() }
 }

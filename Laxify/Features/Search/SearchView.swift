@@ -25,11 +25,12 @@ struct SearchView: View {
 
             Spacer()
 
-            Button("Готово") {
+            Button {
                 dismiss()
+            } label: {
+                Image(systemName: "checkmark")
             }
-            .font(LaxifyTypography.headline)
-            .foregroundStyle(LaxifyPalette.accent)
+            .buttonStyle(.laxifyCheckmark)
         }
     }
 
