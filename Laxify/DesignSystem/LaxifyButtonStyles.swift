@@ -41,14 +41,14 @@ struct LaxifyIconButtonStyle: ButtonStyle {
 }
 
 struct LaxifyCheckmarkButtonStyle: ButtonStyle {
-    var diameter: CGFloat = 36
+    var diameter: CGFloat = 54
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 15, weight: .bold))
+            .font(.system(size: 19, weight: .bold))
             .foregroundStyle(.white)
             .frame(width: diameter, height: diameter)
-            .background(LaxifyPalette.accent, in: Circle())
+            .glassEffect(.regular.tint(LaxifyPalette.accent).interactive(), in: Circle())
             .scaleEffect(configuration.isPressed ? 0.9 : 1)
             .animation(.spring(response: 0.3, dampingFraction: 0.7), value: configuration.isPressed)
     }
