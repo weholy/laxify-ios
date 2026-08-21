@@ -27,10 +27,8 @@ struct FullPlayerView: View {
         ZStack {
             background
 
-            VStack(spacing: 20) {
+            VStack(spacing: 24) {
                 topBar
-
-                Spacer()
 
                 artwork
 
@@ -44,7 +42,7 @@ struct FullPlayerView: View {
 
                 bottomIconRow
 
-                Spacer()
+                Spacer(minLength: 0)
             }
             .padding(.horizontal, LaxifyMetrics.screenPadding)
             .padding(.top, 16)
