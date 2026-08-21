@@ -162,6 +162,10 @@ final class AudioPlayerController {
                     AppLogger.log("play: first periodic tick t=\(time.seconds)")
                     self.didLogFirstTick = true
                 }
+                let delta = time.seconds - self.currentTime
+                if delta > 0, delta < 2 {
+                    ListeningStatsService.shared.recordPlayback(seconds: delta)
+                }
                 self.currentTime = time.seconds
             }
         }

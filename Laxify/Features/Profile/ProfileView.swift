@@ -3,6 +3,7 @@ import SwiftData
 
 struct ProfileView: View {
     @Query private var profiles: [UserProfile]
+    var stats = ListeningStatsService.shared
     @State private var logText = AppLogger.readAll()
 
     private var profile: UserProfile? { profiles.first }
@@ -19,6 +20,8 @@ struct ProfileView: View {
                     identitySection(profile)
                 }
 
+                statsSection
+
                 diagnosticsSection
             }
             .padding(.top, 12)
@@ -27,6 +30,68 @@ struct ProfileView: View {
         .background(LaxifyPalette.background)
         .onAppear {
             logText = AppLogger.readAll()
+        }
+    }
+
+    private var statsSection: some View {
+        HStack(spacing: 12) {
+            statTile(
+                value: formattedHours,
+                unit: "ч",
+                label: "Прослушано",
+                icon: "headphones",
+                iconColor: LaxifyPalette.accent
+            )
+            statTile(
+                value: "\(stats.currentStreak)",
+                unit: "",
+                label: streakLabel,
+                icon: "flame.fill",
+                iconColor: .orange
+            )
+        }
+        .padding(.horizontal, LaxifyMetrics.screenPadding)
+    }
+
+    private func statTile(value: String, unit: String, label: String, icon: String, iconColor: Color) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(iconColor)
+
+            HStack(alignment: .firstTextBaseline, spacing: 2) {
+                Text(value)
+                    .font(.system(size: 30, weight: .bold, design: .rounded))
+                    .foregroundStyle(LaxifyPalette.textPrimary)
+                if !unit.isEmpty {
+                    Text(unit)
+                        .font(LaxifyTypography.subheadline)
+                        .foregroundStyle(LaxifyPalette.textSecondary)
+                }
+            }
+
+            Text(label)
+                .font(LaxifyTypography.footnote)
+                .foregroundStyle(LaxifyPalette.textSecondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .laxGlassCard()
+    }
+
+    private var formattedHours: String {
+        String(format: "%.1f", stats.totalSecondsListened / 3600)
+    }
+
+    private var streakLabel: String {
+        let remainder10 = stats.currentStreak % 10
+        let remainder100 = stats.currentStreak % 100
+        if remainder10 == 1, remainder100 != 11 {
+            return "день подряд"
+        } else if (2...4).contains(remainder10), !(12...14).contains(remainder100) {
+            return "дня подряд"
+        } else {
+            return "дней подряд"
         }
     }
 
