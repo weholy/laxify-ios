@@ -25,7 +25,7 @@ actor YandexMusicService: MusicService {
 
                 collections.append(collection(from: playlist))
                 if recommendedTracks.isEmpty {
-                    recommendedTracks = (playlist.tracks ?? []).compactMap(\.track).map(song(from:))
+                    recommendedTracks = await resolvedTracks(for: playlist)
                 }
             }
         }
@@ -108,6 +108,30 @@ actor YandexMusicService: MusicService {
             throw MusicServiceError.notFound
         }
         return url
+    }
+
+    func playlistTracks(collectionId: String) async throws -> (title: String, songs: [Song]) {
+        try await ensureReady()
+
+        let parts = collectionId.split(separator: "_")
+        guard parts.count == 2 else { throw MusicServiceError.notFound }
+
+        let playlists = try await run { completion in
+            YMClient.shared.getPlaylists(userId: String(parts[0]), playlistsId: [String(parts[1])], completion: completion)
+        }
+        guard let playlist = playlists.first else {
+            throw MusicServiceError.notFound
+        }
+
+        let songs = await resolvedTracks(for: playlist)
+        return (playlist.title, songs)
+    }
+
+    private func resolvedTracks(for playlist: Playlist) async -> [Song] {
+        if playlist.tracks == nil || playlist.tracks?.isEmpty == true {
+            _ = try? await run { completion in playlist.fetchTracks(completion: completion) }
+        }
+        return (playlist.tracks ?? []).compactMap(\.track).map(song(from:))
     }
 
     private func ensureReady() async throws {

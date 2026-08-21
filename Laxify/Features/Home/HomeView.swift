@@ -7,6 +7,7 @@ struct HomeView: View {
     @State private var query = ""
     @State private var searchResults: SearchResults?
     @State private var isSearching = false
+    @State private var selectedCollection: MusicCollection?
     @Query(sort: \FavoriteTrack.addedAt, order: .reverse) private var favorites: [FavoriteTrack]
 
     private let chips = ["Все", "Музыка", "Подкасты", "Аудиокниги"]
@@ -54,11 +55,20 @@ struct HomeView: View {
             searchResults = try? await YandexMusicService.shared.search(query: trimmedQuery)
             isSearching = false
         }
+        .fullScreenCover(item: $selectedCollection) { collection in
+            PlaylistDetailView(collection: collection)
+        }
     }
 
     @ViewBuilder
     private var homeContent: some View {
-        if let errorMessage = viewModel.errorMessage {
+        if selectedChip == "Подкасты" || selectedChip == "Аудиокниги" {
+            Text("Раздел «\(selectedChip)» скоро появится")
+                .font(LaxifyTypography.body)
+                .foregroundStyle(LaxifyPalette.textSecondary)
+                .padding(.horizontal, LaxifyMetrics.screenPadding)
+                .padding(.top, 40)
+        } else if let errorMessage = viewModel.errorMessage {
             VStack(alignment: .leading, spacing: 14) {
                 Text(errorMessage)
                     .font(LaxifyTypography.body)
@@ -177,7 +187,12 @@ struct HomeView: View {
     private func collectionsGrid(_ collections: [MusicCollection]) -> some View {
         LazyVGrid(columns: [GridItem(.flexible(), spacing: LaxifyMetrics.itemSpacing), GridItem(.flexible())], spacing: LaxifyMetrics.itemSpacing) {
             ForEach(collections) { collection in
-                CollectionCardView(collection: collection)
+                Button {
+                    selectedCollection = collection
+                } label: {
+                    CollectionCardView(collection: collection)
+                }
+                .buttonStyle(.plain)
             }
         }
         .padding(.horizontal, LaxifyMetrics.screenPadding)
