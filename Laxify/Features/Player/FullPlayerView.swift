@@ -27,27 +27,36 @@ struct FullPlayerView: View {
         ZStack(alignment: .top) {
             background
 
-            VStack(spacing: 24) {
-                topBar
+            ScrollView {
+                VStack(spacing: 0) {
+                    topBar
+                        .padding(.bottom, 28)
 
-                artwork
+                    artwork
+                        .padding(.bottom, 32)
 
-                titleBlock
+                    titleBlock
+                        .padding(.bottom, 24)
 
-                scrubber
+                    scrubber
+                        .padding(.bottom, 24)
 
-                controls
+                    controls
+                        .padding(.bottom, 24)
 
-                volumeSlider
+                    volumeSlider
+                        .padding(.bottom, 24)
 
-                bottomIconRow
+                    bottomIconRow
+                        .padding(.bottom, 16)
+                }
+                .padding(.horizontal, LaxifyMetrics.screenPadding)
+                .padding(.top, 16)
+                .onGeometryChange(for: CGSize.self, of: { $0.size }) { newSize in
+                    AppLogger.log("fullplayer: content size \(Int(newSize.width))x\(Int(newSize.height))")
+                }
             }
-            .padding(.horizontal, LaxifyMetrics.screenPadding)
-            .padding(.top, 16)
-            .padding(.bottom, 24)
-            .onGeometryChange(for: CGSize.self, of: { $0.size }) { newSize in
-                AppLogger.log("fullplayer: content size \(Int(newSize.width))x\(Int(newSize.height))")
-            }
+            .scrollBounceBehavior(.basedOnSize)
         }
         .onGeometryChange(for: CGSize.self, of: { $0.size }) { newSize in
             AppLogger.log("fullplayer: screen size \(Int(newSize.width))x\(Int(newSize.height))")
