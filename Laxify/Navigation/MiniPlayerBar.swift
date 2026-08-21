@@ -1,0 +1,55 @@
+import SwiftUI
+
+struct MiniPlayerBar: View {
+    var player = AudioPlayerController.shared
+    var onTap: () -> Void
+
+    var body: some View {
+        if let song = player.currentSong {
+            HStack(spacing: 12) {
+                AsyncCoverImage(url: song.coverURL, cornerRadius: LaxifyMetrics.smallCornerRadius)
+                    .frame(width: 40, height: 40)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(song.title)
+                        .font(LaxifyTypography.subheadline)
+                        .foregroundStyle(LaxifyPalette.textPrimary)
+                        .lineLimit(1)
+                    Text(song.artistName)
+                        .font(LaxifyTypography.caption)
+                        .foregroundStyle(LaxifyPalette.textSecondary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 8)
+
+                Button {
+                    player.togglePlayPause()
+                } label: {
+                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(LaxifyPalette.textPrimary)
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    player.next()
+                } label: {
+                    Image(systemName: "forward.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(LaxifyPalette.textPrimary)
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .opacity(player.hasNext ? 1 : 0.35)
+                .disabled(!player.hasNext)
+            }
+            .padding(.horizontal, 12)
+            .frame(height: LaxifyMetrics.miniPlayerHeight)
+            .laxGlassCard(cornerRadius: LaxifyMetrics.cardCornerRadius)
+            .contentShape(RoundedRectangle(cornerRadius: LaxifyMetrics.cardCornerRadius, style: .continuous))
+            .onTapGesture(perform: onTap)
+        }
+    }
+}

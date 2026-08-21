@@ -3,6 +3,7 @@ import SwiftUI
 struct RootView: View {
     @State private var selectedTab: AppTab = .home
     @State private var isSearchPresented = false
+    @State private var isPlayerPresented = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -11,14 +12,23 @@ struct RootView: View {
             tabContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            LaxifyTabBar(selectedTab: $selectedTab) {
-                isSearchPresented = true
+            VStack(spacing: 10) {
+                MiniPlayerBar {
+                    isPlayerPresented = true
+                }
+
+                LaxifyTabBar(selectedTab: $selectedTab) {
+                    isSearchPresented = true
+                }
             }
             .padding(.horizontal, LaxifyMetrics.screenPadding)
             .padding(.bottom, LaxifyMetrics.tabBarBottomInset)
         }
         .fullScreenCover(isPresented: $isSearchPresented) {
             SearchView()
+        }
+        .fullScreenCover(isPresented: $isPlayerPresented) {
+            FullPlayerView()
         }
     }
 

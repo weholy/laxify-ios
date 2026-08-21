@@ -123,7 +123,12 @@ struct HomeView: View {
                     sectionTitle("Треки")
                     VStack(spacing: 12) {
                         ForEach(results.tracks) { song in
-                            SongRowView(song: song)
+                            Button {
+                                AudioPlayerController.shared.play(song, queue: results.tracks)
+                            } label: {
+                                SongRowView(song: song)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                     .padding(.horizontal, LaxifyMetrics.screenPadding)
@@ -205,7 +210,12 @@ struct HomeView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: LaxifyMetrics.itemSpacing) {
                     ForEach(songs) { song in
-                        SongCardView(song: song)
+                        Button {
+                            AudioPlayerController.shared.play(song, queue: songs)
+                        } label: {
+                            SongCardView(song: song)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
                 .padding(.horizontal, LaxifyMetrics.screenPadding)

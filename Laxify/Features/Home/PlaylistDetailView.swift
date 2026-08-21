@@ -24,7 +24,12 @@ struct PlaylistDetailView: View {
                 } else {
                     VStack(spacing: 12) {
                         ForEach(viewModel.songs) { song in
-                            SongRowView(song: song)
+                            Button {
+                                AudioPlayerController.shared.play(song, queue: viewModel.songs)
+                            } label: {
+                                SongRowView(song: song)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                 }

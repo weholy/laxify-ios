@@ -198,6 +198,7 @@ struct SearchView: View {
                         ForEach(results.tracks) { song in
                             Button {
                                 recordHistory(id: song.id, title: song.title, subtitle: song.artistName, coverURL: song.coverURL)
+                                AudioPlayerController.shared.play(song, queue: results.tracks)
                             } label: {
                                 SongRowView(song: song)
                             }
