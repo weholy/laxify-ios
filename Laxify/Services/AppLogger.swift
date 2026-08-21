@@ -6,13 +6,9 @@ enum AppLogger {
         return dir.appendingPathComponent("laxify-log.txt")
     }()
 
-    private static let formatter: ISO8601DateFormatter = {
+    static func log(_ message: String) {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withTime, .withColonSeparatorInTime]
-        return formatter
-    }()
-
-    static func log(_ message: String) {
         let line = "[\(formatter.string(from: .now))] \(message)\n"
 
         guard let data = line.data(using: .utf8) else { return }
