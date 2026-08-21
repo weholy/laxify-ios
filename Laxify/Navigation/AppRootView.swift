@@ -19,10 +19,14 @@ struct AppRootView: View {
                     OnboardingView(profile: profile, onFinished: {})
                 } else if !hasShownWelcome {
                     WelcomeView(name: profile.displayName) {
-                        hasShownWelcome = true
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            hasShownWelcome = true
+                        }
                     }
+                    .transition(.opacity)
                 } else {
                     RootView()
+                        .transition(.opacity)
                 }
             } else {
                 SignInView { user in

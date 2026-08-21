@@ -34,65 +34,30 @@ struct ProfileView: View {
     }
 
     private var statsSection: some View {
-        HStack(spacing: 12) {
-            statTile(
-                value: formattedHours,
-                unit: "ч",
-                label: "Прослушано",
-                icon: "headphones",
-                iconColor: LaxifyPalette.accent
-            )
-            statTile(
-                value: "\(stats.currentStreak)",
-                unit: "",
-                label: streakLabel,
-                icon: "flame.fill",
-                iconColor: .orange
-            )
-        }
-        .padding(.horizontal, LaxifyMetrics.screenPadding)
-    }
+        VStack(spacing: 6) {
+            Image(systemName: "headphones")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(LaxifyPalette.accent)
 
-    private func statTile(value: String, unit: String, label: String, icon: String, iconColor: Color) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(iconColor)
-
-            HStack(alignment: .firstTextBaseline, spacing: 2) {
-                Text(value)
-                    .font(.system(size: 30, weight: .bold, design: .rounded))
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(formattedHours)
+                    .font(.system(size: 46, weight: .bold, design: .rounded))
                     .foregroundStyle(LaxifyPalette.textPrimary)
-                if !unit.isEmpty {
-                    Text(unit)
-                        .font(LaxifyTypography.subheadline)
-                        .foregroundStyle(LaxifyPalette.textSecondary)
-                }
+                Text("ч")
+                    .font(LaxifyTypography.title)
+                    .foregroundStyle(LaxifyPalette.textSecondary)
             }
 
-            Text(label)
+            Text("прослушано")
                 .font(LaxifyTypography.footnote)
                 .foregroundStyle(LaxifyPalette.textSecondary)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .laxGlassCard()
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
     }
 
     private var formattedHours: String {
         String(format: "%.1f", stats.totalSecondsListened / 3600)
-    }
-
-    private var streakLabel: String {
-        let remainder10 = stats.currentStreak % 10
-        let remainder100 = stats.currentStreak % 100
-        if remainder10 == 1, remainder100 != 11 {
-            return "день подряд"
-        } else if (2...4).contains(remainder10), !(12...14).contains(remainder100) {
-            return "дня подряд"
-        } else {
-            return "дней подряд"
-        }
     }
 
     private func identitySection(_ profile: UserProfile) -> some View {

@@ -6,6 +6,7 @@ struct WelcomeView: View {
 
     @State private var textAppear = false
     @State private var glowAppear = false
+    @State private var isExiting = false
 
     var body: some View {
         ZStack {
@@ -13,7 +14,7 @@ struct WelcomeView: View {
 
             glow
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text("Добро пожаловать,")
                     .font(.system(size: 34, weight: .bold))
                     .foregroundStyle(LaxifyPalette.textPrimary)
@@ -23,25 +24,33 @@ struct WelcomeView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, LaxifyMetrics.screenPadding)
+            .scaleEffect(textAppear ? 1 : 0.94)
             .opacity(textAppear ? 1 : 0)
-            .offset(y: textAppear ? 0 : 12)
+            .offset(y: textAppear ? 0 : 14)
 
             VStack {
                 Spacer()
                 ProgressView()
                     .tint(LaxifyPalette.textSecondary)
                     .padding(.bottom, 60)
+                    .opacity(textAppear ? 1 : 0)
             }
         }
+        .opacity(isExiting ? 0 : 1)
+        .scaleEffect(isExiting ? 1.03 : 1)
         .onAppear {
-            withAnimation(.easeOut(duration: 0.7)) {
+            withAnimation(.easeOut(duration: 0.8)) {
                 glowAppear = true
             }
-            withAnimation(.easeOut(duration: 0.6).delay(0.15)) {
+            withAnimation(.easeOut(duration: 0.7).delay(0.2)) {
                 textAppear = true
             }
             Task {
-                try? await Task.sleep(for: .seconds(1.6))
+                try? await Task.sleep(for: .seconds(1.9))
+                withAnimation(.easeInOut(duration: 0.55)) {
+                    isExiting = true
+                }
+                try? await Task.sleep(for: .seconds(0.55))
                 onFinished()
             }
         }

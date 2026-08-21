@@ -58,6 +58,7 @@ struct FullPlayerView: View {
             }
             .scrollBounceBehavior(.basedOnSize)
         }
+        .frame(width: UIScreen.main.bounds.width, height: UIScreen.main.bounds.height)
         .onGeometryChange(for: CGSize.self, of: { $0.size }) { newSize in
             AppLogger.log("fullplayer: screen size \(Int(newSize.width))x\(Int(newSize.height))")
         }
