@@ -101,13 +101,18 @@ struct LyricsView: View {
                     Color.clear.frame(height: 20)
 
                     ForEach(Array(lyrics.syncedLines.enumerated()), id: \.element.id) { index, line in
-                        lineView(line, isActive: index == activeIndex)
-                            .id(index)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                player.seek(to: line.timestamp)
-                            }
-                            .animation(.easeInOut(duration: 0.25), value: activeIndex)
+                        lineView(
+                            line,
+                            isActive: index == activeIndex,
+                            isPast: activeIndex.map { index < $0 } ?? false
+                        )
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .id(index)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            player.seek(to: line.timestamp)
+                        }
+                        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: activeIndex)
                     }
 
                     Color.clear.frame(height: 220)
@@ -125,34 +130,44 @@ struct LyricsView: View {
     }
 
     @ViewBuilder
-    private func lineView(_ line: LyricLine, isActive: Bool) -> some View {
+    private func lineView(_ line: LyricLine, isActive: Bool, isPast: Bool) -> some View {
+        let text = line.text.isEmpty ? "♪" : line.text
+
         if isActive {
-            karaokeText(for: line, progress: viewModel.wordRevealProgress(at: player.currentTime))
-                .font(LaxifyTypography.title)
-                .fontWeight(.bold)
-                .animation(.easeInOut(duration: 0.2), value: player.currentTime)
+            Text(text)
+                .font(.system(size: 26, weight: .bold))
+                .foregroundStyle(.white.opacity(0.28))
+                .overlay(alignment: .leading) {
+                    Text(text)
+                        .font(.system(size: 26, weight: .bold))
+                        .foregroundStyle(.white)
+                        .shadow(color: .white.opacity(0.25), radius: 12)
+                        .mask(fillMask(progress: viewModel.lineProgress(at: player.currentTime)))
+                }
+                .scaleEffect(1, anchor: .leading)
+                .animation(.linear(duration: 0.12), value: player.currentTime)
         } else {
-            Text(line.text.isEmpty ? "···" : line.text)
-                .font(LaxifyTypography.body)
-                .fontWeight(.regular)
-                .foregroundStyle(.white.opacity(0.4))
+            Text(text)
+                .font(.system(size: 21, weight: .semibold))
+                .foregroundStyle(.white.opacity(isPast ? 0.28 : 0.42))
+                .blur(radius: 0.6)
+                .scaleEffect(0.94, anchor: .leading)
         }
     }
 
-    private func karaokeText(for line: LyricLine, progress: Double) -> Text {
-        let words = line.text.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
-        guard !words.isEmpty else {
-            return Text(line.text.isEmpty ? "···" : line.text).foregroundStyle(.white)
-        }
-
-        let revealCount = max(1, Int((progress * Double(words.count)).rounded(.up)))
-
-        return words.enumerated().reduce(Text("")) { partial, element in
-            let (index, word) = element
-            let piece = Text(word + (index < words.count - 1 ? " " : ""))
-                .foregroundStyle(index < revealCount ? .white : .white.opacity(0.4))
-            return partial + piece
-        }
+    private func fillMask(progress: Double) -> some View {
+        let clamped = min(max(progress, 0), 1)
+        let soft = 0.06
+        return LinearGradient(
+            stops: [
+                .init(color: .white, location: 0),
+                .init(color: .white, location: max(clamped - soft, 0)),
+                .init(color: .clear, location: min(clamped + soft, 1)),
+                .init(color: .clear, location: 1)
+            ],
+            startPoint: .leading,
+            endPoint: .trailing
+        )
     }
 
     private func plainScroll(_ text: String) -> some View {

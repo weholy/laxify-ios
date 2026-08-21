@@ -13,4 +13,8 @@ protocol MusicService: Sendable {
     func streamURL(for songId: String) async throws -> URL
     func playlistTracks(collectionId: String) async throws -> (title: String, songs: [Song])
     func song(id: String) async throws -> Song
+    func albumTracks(albumId: String) async throws -> [Song]
+    func artistTracks(artistId: String, page: Int) async throws -> [Song]
+    func podcastCollections() async throws -> [MusicCollection]
+    func waveTracks(seedArtistIds: [String]) async throws -> [Song]
 }

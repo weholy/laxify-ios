@@ -154,7 +154,7 @@ final class AudioPlayerController {
     private func attachObservers(to item: AVPlayerItem) {
         didLogFirstTick = false
 
-        let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
+        let interval = CMTime(seconds: 0.1, preferredTimescale: 600)
         timeObserverToken = player?.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             Task { @MainActor in
                 guard let self else { return }

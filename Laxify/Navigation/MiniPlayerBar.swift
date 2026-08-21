@@ -7,8 +7,8 @@ struct MiniPlayerBar: View {
     var body: some View {
         if let song = player.currentSong {
             HStack(spacing: 12) {
-                AsyncCoverImage(url: song.coverURL, cornerRadius: LaxifyMetrics.smallCornerRadius)
-                    .frame(width: 40, height: 40)
+                AsyncCoverImage(url: song.coverURL, cornerRadius: 18)
+                    .frame(width: 44, height: 44)
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text(song.title)
@@ -50,11 +50,13 @@ struct MiniPlayerBar: View {
                 .opacity(player.hasNext ? 1 : 0.35)
                 .disabled(!player.hasNext)
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 10)
             .frame(height: LaxifyMetrics.miniPlayerHeight)
-            .laxGlassCard(cornerRadius: LaxifyMetrics.cardCornerRadius)
-            .contentShape(RoundedRectangle(cornerRadius: LaxifyMetrics.cardCornerRadius, style: .continuous))
+            .laxGlassCard(cornerRadius: LaxifyMetrics.miniPlayerCornerRadius)
+            .contentShape(RoundedRectangle(cornerRadius: LaxifyMetrics.miniPlayerCornerRadius, style: .continuous))
             .onTapGesture(perform: onTap)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .animation(.spring(response: 0.4, dampingFraction: 0.8), value: song.id)
         }
     }
 }

@@ -8,3 +8,4 @@ extension Artist: @retroactive @unchecked Sendable {}
 extension ArtistTracks: @retroactive @unchecked Sendable {}
 extension ArtistAlbums: @retroactive @unchecked Sendable {}
 extension Track: @retroactive @unchecked Sendable {}
+extension Album: @retroactive @unchecked Sendable {}

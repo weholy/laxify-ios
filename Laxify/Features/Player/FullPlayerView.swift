@@ -52,23 +52,8 @@ struct FullPlayerView: View {
                 }
                 .padding(.horizontal, LaxifyMetrics.screenPadding)
                 .padding(.top, 16)
-                .onGeometryChange(for: CGSize.self, of: { $0.size }) { newSize in
-                    AppLogger.log("fullplayer: content size \(Int(newSize.width))x\(Int(newSize.height))")
-                }
             }
             .scrollBounceBehavior(.basedOnSize)
-        }
-        .onGeometryChange(for: CGSize.self, of: { $0.size }) { newSize in
-            AppLogger.log("fullplayer: screen size \(Int(newSize.width))x\(Int(newSize.height))")
-        }
-        .onAppear {
-            AppLogger.log("fullplayer: appeared, song=\(player.currentSong?.id ?? "nil")")
-        }
-        .onDisappear {
-            AppLogger.log("fullplayer: disappeared")
-        }
-        .onChange(of: player.currentSong?.id) { _, newId in
-            AppLogger.log("fullplayer: currentSong changed to \(newId ?? "nil")")
         }
         .sheet(isPresented: $isLyricsPresented) {
             LyricsView()

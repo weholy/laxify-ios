@@ -120,11 +120,89 @@ actor YandexMusicService: MusicService {
         return song(from: track)
     }
 
+    func albumTracks(albumId: String) async throws -> [Song] {
+        try await ensureReady()
+
+        let albums = try await run { YMClient.shared.getAlbums(albumIds: [albumId], completion: $0) }
+        guard let album = albums.first else {
+            throw MusicServiceError.notFound
+        }
+        let tracks = (album.volumes ?? []).flatMap { $0 }
+        guard !tracks.isEmpty else {
+            throw MusicServiceError.notFound
+        }
+        return tracks.map(song(from:))
+    }
+
+    func artistTracks(artistId: String, page: Int) async throws -> [Song] {
+        try await ensureReady()
+
+        let result = try await run { completion in
+            YMClient.shared.getArtistTracks(artistId: artistId, page: page, pageSize: 50, completion: completion)
+        }
+        return result.tracks.map(song(from:))
+    }
+
+    func podcastCollections() async throws -> [MusicCollection] {
+        try await ensureReady()
+
+        let landing = try await run { YMClient.shared.getPodcasts(completion: $0) }
+        let ids = (landing.podcasts ?? []).prefix(20).map(String.init)
+        guard !ids.isEmpty else {
+            throw MusicServiceError.notFound
+        }
+
+        let albums = try await run { YMClient.shared.getAlbums(albumIds: Array(ids), completion: $0) }
+        let collections = albums.compactMap { album -> MusicCollection? in
+            guard let id = album.id else { return nil }
+            return MusicCollection(
+                id: "album_\(id)",
+                title: album.title ?? "",
+                subtitle: album.trackCount.map { "\($0) выпусков" },
+                coverURL: coverURL(from: album.coverUri)
+            )
+        }
+        guard !collections.isEmpty else {
+            throw MusicServiceError.notFound
+        }
+        return collections
+    }
+
+    func waveTracks(seedArtistIds: [String]) async throws -> [Song] {
+        try await ensureReady()
+
+        guard !seedArtistIds.isEmpty else { return [] }
+
+        var collected: [Song] = []
+        var seenIds: Set<String> = []
+
+        for artistId in seedArtistIds.prefix(6) {
+            guard let tracks = try? await artistTracks(artistId: artistId, page: 0) else { continue }
+            for track in tracks.prefix(6) where !seenIds.contains(track.id) {
+                seenIds.insert(track.id)
+                collected.append(track)
+            }
+            if collected.count >= 30 { break }
+        }
+
+        return collected.shuffled()
+    }
+
     func playlistTracks(collectionId: String) async throws -> (title: String, songs: [Song]) {
         try await ensureReady()
 
         let parts = collectionId.split(separator: "_")
         guard parts.count == 2 else { throw MusicServiceError.notFound }
+
+        if parts[0] == "album" {
+            let albumId = String(parts[1])
+            let albums = try await run { YMClient.shared.getAlbums(albumIds: [albumId], completion: $0) }
+            guard let album = albums.first else {
+                throw MusicServiceError.notFound
+            }
+            let songs = (album.volumes ?? []).flatMap { $0 }.map(song(from:))
+            return (album.title ?? "", songs)
+        }
 
         let playlists = try await run { completion in
             YMClient.shared.getPlaylists(userId: String(parts[0]), playlistsId: [String(parts[1])], completion: completion)

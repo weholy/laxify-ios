@@ -14,4 +14,5 @@ enum LaxifyMetrics {
     static let searchButtonDiameter: CGFloat = 58
 
     static let miniPlayerHeight: CGFloat = 64
+    static let miniPlayerCornerRadius: CGFloat = 30
 }
