@@ -23,6 +23,8 @@ final class AudioPlayerController {
     private var player: AVPlayer?
     private var timeObserverToken: Any?
     private var endObserver: NSObjectProtocol?
+    private var statusObservation: NSKeyValueObservation?
+    private var didLogFirstTick = false
     private let service: any MusicService
 
     private init(service: any MusicService = YandexMusicService.shared) {
@@ -110,16 +112,40 @@ final class AudioPlayerController {
     }
 
     private func attachObservers(to item: AVPlayerItem) {
+        didLogFirstTick = false
+
         let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
         timeObserverToken = player?.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             Task { @MainActor in
-                self?.currentTime = time.seconds
+                guard let self else { return }
+                if !self.didLogFirstTick {
+                    AppLogger.log("play: first periodic tick t=\(time.seconds)")
+                    self.didLogFirstTick = true
+                }
+                self.currentTime = time.seconds
             }
         }
 
         endObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
             Task { @MainActor in
+                AppLogger.log("play: did play to end time")
                 self?.handleDidFinishPlaying()
+            }
+        }
+
+        statusObservation = item.observe(\.status, options: [.new]) { observedItem, _ in
+            Task { @MainActor in
+                switch observedItem.status {
+                case .readyToPlay:
+                    AppLogger.log("play: item status = readyToPlay")
+                case .failed:
+                    let description = observedItem.error?.localizedDescription ?? "unknown"
+                    AppLogger.log("play: item status = FAILED \(description)")
+                case .unknown:
+                    AppLogger.log("play: item status = unknown")
+                @unknown default:
+                    AppLogger.log("play: item status = other")
+                }
             }
         }
     }
@@ -141,6 +167,8 @@ final class AudioPlayerController {
             NotificationCenter.default.removeObserver(endObserver)
         }
         endObserver = nil
+        statusObservation?.invalidate()
+        statusObservation = nil
         player?.pause()
         player = nil
     }
@@ -212,12 +240,21 @@ final class AudioPlayerController {
 
         guard let coverURL = currentSong.coverURL else { return }
         Task {
-            guard let (data, _) = try? await URLSession.shared.data(from: coverURL),
-                  let image = UIImage(data: data) else { return }
+            AppLogger.log("nowPlaying: fetching artwork")
+            guard let (data, _) = try? await URLSession.shared.data(from: coverURL) else {
+                AppLogger.log("nowPlaying: artwork fetch failed")
+                return
+            }
+            guard let image = UIImage(data: data) else {
+                AppLogger.log("nowPlaying: artwork data undecodable")
+                return
+            }
+            AppLogger.log("nowPlaying: artwork decoded, building artwork object")
             let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
             var updatedInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? info
             updatedInfo[MPMediaItemPropertyArtwork] = artwork
             MPNowPlayingInfoCenter.default().nowPlayingInfo = updatedInfo
+            AppLogger.log("nowPlaying: artwork set")
         }
     }
 
