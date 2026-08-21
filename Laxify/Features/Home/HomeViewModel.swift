@@ -1,5 +1,6 @@
 import Foundation
 
+@MainActor
 @Observable
 final class HomeViewModel {
     private(set) var content: HomeContent?
