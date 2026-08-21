@@ -25,6 +25,11 @@ struct HomeView: View {
         return WaveRanking.reorder(filtered, favoriteArtistIds: favoriteArtistIds)
     }
 
+    private var waveTracks: [Song] {
+        let dislikedIds = Set(dislikedTracks.map(\.id))
+        return viewModel.waveTracks.filter { !dislikedIds.contains($0.id) }
+    }
+
     private var trimmedQuery: String {
         query.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -47,6 +52,13 @@ struct HomeView: View {
         .background(LaxifyPalette.background)
         .task {
             await viewModel.loadIfNeeded()
+        }
+        .task(id: favoriteArtistIds) {
+            await viewModel.refreshWave(seedArtistIds: Array(favoriteArtistIds))
+        }
+        .task(id: selectedChip) {
+            guard selectedChip == "Подкасты" else { return }
+            await viewModel.loadPodcastsIfNeeded()
         }
         .task(id: trimmedQuery) {
             guard !trimmedQuery.isEmpty else {
@@ -74,8 +86,10 @@ struct HomeView: View {
 
     @ViewBuilder
     private var homeContent: some View {
-        if selectedChip == "Подкасты" || selectedChip == "Аудиокниги" {
-            Text("Раздел «\(selectedChip)» скоро появится")
+        if selectedChip == "Подкасты" {
+            podcastsSection
+        } else if selectedChip == "Аудиокниги" {
+            Text("Раздел «Аудиокниги» скоро появится")
                 .font(LaxifyTypography.body)
                 .foregroundStyle(LaxifyPalette.textSecondary)
                 .padding(.horizontal, LaxifyMetrics.screenPadding)
@@ -99,11 +113,42 @@ struct HomeView: View {
         } else if let content = viewModel.content {
             collectionsGrid(content.collections)
 
-            if !favoriteArtistIds.isEmpty {
-                songSection(title: "Ваша волна", songs: recommendedTracks)
+            if !waveTracks.isEmpty {
+                songSection(title: "Ваша волна", songs: waveTracks)
+            } else if viewModel.isLoadingWave {
+                VStack(alignment: .leading, spacing: 14) {
+                    sectionTitle("Ваша волна")
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 30)
+                }
             }
 
             songSection(title: "Рекомендованные треки", songs: recommendedTracks)
+        }
+    }
+
+    @ViewBuilder
+    private var podcastsSection: some View {
+        if let podcastsError = viewModel.podcastsError {
+            VStack(alignment: .leading, spacing: 14) {
+                Text(podcastsError)
+                    .font(LaxifyTypography.body)
+                    .foregroundStyle(LaxifyPalette.textSecondary)
+
+                Button("Повторить") {
+                    Task { await viewModel.loadPodcastsIfNeeded() }
+                }
+                .buttonStyle(.laxifySecondary)
+            }
+            .padding(.horizontal, LaxifyMetrics.screenPadding)
+            .padding(.top, 40)
+        } else if viewModel.isLoadingPodcasts && viewModel.podcasts.isEmpty {
+            ProgressView()
+                .frame(maxWidth: .infinity)
+                .padding(.top, 60)
+        } else {
+            collectionsGrid(viewModel.podcasts)
         }
     }
 

@@ -3,8 +3,13 @@ import SwiftUI
 struct ArtistView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel: ArtistViewModel
+    @State private var selectedAlbum: MusicAlbum?
+    @State private var isAllTracksPresented = false
+
+    private let artistId: String
 
     init(artistId: String) {
+        self.artistId = artistId
         _viewModel = State(initialValue: ArtistViewModel(artistId: artistId))
     }
 
@@ -52,6 +57,15 @@ struct ArtistView: View {
         }
         .task {
             await viewModel.loadIfNeeded()
+        }
+        .fullScreenCover(item: $selectedAlbum) { album in
+            AlbumDetailView(album: album)
+        }
+        .fullScreenCover(isPresented: $isAllTracksPresented) {
+            ArtistAllTracksView(
+                artistId: artistId,
+                artistName: viewModel.detail?.artist.name ?? ""
+            )
         }
         .withMiniPlayer()
     }
@@ -123,7 +137,27 @@ struct ArtistView: View {
 
     private func topTracksSection(_ tracks: [Song]) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            sectionTitle("Популярное")
+            HStack {
+                Text("Популярное")
+                    .font(LaxifyTypography.title)
+                    .foregroundStyle(LaxifyPalette.textPrimary)
+
+                Spacer()
+
+                Button {
+                    isAllTracksPresented = true
+                } label: {
+                    HStack(spacing: 3) {
+                        Text("Все треки")
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 11, weight: .semibold))
+                    }
+                    .font(LaxifyTypography.subheadline)
+                    .foregroundStyle(LaxifyPalette.accent)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, LaxifyMetrics.screenPadding)
 
             VStack(spacing: 12) {
                 ForEach(tracks) { song in
@@ -146,7 +180,12 @@ struct ArtistView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: LaxifyMetrics.itemSpacing) {
                     ForEach(releases) { album in
-                        AlbumCardView(album: album)
+                        Button {
+                            selectedAlbum = album
+                        } label: {
+                            AlbumCardView(album: album)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
                 .padding(.horizontal, LaxifyMetrics.screenPadding)

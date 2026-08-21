@@ -53,27 +53,27 @@ struct FavoritesView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(spacing: 18) {
             coverCollage
-                .frame(height: 220)
-                .padding(.horizontal, LaxifyMetrics.screenPadding)
+                .frame(width: 210, height: 210)
+                .shadow(color: .black.opacity(0.3), radius: 24, y: 12)
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(spacing: 6) {
                 Text("Избранное")
-                    .font(LaxifyTypography.largeTitle)
+                    .font(.system(size: 30, weight: .bold))
                     .foregroundStyle(LaxifyPalette.textPrimary)
 
-                Text("\(allFavorites.count) треков · \(formattedTotalDuration)")
+                Text("\(allFavorites.count) \(tracksWord) · \(formattedTotalDuration)")
                     .font(LaxifyTypography.footnote)
                     .foregroundStyle(LaxifyPalette.textSecondary)
             }
-            .padding(.horizontal, LaxifyMetrics.screenPadding)
 
             HStack(spacing: 12) {
                 Button {
                     playAll(shuffled: false)
                 } label: {
                     Label("Слушать", systemImage: "play.fill")
+                        .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.laxifyPrimary)
 
@@ -81,23 +81,55 @@ struct FavoritesView: View {
                     playAll(shuffled: true)
                 } label: {
                     Label("Перемешать", systemImage: "shuffle")
+                        .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.laxifySecondary)
             }
             .padding(.horizontal, LaxifyMetrics.screenPadding)
         }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 8)
+    }
+
+    private var tracksWord: String {
+        let remainder10 = allFavorites.count % 10
+        let remainder100 = allFavorites.count % 100
+        if remainder10 == 1, remainder100 != 11 {
+            return "трек"
+        } else if (2...4).contains(remainder10), !(12...14).contains(remainder100) {
+            return "трека"
+        } else {
+            return "треков"
+        }
     }
 
     private var coverCollage: some View {
         let urls = recentCovers
-        return LazyVGrid(columns: [GridItem(.flexible(), spacing: 0), GridItem(.flexible(), spacing: 0)], spacing: 0) {
-            ForEach(0..<4, id: \.self) { index in
-                AsyncCoverImage(url: index < urls.count ? urls[index] : nil, cornerRadius: 0)
-                    .aspectRatio(1, contentMode: .fill)
-                    .clipped()
+        return Group {
+            if urls.count >= 4 {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 0), GridItem(.flexible(), spacing: 0)], spacing: 0) {
+                    ForEach(0..<4, id: \.self) { index in
+                        AsyncCoverImage(url: urls[index], cornerRadius: 0)
+                            .aspectRatio(1, contentMode: .fill)
+                            .clipped()
+                    }
+                }
+            } else if let first = urls.first {
+                AsyncCoverImage(url: first, cornerRadius: 0)
+            } else {
+                LinearGradient(
+                    colors: [LaxifyPalette.accent.opacity(0.7), LaxifyPalette.accent.opacity(0.25)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .overlay {
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 54, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.9))
+                }
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: LaxifyMetrics.cardCornerRadius, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
     }
 
     private var sortRow: some View {

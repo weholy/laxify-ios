@@ -7,6 +7,14 @@ final class HomeViewModel {
     private(set) var isLoading = false
     private(set) var errorMessage: String?
 
+    private(set) var waveTracks: [Song] = []
+    private(set) var isLoadingWave = false
+    private var waveSeed: [String] = []
+
+    private(set) var podcasts: [MusicCollection] = []
+    private(set) var isLoadingPodcasts = false
+    private(set) var podcastsError: String?
+
     private let service: any MusicService
 
     init(service: any MusicService = YandexMusicService.shared) {
@@ -20,6 +28,36 @@ final class HomeViewModel {
 
     func reload() async {
         await load()
+    }
+
+    /// Rebuilds the personalised feed whenever the set of favourite artists
+    /// changes, so "your wave" reflects new likes instead of staying frozen
+    /// on whatever was fetched at launch.
+    func refreshWave(seedArtistIds: [String]) async {
+        let seed = Array(seedArtistIds.sorted().prefix(6))
+        guard seed != waveSeed else { return }
+        waveSeed = seed
+
+        guard !seed.isEmpty else {
+            waveTracks = []
+            return
+        }
+
+        isLoadingWave = true
+        waveTracks = (try? await service.waveTracks(seedArtistIds: seed)) ?? []
+        isLoadingWave = false
+    }
+
+    func loadPodcastsIfNeeded() async {
+        guard podcasts.isEmpty, !isLoadingPodcasts else { return }
+        isLoadingPodcasts = true
+        podcastsError = nil
+        do {
+            podcasts = try await service.podcastCollections()
+        } catch {
+            podcastsError = "Не удалось загрузить подкасты"
+        }
+        isLoadingPodcasts = false
     }
 
     private func load() async {

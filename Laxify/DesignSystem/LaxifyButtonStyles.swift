@@ -5,7 +5,9 @@ struct LaxifyPrimaryButtonStyle: ButtonStyle {
         configuration.label
             .font(LaxifyTypography.headline)
             .foregroundStyle(.white)
-            .padding(.horizontal, 24)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .padding(.horizontal, 20)
             .padding(.vertical, 14)
             .background(LaxifyPalette.accent, in: Capsule())
             .scaleEffect(configuration.isPressed ? 0.96 : 1)
@@ -18,7 +20,9 @@ struct LaxifySecondaryButtonStyle: ButtonStyle {
         configuration.label
             .font(LaxifyTypography.headline)
             .foregroundStyle(LaxifyPalette.textPrimary)
-            .padding(.horizontal, 24)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .padding(.horizontal, 20)
             .padding(.vertical, 14)
             .laxGlassCapsule(interactive: true)
             .scaleEffect(configuration.isPressed ? 0.96 : 1)
