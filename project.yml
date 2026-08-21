@@ -7,6 +7,9 @@ packages:
   YMAPI:
     url: https://github.com/p0rterB/YM-API.git
     from: 0.7.1
+  GoogleSignIn:
+    url: https://github.com/google/GoogleSignIn-iOS
+    from: 7.1.0
 targets:
   Laxify:
     type: application
@@ -32,3 +35,5 @@ targets:
       Release: Config/Secrets.xcconfig
     dependencies:
       - package: YMAPI
+      - package: GoogleSignIn
+        product: GoogleSignIn

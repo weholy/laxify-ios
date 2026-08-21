@@ -41,5 +41,16 @@
     </array>
     <key>LaxifyAccessKey</key>
     <string>$(LAXIFY_ACCESS_KEY)</string>
+    <key>GIDClientID</key>
+    <string>429672118190-bpqosadr0dorkdjocdm0vntflcq4mhbm.apps.googleusercontent.com</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>com.googleusercontent.apps.429672118190-bpqosadr0dorkdjocdm0vntflcq4mhbm</string>
+            </array>
+        </dict>
+    </array>
 </dict>
 </plist>

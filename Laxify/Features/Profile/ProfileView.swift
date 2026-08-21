@@ -1,7 +1,11 @@
 import SwiftUI
+import SwiftData
 
 struct ProfileView: View {
+    @Query private var profiles: [UserProfile]
     @State private var logText = AppLogger.readAll()
+
+    private var profile: UserProfile? { profiles.first }
 
     var body: some View {
         ScrollView {
@@ -11,6 +15,10 @@ struct ProfileView: View {
                     .foregroundStyle(LaxifyPalette.textPrimary)
                     .padding(.horizontal, LaxifyMetrics.screenPadding)
 
+                if let profile {
+                    identitySection(profile)
+                }
+
                 diagnosticsSection
             }
             .padding(.top, 12)
@@ -19,6 +27,52 @@ struct ProfileView: View {
         .background(LaxifyPalette.background)
         .onAppear {
             logText = AppLogger.readAll()
+        }
+    }
+
+    private func identitySection(_ profile: UserProfile) -> some View {
+        HStack(spacing: 14) {
+            avatarView(profile)
+                .frame(width: 64, height: 64)
+                .clipShape(Circle())
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(profile.displayName)
+                    .font(LaxifyTypography.title)
+                    .foregroundStyle(LaxifyPalette.textPrimary)
+                if !profile.username.isEmpty {
+                    Text("@\(profile.username)")
+                        .font(LaxifyTypography.footnote)
+                        .foregroundStyle(LaxifyPalette.textSecondary)
+                }
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, LaxifyMetrics.screenPadding)
+    }
+
+    @ViewBuilder
+    private func avatarView(_ profile: UserProfile) -> some View {
+        if let avatarData = profile.avatarData, let uiImage = UIImage(data: avatarData) {
+            Image(uiImage: uiImage)
+                .resizable()
+                .scaledToFill()
+        } else if let url = profile.googleAvatarURL {
+            AsyncImage(url: url) { phase in
+                if let image = phase.image {
+                    image.resizable().scaledToFill()
+                } else {
+                    Circle().fill(LaxifyPalette.surface)
+                }
+            }
+        } else {
+            Circle()
+                .fill(LaxifyPalette.surface)
+                .overlay {
+                    Image(systemName: "person.fill")
+                        .foregroundStyle(LaxifyPalette.textTertiary)
+                }
         }
     }
 

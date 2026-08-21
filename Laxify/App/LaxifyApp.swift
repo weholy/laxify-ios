@@ -9,8 +9,8 @@ struct LaxifyApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView()
+            AppRootView()
         }
-        .modelContainer(for: [FavoriteTrack.self, SearchHistoryEntry.self, DislikedTrack.self])
+        .modelContainer(for: [FavoriteTrack.self, SearchHistoryEntry.self, DislikedTrack.self, UserProfile.self])
     }
 }
