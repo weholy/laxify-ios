@@ -30,7 +30,7 @@ final class HomeViewModel {
         } catch MusicServiceError.missingAccessKey {
             errorMessage = "Добавьте ключ доступа в Профиле"
         } catch {
-            errorMessage = "Не удалось загрузить главную"
+            errorMessage = "Не удалось загрузить главную (\(error))"
         }
         isLoading = false
     }
