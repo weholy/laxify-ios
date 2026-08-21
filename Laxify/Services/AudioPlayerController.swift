@@ -1,7 +1,5 @@
 import Foundation
 import AVFoundation
-import MediaPlayer
-import UIKit
 
 @MainActor
 @Observable
@@ -30,7 +28,7 @@ final class AudioPlayerController {
     private init(service: any MusicService = YandexMusicService.shared) {
         self.service = service
         configureAudioSession()
-        configureRemoteCommands()
+        AppLogger.log("diagnostic build: lock-screen/remote-command integration disabled")
     }
 
     func play(_ song: Song, queue newQueue: [Song] = []) {
@@ -47,7 +45,6 @@ final class AudioPlayerController {
             player.play()
         }
         isPlaying.toggle()
-        updateNowPlayingPlaybackState()
     }
 
     func next() {
@@ -65,7 +62,6 @@ final class AudioPlayerController {
     func seek(to time: TimeInterval) {
         currentTime = time
         player?.seek(to: CMTime(seconds: time, preferredTimescale: 600))
-        updateNowPlayingElapsedTime()
     }
 
     private func loadAndPlayCurrent() {
@@ -100,8 +96,7 @@ final class AudioPlayerController {
                 AppLogger.log("play: play() called")
                 isPlaying = true
                 isLoading = false
-                updateNowPlayingInfo()
-                AppLogger.log("play: now playing info updated, done")
+                AppLogger.log("play: done (now-playing info skipped in diagnostic build)")
             } catch {
                 AppLogger.log("play: ERROR \(error)")
                 isLoading = false
@@ -176,98 +171,5 @@ final class AudioPlayerController {
     private func configureAudioSession() {
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
         try? AVAudioSession.sharedInstance().setActive(true)
-    }
-
-    private func configureRemoteCommands() {
-        let center = MPRemoteCommandCenter.shared()
-
-        center.playCommand.addTarget { [weak self] _ in
-            guard let self else { return .commandFailed }
-            Task { @MainActor in
-                if !self.isPlaying, self.player != nil {
-                    self.togglePlayPause()
-                }
-            }
-            return .success
-        }
-
-        center.pauseCommand.addTarget { [weak self] _ in
-            guard let self else { return .commandFailed }
-            Task { @MainActor in
-                if self.isPlaying {
-                    self.togglePlayPause()
-                }
-            }
-            return .success
-        }
-
-        center.nextTrackCommand.addTarget { [weak self] _ in
-            guard let self else { return .commandFailed }
-            Task { @MainActor in
-                self.next()
-            }
-            return .success
-        }
-
-        center.previousTrackCommand.addTarget { [weak self] _ in
-            guard let self else { return .commandFailed }
-            Task { @MainActor in
-                self.previous()
-            }
-            return .success
-        }
-
-        center.changePlaybackPositionCommand.addTarget { [weak self] event in
-            guard let self, let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
-            let position = event.positionTime
-            Task { @MainActor in
-                self.seek(to: position)
-            }
-            return .success
-        }
-    }
-
-    private func updateNowPlayingInfo() {
-        guard let currentSong else { return }
-        let info: [String: Any] = [
-            MPMediaItemPropertyTitle: currentSong.title,
-            MPMediaItemPropertyArtist: currentSong.artistName,
-            MPMediaItemPropertyPlaybackDuration: duration,
-            MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTime,
-            MPNowPlayingInfoPropertyPlaybackRate: 1.0
-        ]
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
-
-        guard let coverURL = currentSong.coverURL else { return }
-        Task {
-            AppLogger.log("nowPlaying: fetching artwork")
-            guard let (data, _) = try? await URLSession.shared.data(from: coverURL) else {
-                AppLogger.log("nowPlaying: artwork fetch failed")
-                return
-            }
-            guard let image = UIImage(data: data) else {
-                AppLogger.log("nowPlaying: artwork data undecodable")
-                return
-            }
-            AppLogger.log("nowPlaying: artwork decoded, building artwork object")
-            let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
-            var updatedInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? info
-            updatedInfo[MPMediaItemPropertyArtwork] = artwork
-            MPNowPlayingInfoCenter.default().nowPlayingInfo = updatedInfo
-            AppLogger.log("nowPlaying: artwork set")
-        }
-    }
-
-    private func updateNowPlayingPlaybackState() {
-        var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
-        info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
-        info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentTime
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
-    }
-
-    private func updateNowPlayingElapsedTime() {
-        var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
-        info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentTime
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
     }
 }
