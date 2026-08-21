@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 @main
 struct LaxifyApp: App {
@@ -6,5 +7,6 @@ struct LaxifyApp: App {
         WindowGroup {
             RootView()
         }
+        .modelContainer(for: [FavoriteTrack.self, SearchHistoryEntry.self])
     }
 }
