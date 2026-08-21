@@ -1,0 +1,91 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  simulator:
+    name: Simulator build
+    runs-on: macos-26
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Prepare secrets
+        env:
+          LAXIFY_ACCESS_KEY: ${{ secrets.LAXIFY_ACCESS_KEY }}
+        run: |
+          if [ -n "$LAXIFY_ACCESS_KEY" ]; then
+            printf 'LAXIFY_ACCESS_KEY = %s\n' "$LAXIFY_ACCESS_KEY" > Config/Secrets.xcconfig
+          else
+            cp Config/Secrets.example.xcconfig Config/Secrets.xcconfig
+          fi
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build for iOS Simulator
+        run: |
+          xcodebuild build \
+            -project Laxify.xcodeproj \
+            -scheme Laxify \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO
+
+  unsigned-ipa:
+    name: Unsigned IPA
+    runs-on: macos-26
+    needs: simulator
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Prepare secrets
+        env:
+          LAXIFY_ACCESS_KEY: ${{ secrets.LAXIFY_ACCESS_KEY }}
+        run: |
+          if [ -n "$LAXIFY_ACCESS_KEY" ]; then
+            printf 'LAXIFY_ACCESS_KEY = %s\n' "$LAXIFY_ACCESS_KEY" > Config/Secrets.xcconfig
+          else
+            cp Config/Secrets.example.xcconfig Config/Secrets.xcconfig
+          fi
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Archive
+        run: |
+          xcodebuild archive \
+            -project Laxify.xcodeproj \
+            -scheme Laxify \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/Laxify.xcarchive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES \
+            DEVELOPMENT_TEAM=""
+
+      - name: Package unsigned IPA
+        run: |
+          mkdir -p build/Payload
+          cp -r "build/Laxify.xcarchive/Products/Applications/Laxify.app" build/Payload/
+          cd build && zip -qr Laxify.ipa Payload
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Laxify-unsigned-ipa
+          path: build/Laxify.ipa
+          retention-days: 14
