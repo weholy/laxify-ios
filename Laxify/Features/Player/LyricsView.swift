@@ -23,7 +23,7 @@ struct LyricsView: View {
     @ViewBuilder
     private var background: some View {
         ZStack {
-            LaxifyPalette.background
+            Color.black
 
             if let url = player.currentSong?.coverURL {
                 AsyncImage(url: url) { phase in
@@ -34,9 +34,9 @@ struct LyricsView: View {
                     }
                 }
                 .blur(radius: 70)
-
-                Color.black.opacity(0.65)
             }
+
+            Color.black.opacity(0.65)
         }
         .ignoresSafeArea()
     }

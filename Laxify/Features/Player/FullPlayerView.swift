@@ -61,7 +61,7 @@ struct FullPlayerView: View {
     @ViewBuilder
     private var background: some View {
         ZStack {
-            LaxifyPalette.background
+            Color.black
 
             if let url = player.currentSong?.coverURL {
                 AsyncImage(url: url) { phase in
@@ -72,9 +72,9 @@ struct FullPlayerView: View {
                     }
                 }
                 .blur(radius: 60)
-
-                Color.black.opacity(0.55)
             }
+
+            Color.black.opacity(0.55)
         }
         .ignoresSafeArea()
     }
