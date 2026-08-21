@@ -26,7 +26,7 @@ struct RootView: View {
     private var tabContent: some View {
         switch selectedTab {
         case .home:
-            HomeView()
+            HomeView(onSearchTap: { isSearchPresented = true })
         case .favorites:
             FavoritesView()
         case .profile:
