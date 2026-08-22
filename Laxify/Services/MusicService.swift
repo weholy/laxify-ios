@@ -11,7 +11,11 @@ extension Error {
     /// True when the source refused on geography grounds (HTTP 451), which in
     /// practice means the request left through a VPN exit it does not serve.
     var isRegionBlocked: Bool {
-        if case MusicServiceError.regionBlocked = self { return true }
+        if let serviceError = self as? MusicServiceError, case .regionBlocked = serviceError {
+            return true
+        }
+        // The package surfaces the upstream status inside its own error type,
+        // so the code is only reachable through the description.
         return "\(self)".contains("451")
     }
 }
