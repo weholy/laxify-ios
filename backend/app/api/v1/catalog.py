@@ -6,6 +6,7 @@ which is what lets a second source be added later without touching the app.
 """
 
 import asyncio
+import time
 from typing import Any
 
 import httpx
@@ -306,6 +307,10 @@ async def artist_tracks(
     return _tracks(every[offset : offset + limit])
 
 
+_artist_cache: dict[str, tuple[list[dict], float]] = {}
+_ARTIST_TTL = 15 * 60
+
+
 async def _artist_catalogue(artist_id: str, name: str, cap: int = 300) -> list[dict]:
     """An artist's music, not just what one account uploaded.
 
@@ -318,6 +323,11 @@ async def _artist_catalogue(artist_id: str, name: str, cap: int = 300) -> list[d
     and what a search for the name turns up. Own uploads lead, because those
     are unambiguously theirs.
     """
+    key = f"{artist_id}:{cap}"
+    cached = _artist_cache.get(key)
+    if cached is not None and time.monotonic() - cached[1] < _ARTIST_TTL:
+        return cached[0]
+
     async def safe(coro, default):
         try:
             return await coro
@@ -348,7 +358,13 @@ async def _artist_catalogue(artist_id: str, name: str, cap: int = 300) -> list[d
             seen.add(track_id)
             collected.append(raw)
 
-    return collected[:cap]
+    result = collected[:cap]
+    _artist_cache[key] = (result, time.monotonic())
+    if len(_artist_cache) > 300:
+        for stale, _ in sorted(_artist_cache.items(), key=lambda item: item[1][1])[:100]:
+            _artist_cache.pop(stale, None)
+
+    return result
 
 
 async def _nothing() -> list[dict]:
@@ -411,7 +427,9 @@ async def artist_detail(artist_id: str, user: CurrentUser) -> ArtistDetailRespon
     if normalised is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Исполнитель не найден")
 
-    tracks = await _artist_catalogue(artist_id, normalised.name)
+    # Enough for a shortlist and an honest count; the full catalogue is
+    # a separate request, made only when someone asks to see all of it.
+    tracks = await _artist_catalogue(artist_id, normalised.name, cap=120)
 
     top = _tracks(tracks)
     top.sort(key=lambda track: track.playback_count or 0, reverse=True)

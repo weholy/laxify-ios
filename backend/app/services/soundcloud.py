@@ -221,7 +221,9 @@ class SoundCloudClient:
         next_url: str | None = None
         pages = 0
 
-        while len(collected) < cap and pages < 12:
+        # Each page is a round trip the caller waits on; past a few the
+        # returns are small and the wait is not.
+        while len(collected) < cap and pages < 6:
             pages += 1
             if next_url is None:
                 data = await self.request(
