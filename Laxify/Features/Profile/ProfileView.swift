@@ -59,15 +59,7 @@ struct ProfileView: View {
 
             Group {
                 if let url = user?.avatarURL {
-                    AsyncImage(url: url) { phase in
-                        if let image = phase.image {
-                            image
-                                .resizable()
-                                .scaledToFill()
-                                .blur(radius: 90)
-                                .opacity(0.5)
-                        }
-                    }
+                    BlurredBackdrop(url: url, blur: 90, opacity: 0.5)
                 } else {
                     LaxifyPalette.accent.opacity(0.22).blur(radius: 90)
                 }

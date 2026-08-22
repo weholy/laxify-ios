@@ -10,6 +10,7 @@ mix follows current taste, and anything disliked or heard in the last few days
 is filtered out before it reaches them.
 """
 
+import asyncio
 import random
 from datetime import UTC, datetime, timedelta
 
@@ -20,6 +21,7 @@ from sqlalchemy import desc, select
 from app.api.deps import CurrentUser, SessionDep
 from app.api.v1.catalog import CatalogTrack, normalise_track
 from app.models import DislikedTrack, Favorite, ListeningEvent
+from app.services.playability import filter_playable
 from app.services.soundcloud import SoundCloudError, soundcloud
 
 router = APIRouter(prefix="/wave", tags=["wave"])
@@ -123,7 +125,7 @@ async def _discovery_tracks(limit: int) -> list[dict]:
                 seen.add(track_id)
                 collected.append(raw)
 
-    take(await soundcloud.charts(limit=limit))
+    take(await soundcloud.charts(limit=limit * 2))
 
     if len(collected) < limit:
         for genre in random.sample(DISCOVERY_GENRES, k=min(3, len(DISCOVERY_GENRES))):
@@ -231,6 +233,7 @@ async def personal_wave(
 
     collected = _apply_mood(collected, mood)
     collected = _apply_diversity(collected, diversity)
+    collected = await filter_playable(collected, limit)
 
     tracks = [t for t in (normalise_track(raw) for raw in collected) if t][:limit]
 
@@ -281,16 +284,17 @@ async def home(
     )
 
     genre = random.choice(DISCOVERY_GENRES)
-    for_you = [
-        track
-        for track in (normalise_track(raw) for raw in await soundcloud.genre_tracks(genre, limit=limit))
-        if track
-    ]
+    for_you_raw, top_raw = await asyncio.gather(
+        soundcloud.genre_tracks(genre, limit=limit * 2),
+        soundcloud.charts(limit=limit * 2),
+    )
 
-    top = [
-        track
-        for track in (normalise_track(raw) for raw in await soundcloud.charts(limit=limit))
-        if track
-    ]
+    for_you_checked, top_checked = await asyncio.gather(
+        filter_playable(for_you_raw, limit),
+        filter_playable(top_raw, limit),
+    )
+
+    for_you = [track for track in (normalise_track(raw) for raw in for_you_checked) if track]
+    top = [track for track in (normalise_track(raw) for raw in top_checked) if track]
 
     return HomeResponse(wave=wave.tracks, for_you=for_you, charts=top)

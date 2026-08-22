@@ -253,8 +253,13 @@ class SoundCloudClient:
     async def stream_url(self, track: dict) -> str:
         """Resolves a playable URL for a track.
 
-        Progressive MP3 is preferred: it plays in AVPlayer directly, while the
-        HLS variants need more setup for no benefit here.
+        Every variant is tried, best first, because a track can offer several
+        and only some of them answer: label-owned uploads in particular return
+        404 for variants they still advertise. Giving up after the first
+        failure was what made those tracks look broken.
+
+        Progressive MP3 is preferred — it plays in AVPlayer directly and
+        supports byte-range seeking; HLS works too and is the usual fallback.
         """
         transcodings = (track.get("media") or {}).get("transcodings") or []
         if not transcodings:
@@ -262,19 +267,42 @@ class SoundCloudClient:
 
         def rank(item: dict) -> tuple[int, int]:
             fmt = item.get("format") or {}
-            protocol_rank = 0 if fmt.get("protocol") == "progressive" else 1
+            protocol = fmt.get("protocol")
+            protocol_rank = {"progressive": 0, "hls": 1}.get(protocol, 9)
             quality_rank = 0 if item.get("quality") == "hq" else 1
             return (protocol_rank, quality_rank)
 
-        best = sorted(transcodings, key=rank)[0]
+        candidates = [item for item in sorted(transcodings, key=rank) if rank(item)[0] < 9]
+        authorization = track.get("track_authorization")
 
-        # The transcoding url is itself an API call that returns the signed,
-        # short-lived media url.
-        payload = await self.request("", absolute_url=best["url"])
-        url = payload.get("url")
-        if not url:
-            raise SoundCloudError("Не удалось получить ссылку на поток")
-        return url
+        for candidate in candidates:
+            params = {}
+            if authorization:
+                params["track_authorization"] = authorization
+
+            try:
+                payload = await self.request("", params, absolute_url=candidate["url"])
+            except SoundCloudError:
+                continue
+
+            if url := payload.get("url"):
+                return url
+
+        raise SoundCloudError("Трек недоступен для прослушивания")
+
+    async def is_playable(self, track: dict) -> bool:
+        """Whether a stream can actually be resolved for this track.
+
+        Nothing in a track's metadata distinguishes one that plays from one
+        that does not — policy, monetisation and the streamable flag read the
+        same either way. The only reliable answer costs a request, which is
+        why the result is worth caching.
+        """
+        try:
+            await self.stream_url(track)
+            return True
+        except SoundCloudError:
+            return False
 
 
 soundcloud = SoundCloudClient()

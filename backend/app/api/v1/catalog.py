@@ -13,6 +13,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.api.deps import CurrentUser, SessionDep
+from app.services.playability import filter_playable
 from app.services.soundcloud import SoundCloudError, soundcloud
 
 router = APIRouter(prefix="/catalog", tags=["catalog"])
@@ -287,10 +288,12 @@ async def playlist_tracks(playlist_id: str, user: CurrentUser) -> list[CatalogTr
 async def charts(
     user: CurrentUser,
     genre: str = Query("all-music", max_length=40),
-    kind: str = Query("top", pattern="^(top|trending)$"),
+    kind: str = Query("trending", pattern="^(top|trending)$"),
     limit: int = Query(30, ge=1, le=50),
 ) -> list[CatalogTrack]:
     try:
-        return _tracks(await soundcloud.charts(genre=genre, kind=kind, limit=limit))
+        raw = await soundcloud.charts(genre=genre, kind=kind, limit=limit * 2)
     except SoundCloudError as exc:
         raise _guard(exc) from exc
+
+    return _tracks(await filter_playable(raw, limit))

@@ -125,7 +125,18 @@ final class SessionStore {
         }
     }
 
-    func updateProfile(displayName: String, username: String, birthdate: Date?) async -> String? {
+    /// Saves whatever was passed and leaves the rest alone — the server
+    /// treats an omitted field as unchanged, so one call covers the profile
+    /// sheet and every individual toggle in settings.
+    @discardableResult
+    func updateProfile(
+        displayName: String? = nil,
+        username: String? = nil,
+        bio: String? = nil,
+        isProfilePublic: Bool? = nil,
+        isStatsPublic: Bool? = nil,
+        settings: [String: String]? = nil
+    ) async -> String? {
         isBusy = true
         defer { isBusy = false }
 
@@ -133,8 +144,10 @@ final class SessionStore {
             user = try await LaxifyAPI.shared.updateProfile(
                 displayName: displayName,
                 username: username,
-                birthdate: birthdate,
-                clearBirthdate: birthdate == nil
+                bio: bio,
+                isProfilePublic: isProfilePublic,
+                isStatsPublic: isStatsPublic,
+                settings: settings
             )
             cache(user)
             return nil

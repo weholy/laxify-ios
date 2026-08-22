@@ -133,7 +133,7 @@ struct SearchView: View {
             } label: {
                 HStack(spacing: 12) {
                     if entry.coverURL != nil {
-                        AsyncCoverImage(url: entry.coverURL, cornerRadius: LaxifyMetrics.smallCornerRadius)
+                        AsyncCoverImage(url: entry.coverURL, cornerRadius: LaxifyMetrics.smallCornerRadius, displaySize: 48)
                             .frame(width: 44, height: 44)
                     } else {
                         Circle()

@@ -6,7 +6,7 @@ struct SongRowView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            AsyncCoverImage(url: song.coverURL, cornerRadius: LaxifyMetrics.smallCornerRadius)
+            AsyncCoverImage(url: song.coverURL, cornerRadius: LaxifyMetrics.smallCornerRadius, displaySize: 56)
                 .frame(width: 48, height: 48)
 
             VStack(alignment: .leading, spacing: 2) {

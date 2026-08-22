@@ -79,16 +79,7 @@ struct FullPlayerView: View {
     private var background: some View {
         Color.black
             .overlay {
-                if let url = player.currentSong?.coverURL {
-                    AsyncImage(url: url) { phase in
-                        if let image = phase.image {
-                            image
-                                .resizable()
-                                .scaledToFill()
-                                .blur(radius: 60)
-                        }
-                    }
-                }
+                BlurredBackdrop(url: player.currentSong?.coverURL, blur: 60)
             }
             .overlay(Color.black.opacity(0.55))
             .clipped()
@@ -158,7 +149,7 @@ struct FullPlayerView: View {
     }
 
     private var artwork: some View {
-        AsyncCoverImage(url: player.currentSong?.coverURL, cornerRadius: 24)
+        AsyncCoverImage(url: player.currentSong?.coverURL, cornerRadius: 24, displaySize: 360)
             .frame(width: 280, height: 280)
             .overlay(alignment: .bottomTrailing) {
                 if let song = player.currentSong, downloads.isDownloaded(song.id) {

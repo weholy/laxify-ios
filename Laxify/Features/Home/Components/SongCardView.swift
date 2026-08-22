@@ -5,7 +5,7 @@ struct SongCardView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            AsyncCoverImage(url: song.coverURL)
+            AsyncCoverImage(url: song.coverURL, displaySize: 150)
                 .frame(width: 150, height: 150)
 
             Text(song.title)

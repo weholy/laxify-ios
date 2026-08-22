@@ -197,6 +197,10 @@ final class AudioPlayerController {
         updateNowPlayingInfo()
     }
 
+    /// Tracks the source refused within the current queue, so a skip chain
+    /// terminates instead of cycling through the same dead entries.
+    private var unplayableTrackIds: Set<String> = []
+
     private func loadAndPlayCurrent() {
         guard queue.indices.contains(currentIndex) else { return }
         let song = queue[currentIndex]
@@ -246,6 +250,13 @@ final class AudioPlayerController {
                 isLoading = false
                 isPlaying = false
 
+                // Some tracks in the source simply cannot be streamed. Stopping
+                // dead on one of those makes a whole queue look broken, so move
+                // on instead — the listener wanted music, not this exact track.
+                if Self.isUnplayable(error), advancePastUnplayable(song) {
+                    return
+                }
+
                 if error.isRegionBlocked {
                     errorMessage = "Трек недоступен с этим подключением — проверьте VPN"
                 } else {
@@ -254,6 +265,36 @@ final class AudioPlayerController {
                 }
             }
         }
+    }
+
+    /// True when the source cannot produce a stream for this track at all,
+    /// as opposed to the network being down.
+    private static func isUnplayable(_ error: Error) -> Bool {
+        guard case MusicServiceError.underlying(let underlying) = error,
+              case APIError.server(let status, _) = underlying else {
+            return false
+        }
+        return status == 502 || status == 404
+    }
+
+    /// Skips to the next track that has not already failed.
+    ///
+    /// Returns false once the whole queue has been tried, so the caller can
+    /// show a message rather than loop.
+    private func advancePastUnplayable(_ song: Song) -> Bool {
+        unplayableTrackIds.insert(song.id)
+
+        guard let next = queue.indices.first(where: { index in
+            index > currentIndex && !unplayableTrackIds.contains(queue[index].id)
+        }) else {
+            unplayableTrackIds.removeAll()
+            return false
+        }
+
+        AppLogger.log("play: skipping unplayable \(song.id)")
+        currentIndex = next
+        loadAndPlayCurrent()
+        return true
     }
 
     /// Builds the item to play, falling back to our own server if the media

@@ -5,7 +5,7 @@ struct CollectionCardView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            AsyncCoverImage(url: collection.coverURL)
+            AsyncCoverImage(url: collection.coverURL, displaySize: 170)
                 .aspectRatio(1, contentMode: .fit)
 
             Text(collection.title)

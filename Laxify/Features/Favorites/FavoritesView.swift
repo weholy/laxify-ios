@@ -113,13 +113,13 @@ struct FavoritesView: View {
             if urls.count >= 4 {
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 0), GridItem(.flexible(), spacing: 0)], spacing: 0) {
                     ForEach(0..<4, id: \.self) { index in
-                        AsyncCoverImage(url: urls[index], cornerRadius: 0)
+                        AsyncCoverImage(url: urls[index], cornerRadius: 0, displaySize: 90)
                             .aspectRatio(1, contentMode: .fill)
                             .clipped()
                     }
                 }
             } else if let first = urls.first {
-                AsyncCoverImage(url: first, cornerRadius: 0)
+                AsyncCoverImage(url: first, cornerRadius: 0, displaySize: 180)
             } else {
                 LinearGradient(
                     colors: [LaxifyPalette.accent.opacity(0.7), LaxifyPalette.accent.opacity(0.25)],

@@ -158,19 +158,21 @@ actor LaxifyAPI {
     }
 
     func updateProfile(
-        displayName: String?,
-        username: String?,
-        birthdate: Date?,
-        clearBirthdate: Bool
+        displayName: String? = nil,
+        username: String? = nil,
+        bio: String? = nil,
+        isProfilePublic: Bool? = nil,
+        isStatsPublic: Bool? = nil,
+        settings: [String: String]? = nil
     ) async throws -> BackendUser {
         struct Body: Encodable {
             let displayName: String?
             let username: String?
-            let birthdate: String?
+            let bio: String?
+            let isProfilePublic: Bool?
+            let isStatsPublic: Bool?
+            let settings: [String: String]?
         }
-
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
 
         return try await send(
             "/me",
@@ -178,7 +180,10 @@ actor LaxifyAPI {
             body: Body(
                 displayName: displayName,
                 username: username,
-                birthdate: clearBirthdate ? nil : birthdate.map(formatter.string(from:))
+                bio: bio,
+                isProfilePublic: isProfilePublic,
+                isStatsPublic: isStatsPublic,
+                settings: settings
             )
         )
     }

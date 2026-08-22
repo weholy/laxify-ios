@@ -5,7 +5,7 @@ struct AlbumCardView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            AsyncCoverImage(url: album.coverURL)
+            AsyncCoverImage(url: album.coverURL, displaySize: 150)
                 .frame(width: 140, height: 140)
 
             Text(album.title)

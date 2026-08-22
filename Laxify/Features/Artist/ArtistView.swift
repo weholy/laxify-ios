@@ -253,7 +253,7 @@ struct ArtistView: View {
                 HStack(spacing: LaxifyMetrics.itemSpacing) {
                     ForEach(artists) { artist in
                         VStack(spacing: 8) {
-                            AsyncCoverImage(url: artist.imageURL, cornerRadius: 44)
+                            AsyncCoverImage(url: artist.imageURL, cornerRadius: 44, displaySize: 88)
                                 .frame(width: 88, height: 88)
                                 .clipShape(Circle())
 
