@@ -3,7 +3,17 @@ import Foundation
 enum MusicServiceError: Error {
     case missingAccessKey
     case notFound
+    case regionBlocked
     case underlying(Error)
+}
+
+extension Error {
+    /// True when the source refused on geography grounds (HTTP 451), which in
+    /// practice means the request left through a VPN exit it does not serve.
+    var isRegionBlocked: Bool {
+        if case MusicServiceError.regionBlocked = self { return true }
+        return "\(self)".contains("451")
+    }
 }
 
 protocol MusicService: Sendable {

@@ -16,12 +16,13 @@ from app.models.library import (
     PlaylistItem,
     TrackSnapshot,
 )
-from app.models.user import Device, Follow, PushToken, User
+from app.models.user import Device, EmailVerification, Follow, PushToken, User
 
 __all__ = [
     "AuditLog",
     "ClientReport",
     "Device",
+    "EmailVerification",
     "DislikedTrack",
     "Download",
     "Favorite",

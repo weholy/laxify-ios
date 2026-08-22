@@ -45,12 +45,13 @@ final class AudioPlayerController {
         CrashReporter.breadcrumb("configuring remote commands")
         let centre = MPRemoteCommandCenter.shared()
 
-        // These handlers are invoked by MediaPlayer on its own thread, so they
-        // must not touch main-actor state directly — doing that is what
-        // crashed the app moments after playback started. Each one hops to the
-        // main actor and answers the system immediately; the command result
-        // only reports that the request was accepted, not that it finished.
-        centre.playCommand.addTarget { _ in
+        // Every handler is explicitly @Sendable. Without that a closure
+        // written inside this main-actor method inherits the actor, and
+        // MediaPlayer calling it from a background thread trips Swift
+        // Concurrency's queue assertion and kills the process. Each one hops
+        // to the main actor itself and answers the system immediately; the
+        // status only reports that the request was accepted.
+        centre.playCommand.addTarget { @Sendable _ in
             Task { @MainActor in
                 let player = AudioPlayerController.shared
                 if !player.isPlaying { player.togglePlayPause() }
@@ -58,7 +59,7 @@ final class AudioPlayerController {
             return .success
         }
 
-        centre.pauseCommand.addTarget { _ in
+        centre.pauseCommand.addTarget { @Sendable _ in
             Task { @MainActor in
                 let player = AudioPlayerController.shared
                 if player.isPlaying { player.togglePlayPause() }
@@ -66,28 +67,28 @@ final class AudioPlayerController {
             return .success
         }
 
-        centre.togglePlayPauseCommand.addTarget { _ in
+        centre.togglePlayPauseCommand.addTarget { @Sendable _ in
             Task { @MainActor in
                 AudioPlayerController.shared.togglePlayPause()
             }
             return .success
         }
 
-        centre.nextTrackCommand.addTarget { _ in
+        centre.nextTrackCommand.addTarget { @Sendable _ in
             Task { @MainActor in
                 AudioPlayerController.shared.next()
             }
             return .success
         }
 
-        centre.previousTrackCommand.addTarget { _ in
+        centre.previousTrackCommand.addTarget { @Sendable _ in
             Task { @MainActor in
                 AudioPlayerController.shared.previous()
             }
             return .success
         }
 
-        centre.changePlaybackPositionCommand.addTarget { event in
+        centre.changePlaybackPositionCommand.addTarget { @Sendable event in
             guard let event = event as? MPChangePlaybackPositionCommandEvent else {
                 return .commandFailed
             }
@@ -242,10 +243,15 @@ final class AudioPlayerController {
                 AppLogger.log("play: done")
             } catch {
                 AppLogger.log("play: ERROR \(error)")
-                CrashReporter.report("Не удалось воспроизвести трек", detail: "\(error)")
                 isLoading = false
                 isPlaying = false
-                errorMessage = "Не удалось воспроизвести трек"
+
+                if error.isRegionBlocked {
+                    errorMessage = "Трек недоступен с этим подключением — проверьте VPN"
+                } else {
+                    CrashReporter.report("Не удалось воспроизвести трек", detail: "\(error)")
+                    errorMessage = "Не удалось воспроизвести трек"
+                }
             }
         }
     }
@@ -385,23 +391,32 @@ final class AudioPlayerController {
 
     /// Downloads the cover once per track and hands it to the system.
     private func loadArtworkIfNeeded(for song: Song) {
-        CrashReporter.breadcrumb("artwork load \(song.id)")
         guard artworkTrackId != song.id, let url = song.coverURL else { return }
         artworkTrackId = song.id
+        CrashReporter.breadcrumb("artwork load \(song.id)")
 
         artworkTask?.cancel()
-        artworkTask = Task { [weak self] in
+        // Detached on purpose. A Task started from this main-actor class
+        // inherits its isolation, and that isolation is inherited by the
+        // artwork request handler created inside it — MediaPlayer then calls
+        // that handler from a background thread, Swift Concurrency asserts it
+        // is on the main queue, and the process dies with SIGTRAP. Detaching,
+        // plus the explicit @Sendable handler below, keeps the handler free of
+        // any actor so the system may call it from wherever it likes.
+        artworkTask = Task.detached(priority: .utility) {
             guard let (data, _) = try? await URLSession.shared.data(from: url),
-                  let image = UIImage(data: data) else { return }
+                  let image = UIImage(data: data),
+                  !Task.isCancelled else {
+                return
+            }
 
-            guard !Task.isCancelled else { return }
-
-            // The size handler is invoked by the system on its own thread, so
-            // it closes over the image only — nothing actor-isolated.
-            let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+            let handler: @Sendable (CGSize) -> UIImage = { _ in image }
+            let artwork = MPMediaItemArtwork(boundsSize: image.size, requestHandler: handler)
 
             await MainActor.run {
-                guard let self, self.currentSong?.id == song.id else { return }
+                let player = AudioPlayerController.shared
+                guard player.currentSong?.id == song.id else { return }
+
                 var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
                 info[MPMediaItemPropertyArtwork] = artwork
                 MPNowPlayingInfoCenter.default().nowPlayingInfo = info

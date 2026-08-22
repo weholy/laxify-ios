@@ -25,6 +25,11 @@ class User(Base, UUIDMixin, TimestampMixin):
     is_profile_public: Mapped[bool] = mapped_column(Boolean, default=True)
     is_stats_public: Mapped[bool] = mapped_column(Boolean, default=False)
 
+    # Email/password is a second way in, added so the app works where
+    # Google's sign-in is unreachable. Google accounts start with no password.
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    password_hash: Mapped[str | None] = mapped_column(String(256), default=None)
+
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     is_banned: Mapped[bool] = mapped_column(Boolean, default=False)
     ban_reason: Mapped[str | None] = mapped_column(Text, default=None)
@@ -79,3 +84,24 @@ class Follow(Base, TimestampMixin):
     following_id: Mapped[UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     )
+
+
+class EmailVerification(Base, UUIDMixin, TimestampMixin):
+    """One outstanding email code.
+
+    Only the hash of the code is stored: a database leak must not hand out
+    working verification codes. Attempts are counted so a four-digit code
+    cannot be brute-forced.
+    """
+
+    __tablename__ = "email_verifications"
+
+    user_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), default=None, index=True
+    )
+    email: Mapped[str] = mapped_column(String(320), index=True)
+    purpose: Mapped[str] = mapped_column(String(24))
+    code_hash: Mapped[str] = mapped_column(String(128))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(default=0)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
