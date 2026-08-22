@@ -9,10 +9,12 @@ while the relay is still being set up.
 import logging
 import smtplib
 from email.message import EmailMessage
+from email.utils import formatdate, make_msgid
 
 import anyio
 
 from app.core.config import settings
+from app.services import direct_mail
 
 logger = logging.getLogger("laxify.mail")
 
@@ -95,18 +97,27 @@ def notice_email(title: str, message: str) -> tuple[str, str, str]:
     return f"{BRAND} — {title}", _shell(title, body), f"{title}\n\n{message}\n\n{BRAND}"
 
 
-def _send_blocking(to: str, subject: str, html: str, text: str) -> None:
+def _compose(to: str, subject: str, html: str, text: str) -> tuple[EmailMessage, str]:
+    sender = settings.smtp_from or f"no-reply@{direct_mail.DEFAULT_SENDER_HOST}"
+
     message = EmailMessage()
     message["Subject"] = subject
-    message["From"] = f"{BRAND} <{settings.smtp_from}>"
+    message["From"] = f"{BRAND} <{sender}>"
     message["To"] = to
+    # Headers a small sender is judged on: a stable message id from its own
+    # domain, a real date, and a marker saying nobody typed this by hand.
+    message["Reply-To"] = sender
+    message["Message-ID"] = make_msgid(domain=sender.rsplit("@", 1)[-1])
+    message["Date"] = formatdate(localtime=True)
+    message["Auto-Submitted"] = "auto-generated"
+
     message.set_content(text)
     message.add_alternative(html, subtype="html")
 
-    if not settings.smtp_host:
-        logger.warning("SMTP не настроен — письмо для %s не отправлено:\n%s", to, text)
-        return
+    return message, sender
 
+
+def _send_via_relay(message: EmailMessage, to: str) -> None:
     if settings.smtp_use_ssl:
         server = smtplib.SMTP_SSL(settings.smtp_host, settings.smtp_port, timeout=20)
     else:
@@ -123,12 +134,28 @@ def _send_blocking(to: str, subject: str, html: str, text: str) -> None:
 async def send(to: str, subject: str, html: str, text: str) -> bool:
     """Never raises: a failed send must not fail the request that caused it.
 
-    The caller has already written its state; the user can ask for another
-    code, which is a better outcome than a 500 they cannot act on.
+    The caller has already written its state; someone can ask for another
+    code, which is a better outcome than an error they cannot act on.
+
+    A configured relay wins when there is one — it is the more reliable
+    route. Otherwise the message goes straight to the recipient's own mail
+    server, which needs no account anywhere.
     """
+    message, sender = _compose(to, subject, html, text)
+
+    if settings.smtp_host:
+        try:
+            await anyio.to_thread.run_sync(_send_via_relay, message, to)
+            return True
+        except Exception:
+            logger.exception("Реле не приняло письмо для %s, пробую напрямую", to)
+
     try:
-        await anyio.to_thread.run_sync(_send_blocking, to, subject, html, text)
+        await direct_mail.send(message, recipient=to, sender=sender)
         return True
     except Exception:
-        logger.exception("Не удалось отправить письмо на %s", to)
+        logger.exception("Не удалось доставить письмо на %s", to)
+        # Logged in full so a code is still recoverable from the journal
+        # while delivery is being sorted out.
+        logger.warning("Недоставленное письмо для %s: %s", to, text)
         return False

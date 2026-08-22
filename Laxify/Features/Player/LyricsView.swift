@@ -93,7 +93,16 @@ struct LyricsView: View {
     }
 
     private func syncedList(_ lyrics: Lyrics) -> some View {
-        let activeIndex = viewModel.activeLineIndex(at: player.currentTime)
+        // Driven by the display rather than by the player's periodic
+        // observer: the observer hops to the main actor before a view sees
+        // it, which is enough delay for the highlight to trail the vocal.
+        TimelineView(.animation) { _ in
+            syncedBody(lyrics, at: player.preciseTime)
+        }
+    }
+
+    private func syncedBody(_ lyrics: Lyrics, at time: TimeInterval) -> some View {
+        let activeIndex = viewModel.activeLineIndex(at: time)
 
         return ScrollViewReader { proxy in
             ScrollView {
@@ -104,7 +113,8 @@ struct LyricsView: View {
                         lineView(
                             line,
                             isActive: index == activeIndex,
-                            isPast: activeIndex.map { index < $0 } ?? false
+                            isPast: activeIndex.map { index < $0 } ?? false,
+                            at: time
                         )
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .id(index)
@@ -130,12 +140,14 @@ struct LyricsView: View {
     }
 
     @ViewBuilder
-    private func lineView(_ line: LyricLine, isActive: Bool, isPast: Bool) -> some View {
+    private func lineView(
+        _ line: LyricLine, isActive: Bool, isPast: Bool, at time: TimeInterval
+    ) -> some View {
         let text = line.text.isEmpty ? "♪" : line.text
 
         if isActive {
             let words = text.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
-            let progress = viewModel.lineProgress(at: player.currentTime)
+            let progress = viewModel.lineProgress(at: time)
             let spoken = progress * Double(words.count)
 
             WordFlowLayout(horizontalSpacing: 7, lineSpacing: 6) {

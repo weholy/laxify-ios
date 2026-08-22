@@ -101,7 +101,9 @@ actor LaxifyAPI {
 
     private init() {
         let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = 20
+        // A cold home feed assembles several upstream calls; twenty
+        // seconds was close enough to that to time out on a slow link.
+        configuration.timeoutIntervalForRequest = 45
         configuration.waitsForConnectivity = false
         session = URLSession(configuration: configuration)
     }
@@ -552,6 +554,16 @@ actor LaxifyAPI {
         else { return nil }
 
         return (url, ["Authorization": "Bearer \(token)"])
+    }
+
+    /// Asks the server to resolve a stream before it is needed.
+    ///
+    /// Fire and forget: a failure here only means the track starts as slowly
+    /// as it would have anyway.
+    func warmStream(trackId: String) async {
+        _ = try? await send(
+            "/catalog/tracks/\(escaped(trackId))/warm", method: "POST"
+        ) as MessageResponse
     }
 
     // MARK: - Wave

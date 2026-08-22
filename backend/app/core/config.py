@@ -36,7 +36,9 @@ class Settings(BaseSettings):
     smtp_port: int = 587
     smtp_user: str | None = None
     smtp_password: str | None = None
-    smtp_from: str = "no-reply@laxify.app"
+    # Must match the host the reverse record names, or receiving
+    # servers treat the message as forged.
+    smtp_from: str = "no-reply@netevpn.play2go.cloud"
     smtp_use_tls: bool = True
     smtp_use_ssl: bool = False
 

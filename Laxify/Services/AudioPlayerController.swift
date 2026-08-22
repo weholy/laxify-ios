@@ -201,6 +201,40 @@ final class AudioPlayerController {
     /// terminates instead of cycling through the same dead entries.
     private var unplayableTrackIds: Set<String> = []
 
+    /// The playhead, read from the player itself.
+    ///
+    /// `currentTime` is refreshed by a periodic observer that hops to the
+    /// main actor, so by the time a view draws it is already a fraction of a
+    /// second stale — enough for lyrics to visibly trail the vocal. Anything
+    /// that has to line up with what is being heard should read this instead,
+    /// driven by a display-linked timeline rather than by the observer.
+    var preciseTime: TimeInterval {
+        guard let player else { return currentTime }
+
+        let seconds = player.currentTime().seconds
+        guard seconds.isFinite, seconds >= 0 else { return currentTime }
+        return seconds
+    }
+
+    /// Stops playback and forgets the queue.
+    ///
+    /// Used when the account changes: leaving the previous person's track
+    /// playing, and their queue behind it, is both a surprise and a leak.
+    func stopAndClear() {
+        teardownPlayer()
+        queue = []
+        currentIndex = 0
+        currentSong = nil
+        currentTime = 0
+        duration = 0
+        isPlaying = false
+        isLoading = false
+        errorMessage = nil
+        waveBatchId = nil
+        unplayableTrackIds.removeAll()
+        updateNowPlayingInfo()
+    }
+
     private func loadAndPlayCurrent() {
         guard queue.indices.contains(currentIndex) else { return }
         let song = queue[currentIndex]
@@ -215,23 +249,23 @@ final class AudioPlayerController {
 
         Task {
             do {
-                // A saved copy plays with no network at all, and avoids
-                // re-fetching a stream url that would only expire again.
-                let url: URL
+                // Nothing is fetched before playback starts. A saved copy
+                // plays from disk; anything else streams from our own server,
+                // whose address is known without asking. Resolving a url first
+                // and then having the server resolve it again was most of the
+                // wait between a tap and the first sound.
+                let item: AVPlayerItem
                 if let local = DownloadManager.shared.localURL(for: song.id) {
-                    url = local
                     AppLogger.log("play: using downloaded file")
+                    item = AVPlayerItem(url: local)
                 } else {
-                    AppLogger.log("play: requesting stream url")
-                    url = try await service.streamURL(for: song.id)
-                    AppLogger.log("play: got url")
+                    item = try await Self.streamingItem(for: song.id)
                 }
+
                 guard currentSong?.id == song.id else {
                     AppLogger.log("play: song changed while loading, aborting")
                     return
                 }
-
-                let item = await Self.playerItem(for: url, trackId: song.id)
                 AppLogger.log("play: created AVPlayerItem")
                 let newPlayer = AVPlayer(playerItem: item)
                 AppLogger.log("play: created AVPlayer")
@@ -244,6 +278,7 @@ final class AudioPlayerController {
                 isLoading = false
                 updateNowPlayingInfo()
                 reportWaveStart(for: song)
+                prefetchNext()
                 AppLogger.log("play: done")
             } catch {
                 AppLogger.log("play: ERROR \(error)")
@@ -297,30 +332,20 @@ final class AudioPlayerController {
         return true
     }
 
-    /// Builds the item to play, falling back to our own server if the media
-    /// host cannot be reached.
+    /// An item that streams through our own server.
     ///
-    /// The signed url points straight at a CDN, which is faster and costs us
-    /// nothing — but only when the listener's connection can reach it. Rather
-    /// than let that fail as "не удалось воспроизвести", an unreachable CDN
-    /// switches to streaming the same bytes through the backend, which is
-    /// already reachable or nothing else in the app would work either.
-    private static func playerItem(for url: URL, trackId: String) async -> AVPlayerItem {
-        guard !url.isFileURL else { return AVPlayerItem(url: url) }
-
-        if await canReach(url) {
-            return AVPlayerItem(url: url)
-        }
-
-        AppLogger.log("play: media host unreachable, streaming through backend")
-        CrashReporter.breadcrumb("stream fallback \(trackId)")
-
+    /// The signed url the source hands out is bound to the region it was
+    /// issued in, so a phone elsewhere is refused even though the link looks
+    /// valid. The server holds the matching signature and passes the bytes on
+    /// — which also means the app needs no round trip of its own before it
+    /// can start playing.
+    private static func streamingItem(for trackId: String) async throws -> AVPlayerItem {
         guard let proxy = await LaxifyAPI.shared.proxyAudioRequest(trackId: trackId) else {
-            return AVPlayerItem(url: url)
+            throw MusicServiceError.missingAccessKey
         }
 
         // AVPlayer has no public way to attach a header to its own requests,
-        // and the proxy needs the access token like every other endpoint.
+        // and the proxy is authenticated like every other endpoint.
         let asset = AVURLAsset(
             url: proxy.url,
             options: ["AVURLAssetHTTPHeaderFieldsKey": proxy.headers]
@@ -328,19 +353,17 @@ final class AudioPlayerController {
         return AVPlayerItem(asset: asset)
     }
 
-    /// One tiny ranged request, purely to learn whether the host answers.
-    private static func canReach(_ url: URL) async -> Bool {
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("bytes=0-1", forHTTPHeaderField: "Range")
-        request.timeoutInterval = 6
+    /// Warms the next track on the server while this one plays.
+    ///
+    /// Resolving a stream costs the server two calls upstream; doing it
+    /// before the listener asks makes the next track start immediately.
+    private func prefetchNext() {
+        guard queue.indices.contains(currentIndex + 1) else { return }
+        let nextId = queue[currentIndex + 1].id
+        guard DownloadManager.shared.localURL(for: nextId) == nil else { return }
 
-        do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            return (200..<400).contains(status)
-        } catch {
-            return false
+        Task.detached(priority: .background) {
+            await LaxifyAPI.shared.warmStream(trackId: nextId)
         }
     }
 

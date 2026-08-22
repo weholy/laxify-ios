@@ -2,9 +2,10 @@ import SwiftUI
 
 struct SignInView: View {
     var onSignedIn: (AuthenticatedGoogleUser) async -> Void
-    /// Called when a session was created without Google — the caller has a
-    /// session already and only needs to move on.
-    var onSignedInWithEmail: () async -> Void
+    /// Called when a session was created without Google. The response comes
+    /// with it, so the caller knows whether this account is new enough to be
+    /// offered whatever the device collected before it existed.
+    var onSignedInWithEmail: (BackendSessionResponse) async -> Void
 
     @State private var isSigningIn = false
     @State private var errorMessage: String?
@@ -28,9 +29,9 @@ struct SignInView: View {
         }
         .fullScreenCover(isPresented: $showsEmailSignIn) {
             EmailSignInView(
-                onSignedIn: {
+                onSignedIn: { created in
                     showsEmailSignIn = false
-                    await onSignedInWithEmail()
+                    await onSignedInWithEmail(created)
                 },
                 onCancel: { showsEmailSignIn = false }
             )
@@ -231,5 +232,5 @@ struct SignInView: View {
 }
 
 #Preview {
-    SignInView(onSignedIn: { _ in }, onSignedInWithEmail: {})
+    SignInView(onSignedIn: { _ in }, onSignedInWithEmail: { _ in })
 }

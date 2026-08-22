@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import SwiftData
 
 /// The app's view of "who is signed in".
 ///
@@ -21,6 +22,13 @@ final class SessionStore {
     private(set) var user: BackendUser?
     private(set) var lastError: String?
     private(set) var isBusy = false
+
+    /// Whether the server has said this account has never taken on data from
+    /// a device. Only then is there anything worth offering it.
+    private(set) var needsLocalMigration = false
+
+    /// Set by the root view so signing out can clear the on-device library.
+    var modelContext: ModelContext?
 
     private static let cacheKey = "laxify.session.user"
 
@@ -57,6 +65,24 @@ final class SessionStore {
     /// Only a definite 401 signs the user out. A network failure leaves the
     /// stored tokens alone and keeps whatever was cached, so a dead connection
     /// does not silently log someone out of their own library.
+    /// Adopts a session the email flow already created.
+    ///
+    /// The tokens are stored by then; what is missing is the profile behind
+    /// them and whether this account has ever taken on device data.
+    func adopt(_ session: BackendSessionResponse) async {
+        needsLocalMigration = session.needsLocalMigration
+
+        guard let user = try? await LaxifyAPI.shared.currentUser() else {
+            await restore()
+            return
+        }
+
+        self.user = user
+        cache(user)
+        state = session.needsOnboarding ? .needsOnboarding : .signedIn
+        await SyncOutbox.shared.flush()
+    }
+
     func restore() async {
         guard await LaxifyAPI.shared.isSignedIn else {
             state = .signedOut
@@ -89,6 +115,7 @@ final class SessionStore {
             let user = try await LaxifyAPI.shared.currentUser()
             self.user = user
             cache(user)
+            needsLocalMigration = session.needsLocalMigration
             state = session.needsOnboarding ? .needsOnboarding : .signedIn
             await SyncOutbox.shared.flush()
             return true
@@ -165,7 +192,14 @@ final class SessionStore {
     func signOut() async {
         await LaxifyAPI.shared.signOut()
         AuthService.shared.signOut()
+
+        // Everything this account left on the device goes with it. Without
+        // this the next person to sign in inherited the library, the
+        // listening time, and the queued changes still waiting to be sent.
+        LocalStateReset.performOnSignOut(context: modelContext)
+
         user = nil
+        needsLocalMigration = false
         cache(nil)
         state = .signedOut
     }

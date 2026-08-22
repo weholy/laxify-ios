@@ -1,228 +1,143 @@
 import SwiftUI
 
-/// Everything about the account that is not the profile itself.
+/// Settings, as a short list that opens into the thing you picked.
 ///
-/// Grouped into cards with the heading outside and the explanation inside,
-/// so a switch is never presented without saying what it does — most of
-/// these change what other people can see, which is worth being explicit
-/// about rather than leaving to a two-word label.
+/// Everything on one screen meant scrolling past three groups to reach the
+/// fourth. Four entries that each open their own page is faster to read and
+/// leaves room inside each one to say what a switch actually does.
 struct SettingsView: View {
     var onClose: () -> Void
 
     @State private var session = SessionStore.shared
-    @State private var appearance = AppearanceSettings.shared
-
-    @State private var isProfilePublic = true
-    @State private var isStatsPublic = false
-    @State private var bio = ""
-    @State private var savedBio = ""
-
-    @State private var showsEmailSheet = false
-    @State private var showsPasswordSheet = false
     @State private var showsSignOutConfirmation = false
     @State private var isSigningOut = false
-    @State private var statusMessage: String?
 
-    @FocusState private var isEditingBio: Bool
+    private enum Page: String, Identifiable {
+        case privacy
+        case about
+        case account
+        case appearance
 
-    private var user: BackendUser? { session.user }
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .privacy: "Конфиденциальность"
+            case .about: "О себе"
+            case .account: "Аккаунт"
+            case .appearance: "Дизайн"
+            }
+        }
+
+        var subtitle: String {
+            switch self {
+            case .privacy: "Кто видит ваш профиль и что вы слушаете"
+            case .about: "Пара строк для вашей страницы"
+            case .account: "Почта, пароль, имя"
+            case .appearance: "Светлая или тёмная тема"
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .privacy: "lock.fill"
+            case .about: "text.quote"
+            case .account: "person.fill"
+            case .appearance: "paintbrush.fill"
+            }
+        }
+
+        var tint: Color {
+            switch self {
+            case .privacy: .blue
+            case .about: .orange
+            case .account: .green
+            case .appearance: .purple
+            }
+        }
+    }
+
+    @State private var page: Page?
 
     var body: some View {
         ZStack {
             LaxifyPalette.background.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                header
+                SettingsHeader(title: "Настройки", onBack: onClose)
 
                 ScrollView {
-                    VStack(spacing: 26) {
-                        privacySection
-                        bioSection
-                        accountSection
-                        appearanceSection
+                    VStack(spacing: 12) {
+                        ForEach([Page.privacy, .about, .account, .appearance]) { entry in
+                            entryRow(entry)
+                        }
+
                         signOutButton
+                            .padding(.top, 16)
                     }
                     .padding(.horizontal, LaxifyMetrics.screenPadding)
                     .padding(.bottom, 120)
                 }
-                .scrollDismissesKeyboard(.interactively)
-            }
-
-            if let statusMessage {
-                toast(statusMessage)
             }
         }
-        .task { load() }
-        .sheet(isPresented: $showsEmailSheet) {
-            EmailBindingSheet { message in
-                showsEmailSheet = false
-                flash(message)
-            }
-        }
-        .sheet(isPresented: $showsPasswordSheet) {
-            PasswordChangeSheet { message in
-                showsPasswordSheet = false
-                flash(message)
+        .fullScreenCover(item: $page) { entry in
+            switch entry {
+            case .privacy:
+                PrivacySettingsView { page = nil }
+            case .about:
+                AboutSettingsView { page = nil }
+            case .account:
+                AccountSettingsView { page = nil }
+            case .appearance:
+                AppearanceSettingsView { page = nil }
             }
         }
         .confirmationDialog(
-            "Выйти из аккаунта?",
+            "Точно хотите выйти?",
             isPresented: $showsSignOutConfirmation,
             titleVisibility: .visible
         ) {
             Button("Выйти", role: .destructive) { signOut() }
-            Button("Отмена", role: .cancel) {}
-        } message: {
-            Text("Загруженные треки и избранное останутся на сервере")
+            Button("Остаться", role: .cancel) {}
         }
     }
 
-    // MARK: - Header
+    private func entryRow(_ entry: Page) -> some View {
+        Button {
+            page = entry
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: entry.icon)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 34, height: 34)
+                    .background(entry.tint, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
 
-    private var header: some View {
-        HStack {
-            Button(action: onClose) {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(LaxifyPalette.textPrimary)
-                    .frame(width: 38, height: 38)
-                    .glassEffect(.regular.interactive(), in: .circle)
-            }
-            .buttonStyle(.plain)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(entry.title)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(LaxifyPalette.textPrimary)
 
-            Spacer()
-
-            Text("Настройки")
-                .font(LaxifyTypography.headline)
-                .foregroundStyle(LaxifyPalette.textPrimary)
-
-            Spacer()
-
-            // Balances the back button so the title sits centred.
-            Color.clear.frame(width: 38, height: 38)
-        }
-        .padding(.horizontal, LaxifyMetrics.screenPadding)
-        .padding(.bottom, 16)
-    }
-
-    // MARK: - Sections
-
-    private var privacySection: some View {
-        SettingsSection(title: "Конфиденциальность") {
-            SettingsToggle(
-                title: "Открытый профиль",
-                description: "Другие смогут найти вас по имени и увидеть плейлисты",
-                isOn: $isProfilePublic
-            )
-            .onChange(of: isProfilePublic) { _, value in
-                save(isProfilePublic: value)
-            }
-
-            SettingsDivider()
-
-            SettingsToggle(
-                title: "Показывать статистику",
-                description: "Сколько вы слушаете и что чаще всего — будет видно в профиле",
-                isOn: $isStatsPublic
-            )
-            .onChange(of: isStatsPublic) { _, value in
-                save(isStatsPublic: value)
-            }
-        }
-    }
-
-    private var bioSection: some View {
-        SettingsSection(title: "О себе") {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Пара строк, которые увидят в вашем профиле")
-                    .font(LaxifyTypography.footnote)
-                    .foregroundStyle(LaxifyPalette.textSecondary)
-
-                TextField("Расскажите о себе", text: $bio, axis: .vertical)
-                    .font(.system(size: 16))
-                    .foregroundStyle(LaxifyPalette.textPrimary)
-                    .lineLimit(2...4)
-                    .focused($isEditingBio)
-
-                HStack {
-                    Text("\(bio.count) / 160")
-                        .font(.system(size: 12))
-                        .foregroundStyle(
-                            bio.count > 160 ? .red : LaxifyPalette.textTertiary
-                        )
-
-                    Spacer()
-
-                    if bio != savedBio {
-                        Button("Сохранить") {
-                            isEditingBio = false
-                            save(bio: String(bio.prefix(160)))
-                        }
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(LaxifyPalette.accent)
-                        .buttonStyle(.plain)
-                        .transition(.opacity)
-                    }
+                    Text(entry.subtitle)
+                        .font(LaxifyTypography.footnote)
+                        .foregroundStyle(LaxifyPalette.textSecondary)
+                        .lineLimit(1)
                 }
-                .animation(.easeOut(duration: 0.2), value: bio != savedBio)
+
+                Spacer(minLength: 4)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(LaxifyPalette.textTertiary)
             }
             .padding(16)
-        }
-    }
-
-    private var accountSection: some View {
-        SettingsSection(title: "Аккаунт") {
-            SettingsRow(
-                title: "Почта",
-                description: user?.email ?? "—",
-                badge: (user?.emailVerified ?? false) ? nil : "не подтверждена"
-            ) {
-                showsEmailSheet = true
-            }
-
-            SettingsDivider()
-
-            SettingsRow(
-                title: "Пароль",
-                description: "Вход по почте без Google"
-            ) {
-                showsPasswordSheet = true
-            }
-
-            SettingsDivider()
-
-            SettingsRow(
-                title: "Имя пользователя",
-                description: "@\(user?.username ?? "")",
-                showsChevron: false
-            ) {}
-        }
-    }
-
-    private var appearanceSection: some View {
-        SettingsSection(title: "Дизайн") {
-            VStack(alignment: .leading, spacing: 14) {
-                Text("Как приложение выглядит на этом устройстве")
-                    .font(LaxifyTypography.footnote)
-                    .foregroundStyle(LaxifyPalette.textSecondary)
-
-                Picker("Тема", selection: $appearance.theme) {
-                    ForEach(AppearanceSettings.Theme.allCases, id: \.self) { theme in
-                        Text(theme.title).tag(theme)
-                    }
-                }
-                .pickerStyle(.segmented)
-            }
-            .padding(16)
-
-            SettingsDivider()
-
-            SettingsToggle(
-                title: "Плавные переходы",
-                description: "Анимации при открытии плеера и переключении экранов",
-                isOn: $appearance.animationsEnabled
+            .background(
+                LaxifyPalette.surface,
+                in: RoundedRectangle(cornerRadius: 20, style: .continuous)
             )
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
     }
 
     private var signOutButton: some View {
@@ -243,58 +158,6 @@ struct SettingsView: View {
         }
         .buttonStyle(.plain)
         .disabled(isSigningOut)
-        .padding(.top, 4)
-    }
-
-    private func toast(_ message: String) -> some View {
-        VStack {
-            Spacer()
-            Text(message)
-                .font(LaxifyTypography.footnote)
-                .foregroundStyle(LaxifyPalette.textPrimary)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-                .glassEffect(.regular, in: .capsule)
-                .padding(.bottom, 40)
-        }
-        .transition(.move(edge: .bottom).combined(with: .opacity))
-        .allowsHitTesting(false)
-    }
-
-    // MARK: - Actions
-
-    private func load() {
-        guard let user else { return }
-        isProfilePublic = user.isProfilePublic
-        isStatsPublic = user.isStatsPublic
-        bio = user.bio ?? ""
-        savedBio = bio
-    }
-
-    /// Saves one field. The server treats anything omitted as unchanged, so a
-    /// switch does not have to send the whole profile back with it.
-    private func save(
-        bio: String? = nil,
-        isProfilePublic: Bool? = nil,
-        isStatsPublic: Bool? = nil
-    ) {
-        Task {
-            let failure = await session.updateProfile(
-                bio: bio,
-                isProfilePublic: isProfilePublic,
-                isStatsPublic: isStatsPublic
-            )
-
-            if let failure {
-                flash(failure)
-                // Put the switches back where the server still has them,
-                // rather than showing a state that was not saved.
-                load()
-            } else if let bio {
-                savedBio = bio
-                flash("Сохранено")
-            }
-        }
     }
 
     private func signOut() {
@@ -304,43 +167,409 @@ struct SettingsView: View {
             isSigningOut = false
         }
     }
+}
+
+// MARK: - Privacy
+
+struct PrivacySettingsView: View {
+    var onBack: () -> Void
+
+    @State private var session = SessionStore.shared
+    @State private var isProfilePublic = true
+    @State private var isStatsPublic = false
+    @State private var status: String?
+
+    var body: some View {
+        SettingsPage(title: "Конфиденциальность", status: status, onBack: onBack) {
+            SettingsCard {
+                SettingsToggle(
+                    title: "Открытый профиль",
+                    description: "Вас смогут найти по имени и увидеть ваши плейлисты",
+                    isOn: $isProfilePublic
+                )
+                .onChange(of: isProfilePublic) { _, value in
+                    save(isProfilePublic: value)
+                }
+
+                SettingsDivider()
+
+                SettingsToggle(
+                    title: "Показывать, что слушаю",
+                    description: "Сколько вы слушаете и какие треки — будет видно в профиле",
+                    isOn: $isStatsPublic
+                )
+                .onChange(of: isStatsPublic) { _, value in
+                    save(isStatsPublic: value)
+                }
+            }
+        }
+        .onAppear {
+            isProfilePublic = session.user?.isProfilePublic ?? true
+            isStatsPublic = session.user?.isStatsPublic ?? false
+        }
+    }
+
+    private func save(isProfilePublic: Bool? = nil, isStatsPublic: Bool? = nil) {
+        Task {
+            let failure = await session.updateProfile(
+                isProfilePublic: isProfilePublic,
+                isStatsPublic: isStatsPublic
+            )
+
+            if let failure {
+                flash(failure)
+                // Put the switches back where the server still has them,
+                // rather than leaving a state that was never saved.
+                self.isProfilePublic = session.user?.isProfilePublic ?? true
+                self.isStatsPublic = session.user?.isStatsPublic ?? false
+            } else {
+                flash("Сохранено")
+            }
+        }
+    }
 
     private func flash(_ message: String) {
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-            statusMessage = message
-        }
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { status = message }
         Task {
             try? await Task.sleep(for: .seconds(2))
-            withAnimation(.easeOut(duration: 0.25)) { statusMessage = nil }
+            withAnimation(.easeOut(duration: 0.25)) { status = nil }
         }
     }
 }
 
-// MARK: - Building blocks
+// MARK: - About
 
-/// A titled card. The heading sits above the card rather than inside it, so
-/// the group reads as a group before any of its rows do.
-struct SettingsSection<Content: View>: View {
+struct AboutSettingsView: View {
+    var onBack: () -> Void
+
+    @State private var session = SessionStore.shared
+    @State private var bio = ""
+    @State private var saved = ""
+    @State private var status: String?
+    @FocusState private var isEditing: Bool
+
+    private let limit = 160
+
+    var body: some View {
+        SettingsPage(title: "О себе", status: status, onBack: onBack) {
+            SettingsCard {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Эти строки увидят те, кто откроет ваш профиль")
+                        .font(LaxifyTypography.footnote)
+                        .foregroundStyle(LaxifyPalette.textSecondary)
+
+                    TextField("Расскажите о себе", text: $bio, axis: .vertical)
+                        .font(.system(size: 16))
+                        .foregroundStyle(LaxifyPalette.textPrimary)
+                        .lineLimit(3...6)
+                        .focused($isEditing)
+
+                    Text("\(bio.count) из \(limit)")
+                        .font(.system(size: 12))
+                        .foregroundStyle(bio.count > limit ? .red : LaxifyPalette.textTertiary)
+                }
+                .padding(16)
+            }
+
+            if bio != saved {
+                Button {
+                    isEditing = false
+                    save()
+                } label: {
+                    Text("Сохранить")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(LaxifyPalette.background)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(LaxifyPalette.textPrimary, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(bio.count > limit)
+                .opacity(bio.count > limit ? 0.45 : 1)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+        }
+        .animation(.easeOut(duration: 0.2), value: bio != saved)
+        .onAppear {
+            bio = session.user?.bio ?? ""
+            saved = bio
+            isEditing = true
+        }
+    }
+
+    private func save() {
+        let value = String(bio.prefix(limit))
+        Task {
+            let failure = await session.updateProfile(bio: value)
+            if let failure {
+                flash(failure)
+            } else {
+                saved = value
+                bio = value
+                flash("Сохранено")
+            }
+        }
+    }
+
+    private func flash(_ message: String) {
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { status = message }
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            withAnimation(.easeOut(duration: 0.25)) { status = nil }
+        }
+    }
+}
+
+// MARK: - Account
+
+struct AccountSettingsView: View {
+    var onBack: () -> Void
+
+    @State private var session = SessionStore.shared
+    @State private var showsEmailSheet = false
+    @State private var showsPasswordSheet = false
+    @State private var status: String?
+
+    private var user: BackendUser? { session.user }
+
+    var body: some View {
+        SettingsPage(title: "Аккаунт", status: status, onBack: onBack) {
+            SettingsCard {
+                SettingsRow(
+                    title: "Почта",
+                    description: user?.email ?? "—",
+                    badge: (user?.emailVerified ?? false) ? nil : "не подтверждена"
+                ) {
+                    showsEmailSheet = true
+                }
+
+                SettingsDivider()
+
+                SettingsRow(
+                    title: "Пароль",
+                    description: (user?.hasPassword ?? false)
+                        ? "Можно сменить в любой момент"
+                        : "Задайте, чтобы входить по почте"
+                ) {
+                    showsPasswordSheet = true
+                }
+
+                SettingsDivider()
+
+                SettingsRow(
+                    title: "Имя пользователя",
+                    description: "@\(user?.username ?? "")",
+                    showsChevron: false
+                ) {}
+            }
+        }
+        .sheet(isPresented: $showsEmailSheet) {
+            EmailBindingSheet { message in
+                showsEmailSheet = false
+                flash(message)
+            }
+        }
+        .sheet(isPresented: $showsPasswordSheet) {
+            PasswordChangeSheet { message in
+                showsPasswordSheet = false
+                flash(message)
+            }
+        }
+    }
+
+    private func flash(_ message: String) {
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { status = message }
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            withAnimation(.easeOut(duration: 0.25)) { status = nil }
+        }
+    }
+}
+
+// MARK: - Appearance
+
+struct AppearanceSettingsView: View {
+    var onBack: () -> Void
+
+    @State private var appearance = AppearanceSettings.shared
+
+    var body: some View {
+        SettingsPage(title: "Дизайн", status: nil, onBack: onBack) {
+            VStack(spacing: 12) {
+                ForEach(AppearanceSettings.Theme.allCases, id: \.self) { theme in
+                    themeRow(theme)
+                }
+            }
+        }
+    }
+
+    private func themeRow(_ theme: AppearanceSettings.Theme) -> some View {
+        let isSelected = appearance.theme == theme
+
+        return Button {
+            withAnimation(.snappy(duration: 0.25)) { appearance.theme = theme }
+        } label: {
+            HStack(spacing: 14) {
+                ThemePreview(theme: theme)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(theme.title)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(LaxifyPalette.textPrimary)
+
+                    Text(theme.explanation)
+                        .font(LaxifyTypography.footnote)
+                        .foregroundStyle(LaxifyPalette.textSecondary)
+                }
+
+                Spacer(minLength: 4)
+
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 20))
+                    .foregroundStyle(isSelected ? LaxifyPalette.accent : LaxifyPalette.textTertiary)
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .padding(16)
+            .background(
+                LaxifyPalette.surface,
+                in: RoundedRectangle(cornerRadius: 20, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(LaxifyPalette.accent, lineWidth: isSelected ? 2 : 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// A miniature of the app, so a theme can be recognised rather than read.
+private struct ThemePreview: View {
+    let theme: AppearanceSettings.Theme
+
+    var body: some View {
+        ZStack {
+            switch theme {
+            case .light:
+                panel(.white, bar: Color(white: 0.88))
+            case .dark:
+                panel(.black, bar: Color(white: 0.24))
+            case .system:
+                // Split down the middle, which is what "follow the system"
+                // amounts to without knowing what the system is set to.
+                HStack(spacing: 0) {
+                    panel(.white, bar: Color(white: 0.88))
+                    panel(.black, bar: Color(white: 0.24))
+                }
+            }
+        }
+        .frame(width: 42, height: 42)
+        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .stroke(LaxifyPalette.separator, lineWidth: 1)
+        }
+    }
+
+    private func panel(_ background: Color, bar: Color) -> some View {
+        background.overlay(alignment: .bottom) {
+            Capsule()
+                .fill(bar)
+                .frame(height: 6)
+                .padding(.horizontal, 5)
+                .padding(.bottom, 6)
+        }
+    }
+}
+
+// MARK: - Shared pieces
+
+/// The frame every settings page shares: a header, a scrolling body, and a
+/// place for the short confirmation that something was saved.
+struct SettingsPage<Content: View>: View {
     let title: String
+    var status: String?
+    var onBack: () -> Void
     @ViewBuilder var content: () -> Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(LaxifyPalette.textSecondary)
-                .textCase(.uppercase)
-                .kerning(0.4)
-                .padding(.leading, 4)
+        ZStack {
+            LaxifyPalette.background.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                content()
+                SettingsHeader(title: title, onBack: onBack)
+
+                ScrollView {
+                    VStack(spacing: 16) {
+                        content()
+                    }
+                    .padding(.horizontal, LaxifyMetrics.screenPadding)
+                    .padding(.bottom, 120)
+                }
+                .scrollDismissesKeyboard(.interactively)
             }
-            .background(
-                LaxifyPalette.surface,
-                in: RoundedRectangle(cornerRadius: 22, style: .continuous)
-            )
+
+            if let status {
+                VStack {
+                    Spacer()
+                    Text(status)
+                        .font(LaxifyTypography.footnote)
+                        .foregroundStyle(LaxifyPalette.textPrimary)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 12)
+                        .glassEffect(.regular, in: .capsule)
+                        .padding(.bottom, 40)
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .allowsHitTesting(false)
+            }
         }
+    }
+}
+
+struct SettingsHeader: View {
+    let title: String
+    var onBack: () -> Void
+
+    var body: some View {
+        HStack {
+            Button(action: onBack) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(LaxifyPalette.textPrimary)
+                    .frame(width: 38, height: 38)
+                    .glassEffect(.regular.interactive(), in: .circle)
+            }
+            .buttonStyle(.plain)
+
+            Spacer()
+
+            Text(title)
+                .font(LaxifyTypography.headline)
+                .foregroundStyle(LaxifyPalette.textPrimary)
+
+            Spacer()
+
+            // Balances the back button so the title sits centred.
+            Color.clear.frame(width: 38, height: 38)
+        }
+        .padding(.horizontal, LaxifyMetrics.screenPadding)
+        .padding(.bottom, 16)
+    }
+}
+
+struct SettingsCard<Content: View>: View {
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        VStack(spacing: 0) {
+            content()
+        }
+        .background(
+            LaxifyPalette.surface,
+            in: RoundedRectangle(cornerRadius: 20, style: .continuous)
+        )
     }
 }
 

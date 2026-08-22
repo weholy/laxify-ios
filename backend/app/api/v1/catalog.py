@@ -14,6 +14,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.api.deps import CurrentUser, SessionDep
+from app.schemas.common import MessageOut
 from app.services.playability import filter_playable
 from app.services.soundcloud import SoundCloudError, soundcloud
 
@@ -196,10 +197,25 @@ async def stream(track_id: str, user: CurrentUser) -> StreamResponse:
     starts playing rather than caching it alongside the track.
     """
     try:
-        raw = await soundcloud.track(track_id)
-        return StreamResponse(url=await soundcloud.stream_url(raw))
+        return StreamResponse(url=await soundcloud.resolved_stream(track_id))
     except SoundCloudError as exc:
         raise _guard(exc) from exc
+
+
+@router.post("/tracks/{track_id}/warm", response_model=MessageOut)
+async def warm(track_id: str, user: CurrentUser) -> MessageOut:
+    """Resolves a track's stream ahead of being asked to play it.
+
+    Called for the next track in a queue while the current one is still
+    playing, so the moment it is needed there is nothing left to look up.
+    """
+    try:
+        await soundcloud.resolved_stream(track_id)
+        return MessageOut(detail="ok")
+    except SoundCloudError:
+        # A track that cannot be warmed is not an error worth surfacing; it
+        # will be skipped when its turn comes.
+        return MessageOut(detail="skip")
 
 
 @router.get("/tracks/{track_id}/audio")
@@ -214,8 +230,7 @@ async def audio(track_id: str, user: CurrentUser, request: Request) -> Streaming
     seeking within a track does not work, and the player will not scrub.
     """
     try:
-        raw = await soundcloud.track(track_id)
-        source = await soundcloud.stream_url(raw)
+        source = await soundcloud.resolved_stream(track_id)
     except SoundCloudError as exc:
         raise _guard(exc) from exc
 
@@ -271,18 +286,105 @@ async def artist(artist_id: str, user: CurrentUser) -> CatalogArtist:
 async def artist_tracks(
     artist_id: str,
     user: CurrentUser,
-    limit: int = Query(50, ge=1, le=100),
+    limit: int = Query(50, ge=1, le=300),
     offset: int = Query(0, ge=0),
 ) -> list[CatalogTrack]:
+    """The artist's whole catalogue, paged for the caller.
+
+    The source hands out fifty at a time behind a link chain, so this walks
+    it once and slices — asking for page three with an offset returns
+    nothing useful from that endpoint.
+    """
     try:
-        return _tracks(await soundcloud.user_tracks(artist_id, limit=limit, offset=offset))
+        profile = await soundcloud.user(artist_id)
     except SoundCloudError as exc:
         raise _guard(exc) from exc
+
+    name = profile.get("username") or ""
+    every = await _artist_catalogue(artist_id, name)
+
+    return _tracks(every[offset : offset + limit])
+
+
+async def _artist_catalogue(artist_id: str, name: str, cap: int = 300) -> list[dict]:
+    """An artist's music, not just what one account uploaded.
+
+    On this source an artist is an account, and an account holds only what
+    that account posted. The same songs are often uploaded, remixed and
+    reposted by others, which is why a profile could show forty tracks for
+    someone with a far larger catalogue.
+
+    So three sources are merged: the account's own uploads, what it reposted,
+    and what a search for the name turns up. Own uploads lead, because those
+    are unambiguously theirs.
+    """
+    async def safe(coro, default):
+        try:
+            return await coro
+        except SoundCloudError:
+            return default
+
+    own, reposts, searched = await asyncio.gather(
+        safe(soundcloud.all_user_tracks(artist_id, cap=cap), []),
+        safe(soundcloud.user_reposts(artist_id, limit=50), []),
+        safe(soundcloud.search_tracks(_plain(name), limit=50), []) if name else safe(_nothing(), []),
+    )
+
+    collected: list[dict] = []
+    seen: set[str] = set()
+
+    for group in (own, reposts, searched):
+        for raw in group:
+            track_id = str(raw.get("id"))
+            if track_id in seen:
+                continue
+
+            # A search for a name returns anything mentioning it; keep only
+            # what actually credits this artist, or the page fills with
+            # unrelated uploads that happen to share a word.
+            if group is searched and not _credits(raw, name):
+                continue
+
+            seen.add(track_id)
+            collected.append(raw)
+
+    return collected[:cap]
+
+
+async def _nothing() -> list[dict]:
+    return []
+
+
+def _plain(name: str) -> str:
+    """Strips the decoration accounts put around their names.
+
+    Handles such as "☆LiL PEEP☆" search as literally that, which matches
+    almost nothing. The letters are the part worth searching on.
+    """
+    kept = [ch for ch in name if ch.isalnum() or ch.isspace() or ch in "-_&'."]
+    return " ".join("".join(kept).split())
+
+
+def _credits(raw: dict[str, Any], name: str) -> bool:
+    needle = _plain(name).lower()
+    if not needle:
+        return False
+
+    haystack = " ".join(
+        [
+            raw.get("title") or "",
+            (raw.get("user") or {}).get("username") or "",
+            raw.get("publisher_metadata", {}).get("artist") or "" if raw.get("publisher_metadata") else "",
+        ]
+    ).lower()
+
+    return needle in haystack
 
 
 class ArtistDetailResponse(BaseModel):
     artist: CatalogArtist
     top_tracks: list[CatalogTrack]
+    total_track_count: int = 0
     releases: list[CatalogPlaylist]
     similar_artists: list[CatalogArtist]
 
@@ -300,15 +402,19 @@ async def artist_detail(artist_id: str, user: CurrentUser) -> ArtistDetailRespon
         except SoundCloudError:
             return default
 
-    profile, tracks, playlists = await asyncio.gather(
+    profile, playlists = await asyncio.gather(
         safe(soundcloud.user(artist_id), {}),
-        safe(soundcloud.user_tracks(artist_id, limit=50), []),
         safe(soundcloud.user_playlists(artist_id, limit=20), []),
     )
 
     normalised = normalise_artist(profile)
     if normalised is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Исполнитель не найден")
+
+    tracks = await _artist_catalogue(artist_id, normalised.name)
+
+    top = _tracks(tracks)
+    top.sort(key=lambda track: track.playback_count or 0, reverse=True)
 
     releases = [p for p in (normalise_playlist(item) for item in playlists) if p]
     # Newest first, and anything undated last — a release list that opens on
@@ -319,7 +425,10 @@ async def artist_detail(artist_id: str, user: CurrentUser) -> ArtistDetailRespon
 
     return ArtistDetailResponse(
         artist=normalised,
-        top_tracks=_tracks(tracks),
+        # A shortlist, ranked by plays. The full catalogue is a tap away;
+        # thirty rows under "популярные" is a list, not a highlight.
+        top_tracks=top[:8],
+        total_track_count=len(top),
         releases=releases,
         similar_artists=[a for a in (normalise_artist(item) for item in similar) if a],
     )

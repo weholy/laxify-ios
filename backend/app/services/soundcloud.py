@@ -30,6 +30,10 @@ USER_AGENT = (
     "(KHTML, like Gecko) Chrome/122.0 Safari/537.36"
 )
 
+# Signed media urls outlive this comfortably; refreshing sooner than
+# they expire costs a little work and avoids handing out a dead link.
+_STREAM_TTL = 20 * 60
+
 _CLIENT_ID_PATTERN = re.compile(r'client_id[:=]"([a-zA-Z0-9]{32})"')
 _SCRIPT_PATTERN = re.compile(r'src="(https://a-v2\.sndcdn\.com/assets/[^"]+\.js)"')
 
@@ -90,6 +94,8 @@ class SoundCloudClient:
     def __init__(self) -> None:
         self._client_id: _CachedClientID | None = None
         self._lock = asyncio.Lock()
+        self._streams: dict[str, tuple[str, float]] = {}
+        self._stream_locks: dict[str, asyncio.Lock] = {}
 
     async def client_id(self, force_refresh: bool = False) -> str:
         async with self._lock:
@@ -195,9 +201,77 @@ class SoundCloudClient:
 
     async def user_tracks(self, user_id: str, limit: int = 50, offset: int = 0) -> list[dict]:
         data = await self.request(
-            f"users/{user_id}/tracks", {"limit": limit, "offset": offset}
+            f"users/{user_id}/tracks", {"limit": limit, "offset": offset, "linked_partitioning": 1}
         )
         return data.get("collection", [])
+
+    async def all_user_tracks(self, user_id: str, cap: int = 500) -> list[dict]:
+        """Every track an artist has, not just the first page.
+
+        The source pages this, and asking once returned fifty — which on a
+        prolific artist looked like most of their catalogue was missing. Each
+        page carries a link to the next, so the pages are followed rather than
+        guessed at with offsets, which this endpoint handles badly.
+
+        Capped, because a handful of accounts have thousands of uploads and
+        nobody scrolls that far.
+        """
+        collected: list[dict] = []
+        seen: set[str] = set()
+        next_url: str | None = None
+        pages = 0
+
+        while len(collected) < cap and pages < 12:
+            pages += 1
+            if next_url is None:
+                data = await self.request(
+                    f"users/{user_id}/tracks", {"limit": 50, "linked_partitioning": 1}
+                )
+            else:
+                data = await self.request("", absolute_url=next_url)
+
+            page = data.get("collection", [])
+            if not page:
+                break
+
+            added = 0
+            for raw in page:
+                track_id = str(raw.get("id"))
+                if track_id not in seen:
+                    seen.add(track_id)
+                    collected.append(raw)
+                    added += 1
+
+            # A page that repeats what the last one held means the link is
+            # not advancing, and following it again would never end.
+            if added == 0:
+                break
+
+            next_url = data.get("next_href")
+            if not next_url:
+                break
+
+        return collected[:cap]
+
+    async def user_reposts(self, user_id: str, limit: int = 50) -> list[dict]:
+        """Tracks the account shared rather than uploaded.
+
+        Artists repost their own features and remixes constantly, so this is
+        often where the rest of their catalogue actually lives.
+        """
+        try:
+            data = await self.request(
+                f"stream/users/{user_id}/reposts", {"limit": limit}
+            )
+        except SoundCloudError:
+            return []
+
+        tracks = []
+        for item in data.get("collection", []):
+            track = item.get("track") or item
+            if track.get("kind") == "track":
+                tracks.append(track)
+        return tracks
 
     async def user_playlists(self, user_id: str, limit: int = 20) -> list[dict]:
         data = await self.request(f"users/{user_id}/playlists", {"limit": limit})
@@ -301,6 +375,39 @@ class SoundCloudClient:
     async def system_playlist(self, urn: str) -> dict:
         """System playlists live under their own path and are keyed by urn."""
         return await self.request(f"system-playlists/{urn}")
+
+    async def resolved_stream(self, track_id: str) -> str:
+        """A playable url for a track id, cached for as long as it stays valid.
+
+        Resolving costs two calls upstream — the track, then its transcoding —
+        and playback cannot begin until both return. The signed url they
+        produce lasts a while, so holding onto it turns the second play of a
+        track, and every listener after the first, into no upstream work at
+        all.
+        """
+        now = time.monotonic()
+
+        cached = self._streams.get(track_id)
+        if cached is not None and now - cached[1] < _STREAM_TTL:
+            return cached[0]
+
+        # One resolution per track, however many people ask at once.
+        lock = self._stream_locks.setdefault(track_id, asyncio.Lock())
+        async with lock:
+            cached = self._streams.get(track_id)
+            if cached is not None and time.monotonic() - cached[1] < _STREAM_TTL:
+                return cached[0]
+
+            track = await self.track(track_id)
+            url = await self.stream_url(track)
+
+            self._streams[track_id] = (url, time.monotonic())
+            if len(self._streams) > 4000:
+                for stale, _ in sorted(self._streams.items(), key=lambda item: item[1][1])[:1000]:
+                    self._streams.pop(stale, None)
+                    self._stream_locks.pop(stale, None)
+
+            return url
 
     async def stream_url(self, track: dict) -> str:
         """Resolves a playable URL for a track.

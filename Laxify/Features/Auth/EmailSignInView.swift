@@ -11,8 +11,9 @@ import SwiftUI
 /// answer. Confirming the address happens later, in settings, so a code that
 /// fails to arrive never blocks anyone from listening.
 struct EmailSignInView: View {
-    /// Called once a session exists; the caller decides where to go next.
-    var onSignedIn: () async -> Void
+    /// Called once a session exists, with the response that created it —
+    /// the caller needs to know whether the account is brand new.
+    var onSignedIn: (BackendSessionResponse) async -> Void
     var onCancel: () -> Void
 
     private enum Step {
@@ -238,8 +239,10 @@ struct EmailSignInView: View {
 
     private func createAccount() {
         run { [email, password] in
-            try await LaxifyAPI.shared.registerWithEmail(email: email, password: password)
-            await onSignedIn()
+            let created = try await LaxifyAPI.shared.registerWithEmail(
+                email: email, password: password
+            )
+            await onSignedIn(created)
         }
     }
 
@@ -249,8 +252,10 @@ struct EmailSignInView: View {
 
         Task {
             do {
-                try await LaxifyAPI.shared.signInWithEmail(email: email, password: password)
-                await onSignedIn()
+                let created = try await LaxifyAPI.shared.signInWithEmail(
+                    email: email, password: password
+                )
+                await onSignedIn(created)
                 isBusy = false
             } catch {
                 isBusy = false

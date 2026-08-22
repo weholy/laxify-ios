@@ -150,6 +150,38 @@ async def _discovery_tracks(limit: int) -> list[dict]:
     return collected[:limit]
 
 
+def _spread_artists(items: list[dict], limit: int, max_per_artist: int = 2) -> list[dict]:
+    """Keeps one artist from taking over the run.
+
+    A station seeded on a track returns things that sound like it, and the
+    closest match to an artist is usually that same artist. Left alone, liking
+    a few tracks by one person turns the whole wave into their back catalogue —
+    which is a playlist, not a wave.
+
+    Tracks over the cap are not dropped, only moved to the back, so a listener
+    with a narrow library still gets a full run.
+    """
+    counts: dict[str, int] = {}
+    leading: list[dict] = []
+    trailing: list[dict] = []
+
+    for raw in items:
+        artist = str((raw.get("user") or {}).get("id") or "")
+        seen = counts.get(artist, 0)
+
+        if seen < max_per_artist:
+            counts[artist] = seen + 1
+            leading.append(raw)
+        else:
+            trailing.append(raw)
+
+    # Enough variety to fill the run, or it was never there to begin with.
+    if len(leading) >= limit:
+        return leading + trailing
+
+    return leading + trailing
+
+
 def _apply_mood(items: list[dict], mood: str, rng: random.Random) -> list[dict]:
     """Biases the run towards the genres a mood implies.
 
@@ -214,21 +246,26 @@ async def personal_wave(
     collected: list[dict] = []
     seen: set[str] = set()
 
+    # Every seed contributes, rather than the first one filling the run and
+    # the rest never being asked. Taste is not one artist wide.
+    per_seed = max(6, (limit * 2) // max(len(seeds), 1))
+
     for seed in seeds:
         try:
             batch = await soundcloud.station_tracks(seed, limit=40)
         except SoundCloudError:
             continue
 
+        taken = 0
         for raw in batch:
             track_id = str(raw.get("id"))
             if track_id in seen or track_id in excluded:
                 continue
             seen.add(track_id)
             collected.append(raw)
-
-        if len(collected) >= limit * 2:
-            break
+            taken += 1
+            if taken >= per_seed:
+                break
 
     # No history yet, or the stations came back thin: top up from what is
     # popular right now, so a new account still gets a full wave.
@@ -251,6 +288,7 @@ async def personal_wave(
     window = int(time.time() // 900)
     collected = _apply_mood(collected, mood, random.Random(f"{user.id}:{window}:mood"))
     collected = _apply_diversity(collected, diversity, random.Random(f"{user.id}:{window}"))
+    collected = _spread_artists(collected, limit)
     collected = await filter_playable(collected, limit)
 
     tracks = [t for t in (normalise_track(raw) for raw in collected) if t][:limit]

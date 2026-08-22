@@ -3,6 +3,7 @@ import SwiftData
 import UIKit
 
 struct AppRootView: View {
+    @Environment(\.modelContext) private var modelContext
     @Query private var favorites: [FavoriteTrack]
     @Query private var dislikedTracks: [DislikedTrack]
 
@@ -19,7 +20,7 @@ struct AppRootView: View {
             case .signedOut:
                 SignInView(
                     onSignedIn: { user in await signIn(user) },
-                    onSignedInWithEmail: { await signInWithEmail() }
+                    onSignedInWithEmail: { created in await signInWithEmail(created) }
                 )
                 .transition(.opacity)
 
@@ -47,6 +48,9 @@ struct AppRootView: View {
         }
         .animation(.easeInOut(duration: 0.35), value: session.state)
         .task {
+            // Signing out has to be able to clear the on-device library, and
+            // only a view has the context to do it with.
+            session.modelContext = modelContext
             await restore()
         }
         .onOpenURL { url in
@@ -102,20 +106,28 @@ struct AppRootView: View {
     /// The email flow already holds a session by the time it calls back —
     /// the tokens were stored when the server issued them. All that is left is
     /// to load the account behind them.
-    private func signInWithEmail() async {
-        await session.restore()
+    private func signInWithEmail(_ created: BackendSessionResponse) async {
+        await session.adopt(created)
         await migrateLocalDataIfNeeded()
     }
 
-    /// Sends whatever the app collected before this account existed. The
-    /// server accepts this once per account and rejects repeats, so there is
-    /// no risk of double-counting listening time.
+    /// Sends what this device collected before it had an account at all.
+    ///
+    /// Only offered when the server says this account has never migrated, and
+    /// only when there is genuinely something here. Sending unconditionally is
+    /// what put one person's library onto the next person's profile.
     private func migrateLocalDataIfNeeded() async {
+        guard session.needsLocalMigration else { return }
+
         let localFavorites = favorites.map { (song: $0.song, addedAt: $0.addedAt) }
         let localDislikes = dislikedTracks.map(\.id)
         let seconds = ListeningStatsService.shared.totalSecondsListened
 
-        guard !localFavorites.isEmpty || !localDislikes.isEmpty || seconds > 0 else { return }
+        guard LocalStateReset.hasUnmigratedLocalData(
+            favorites: localFavorites.count,
+            dislikes: localDislikes.count,
+            seconds: seconds
+        ) else { return }
 
         try? await LaxifyAPI.shared.migrateLocalData(
             favorites: localFavorites,

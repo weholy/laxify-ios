@@ -14,6 +14,13 @@ final class ListeningStatsService {
         totalSecondsListened = defaults.double(forKey: totalSecondsKey)
     }
 
+    /// Clears the total. Listening time belongs to a person, so it leaves
+    /// with them.
+    func reset() {
+        totalSecondsListened = 0
+        UserDefaults.standard.removeObject(forKey: totalSecondsKey)
+    }
+
     func recordPlayback(seconds: TimeInterval) {
         guard seconds > 0 else { return }
         totalSecondsListened += seconds
