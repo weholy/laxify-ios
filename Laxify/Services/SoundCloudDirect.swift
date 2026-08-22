@@ -59,15 +59,19 @@ actor SoundCloudDirect {
             return await clientIdTask.value
         }
 
-        // Our server holds one already and can hand it over in a single
-        // request — worth trying first, since scraping costs several.
+        // Read from the source itself first. Our server holds one too and
+        // could hand it over in a single request — but asking a server that
+        // cannot be reached costs a full timeout before anything else can
+        // happen, and on the networks this exists for it never can be. The
+        // source is reachable by definition: it is where the music comes
+        // from.
         let task = Task<String?, Never> { [weak self] in
             guard let self else { return nil }
 
-            if let fromServer = await self.keyFromServer() {
-                return fromServer
+            if let scraped = await self.scrapeKey() {
+                return scraped
             }
-            return await self.scrapeKey()
+            return await self.keyFromServer()
         }
 
         clientIdTask = task
@@ -331,6 +335,11 @@ struct SCItem: Decodable {
         let username: String?
         let avatarUrl: String?
         let verified: Bool?
+
+        enum CodingKeys: String, CodingKey {
+            case id, username, verified
+            case avatarUrl = "avatar_url"
+        }
     }
 
     struct Media: Decodable {

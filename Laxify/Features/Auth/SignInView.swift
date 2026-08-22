@@ -14,6 +14,8 @@ struct SignInView: View {
     @State private var coverSongs: [Song] = CoverArtCache.load()
     @State private var showsEmailSignIn = false
     @State private var showsTerms = false
+    @State private var serverUnreachable = false
+    private var session: SessionStore { SessionStore.shared }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -27,6 +29,14 @@ struct SignInView: View {
         .background(LaxifyPalette.background.ignoresSafeArea())
         .task {
             await loadCovers()
+        }
+        .task {
+            // Nothing answered the probe: signing in is not going to work
+            // here, so offer the way in that does not need us.
+            let routes = await LaxifyAPI.shared.routeReport()
+            if !routes.isEmpty, routes.values.allSatisfy({ !$0 }) {
+                withAnimation(.easeOut(duration: 0.3)) { serverUnreachable = true }
+            }
         }
         .sheet(isPresented: $showsTerms) {
             TermsView { showsTerms = false }
@@ -92,6 +102,10 @@ struct SignInView: View {
             VStack(spacing: 12) {
                 googleButton
                 emailButton
+
+                if serverUnreachable {
+                    guestButton
+                }
             }
             .padding(.horizontal, LaxifyMetrics.screenPadding)
             .opacity(buttonAppear ? 1 : 0)
@@ -130,6 +144,25 @@ struct SignInView: View {
 
 
     /// The way in that does not depend on Google being reachable.
+    /// Offered only when the server cannot be reached at all.
+    ///
+    /// On some networks our server is unreachable while the music is not, and
+    /// an app that is nothing but a sign-in screen is worse than one that
+    /// plays. Whatever is collected without an account goes up when one is
+    /// added.
+    private var guestButton: some View {
+        Button {
+            session.continueAsGuest()
+        } label: {
+            Text("Слушать без аккаунта")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(LaxifyPalette.textSecondary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+        }
+        .buttonStyle(.plain)
+    }
+
     private var emailButton: some View {
         Button {
             showsEmailSignIn = true

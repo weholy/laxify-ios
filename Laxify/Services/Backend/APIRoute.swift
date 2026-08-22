@@ -42,7 +42,9 @@ actor APIRouter {
     static let shared = APIRouter()
 
     private static let storageKey = "laxify.api.route"
-    private static let probeTimeout: TimeInterval = 6
+    /// Short on purpose: a route that has not answered in this long is
+    /// not going to, and four others are waiting to be tried.
+    private static let probeTimeout: TimeInterval = 4
 
     private var current: APIRoute
     private var probe: Task<APIRoute, Never>?
@@ -122,10 +124,25 @@ actor APIRouter {
 
     /// Called when a request fails to connect, so the next one can go
     /// somewhere else instead of failing the same way.
+    ///
+    /// Rate limited: when nothing is reachable every request fails, and
+    /// re-racing five routes after each one meant the app spent all its time
+    /// probing. Once a minute is often enough to notice a network coming
+    /// back.
     func routeFailed(_ failed: APIRoute) async {
         guard failed == current else { return }
+
+        let now = Date()
+        if let lastProbe, now.timeIntervalSince(lastProbe) < Self.probeCooldown {
+            return
+        }
+        lastProbe = now
+
         await discover(force: true)
     }
+
+    private var lastProbe: Date?
+    private static let probeCooldown: TimeInterval = 60
 
     private func reachable(_ candidate: APIRoute) async -> Bool {
         await Self.check(candidate)

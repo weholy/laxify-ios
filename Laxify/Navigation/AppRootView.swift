@@ -32,6 +32,10 @@ struct AppRootView: View {
                 )
                 .transition(.opacity)
 
+            case .guest:
+                RootView()
+                    .transition(.opacity)
+
             case .signedIn:
                 if hasShownWelcome {
                     RootView()

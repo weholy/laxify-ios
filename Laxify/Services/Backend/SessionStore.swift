@@ -16,6 +16,13 @@ final class SessionStore {
         case signedOut
         case needsOnboarding
         case signedIn
+        /// Listening without an account.
+        ///
+        /// Exists because our server is unreachable on some networks while
+        /// the music is not — and an app that is only a sign-in screen is
+        /// worse than one that plays. The library stays on the device and
+        /// goes up when an account is added.
+        case guest
     }
 
     private(set) var state: State = .unknown
@@ -42,6 +49,8 @@ final class SessionStore {
         // only if the server disagrees.
         if KeychainStore.read(.accessToken) != nil, let cached = user {
             state = cached.hasCompletedOnboarding ? .signedIn : .needsOnboarding
+        } else if Self.wasGuest {
+            state = .guest
         }
     }
 
@@ -84,6 +93,13 @@ final class SessionStore {
     }
 
     func restore() async {
+        // Someone who chose to listen without an account stays there until
+        // they sign in themselves.
+        if Self.wasGuest, KeychainStore.read(.accessToken) == nil {
+            state = .guest
+            return
+        }
+
         guard await LaxifyAPI.shared.isSignedIn else {
             state = .signedOut
             return
@@ -187,6 +203,27 @@ final class SessionStore {
         guard let refreshed = try? await LaxifyAPI.shared.currentUser() else { return }
         user = refreshed
         cache(refreshed)
+    }
+
+    /// Continues without an account.
+    ///
+    /// Remembered, so the choice does not have to be made again on every
+    /// launch — but it is only offered when the server cannot be reached at
+    /// all, and signing in later keeps everything collected in the meantime.
+    func continueAsGuest() {
+        UserDefaults.standard.set(true, forKey: Self.guestKey)
+        state = .guest
+    }
+
+    func leaveGuest() {
+        UserDefaults.standard.removeObject(forKey: Self.guestKey)
+        state = .signedOut
+    }
+
+    private static let guestKey = "laxify.session.guest"
+
+    private static var wasGuest: Bool {
+        UserDefaults.standard.bool(forKey: guestKey)
     }
 
     func signOut() async {

@@ -81,9 +81,10 @@ actor LaxifyAPI {
 
     private init() {
         let configuration = URLSessionConfiguration.default
-        // A cold home feed assembles several upstream calls; twenty
-        // seconds was close enough to that to time out on a slow link.
-        configuration.timeoutIntervalForRequest = 45
+        // Long enough for a cold home feed, which assembles several upstream
+        // calls, but not so long that an unreachable server holds up
+        // everything queued behind it.
+        configuration.timeoutIntervalForRequest = 20
         configuration.waitsForConnectivity = false
         session = URLSession(configuration: configuration)
     }
