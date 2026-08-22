@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
@@ -21,7 +21,6 @@ class UserPublic(ORMModel):
 
 class UserProfileOut(UserPublic):
     email: str
-    birthdate: date | None = None
     is_stats_public: bool
     has_completed_onboarding: bool
     settings: dict = Field(default_factory=dict)
@@ -39,7 +38,6 @@ class UserUpdate(BaseModel):
     display_name: str | None = Field(default=None, min_length=1, max_length=80)
     username: str | None = Field(default=None, min_length=2, max_length=32)
     bio: str | None = Field(default=None, max_length=160)
-    birthdate: date | None = None
     avatar_url: str | None = None
     is_profile_public: bool | None = None
     is_stats_public: bool | None = None
@@ -63,7 +61,6 @@ class UserUpdate(BaseModel):
 class OnboardingRequest(BaseModel):
     display_name: str = Field(min_length=1, max_length=80)
     username: str = Field(min_length=2, max_length=32)
-    birthdate: date | None = None
     avatar_url: str | None = None
 
     @field_validator("username")

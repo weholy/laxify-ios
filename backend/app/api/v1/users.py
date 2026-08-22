@@ -82,7 +82,6 @@ async def complete_onboarding(
 
     user.display_name = payload.display_name
     user.username = payload.username
-    user.birthdate = payload.birthdate
     if payload.avatar_url:
         user.avatar_url = payload.avatar_url
     user.has_completed_onboarding = True

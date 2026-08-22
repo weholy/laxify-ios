@@ -1,7 +1,7 @@
-from datetime import date, datetime
+from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -11,7 +11,8 @@ from app.db.base import Base, TimestampMixin, UUIDMixin
 class User(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "users"
 
-    google_sub: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    # Null for accounts created with email + password.
+    google_sub: Mapped[str | None] = mapped_column(String(64), unique=True, index=True, default=None)
     email: Mapped[str] = mapped_column(String(320), index=True)
     display_name: Mapped[str] = mapped_column(String(80))
     # Always stored lowercased, so the plain unique index gives
@@ -19,7 +20,6 @@ class User(Base, UUIDMixin, TimestampMixin):
     username: Mapped[str] = mapped_column(String(32), unique=True, index=True)
     avatar_url: Mapped[str | None] = mapped_column(Text, default=None)
     google_avatar_url: Mapped[str | None] = mapped_column(Text, default=None)
-    birthdate: Mapped[date | None] = mapped_column(Date, default=None)
     bio: Mapped[str | None] = mapped_column(String(160), default=None)
 
     is_profile_public: Mapped[bool] = mapped_column(Boolean, default=True)

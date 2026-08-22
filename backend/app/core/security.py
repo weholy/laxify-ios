@@ -64,3 +64,46 @@ def hash_refresh_token(token: str) -> str:
 
 def generate_share_slug(length: int = 12) -> str:
     return secrets.token_urlsafe(length)[:length]
+
+
+# MARK: - Passwords
+
+# PBKDF2 from the standard library rather than bcrypt: no extra dependency to
+# keep in step, and no version-compatibility surprises on a server that also
+# runs other things.
+_PBKDF2_ITERATIONS = 210_000
+
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, _PBKDF2_ITERATIONS)
+    return f"pbkdf2_sha256${_PBKDF2_ITERATIONS}${salt.hex()}${digest.hex()}"
+
+
+def verify_password(password: str, password_hash: str) -> bool:
+    try:
+        algorithm, iterations, salt_hex, digest_hex = password_hash.split("$")
+        if algorithm != "pbkdf2_sha256":
+            return False
+        expected = hashlib.pbkdf2_hmac(
+            "sha256", password.encode(), bytes.fromhex(salt_hex), int(iterations)
+        )
+    except (ValueError, TypeError):
+        return False
+
+    return secrets.compare_digest(expected.hex(), digest_hex)
+
+
+def generate_email_code(length: int = 4) -> str:
+    """A numeric code, short enough to retype from a phone.
+
+    Short means guessable, so the safety here comes from the attempt limit and
+    expiry on the row that stores it, not from the code's own entropy.
+    """
+    return "".join(secrets.choice("0123456789") for _ in range(length))
+
+
+def hash_email_code(code: str, email: str) -> str:
+    # Salted with the address so a code captured for one mailbox cannot be
+    # replayed against another.
+    return hashlib.sha256(f"{code}:{email.lower()}:{settings.jwt_secret}".encode()).hexdigest()

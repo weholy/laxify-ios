@@ -30,6 +30,16 @@ class Settings(BaseSettings):
 
     google_client_ids: list[str] = Field(default_factory=list)
 
+    # Mail relay. Unset means codes are logged instead of sent, so the server
+    # runs without a mail account configured.
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_user: str | None = None
+    smtp_password: str | None = None
+    smtp_from: str = "no-reply@laxify.app"
+    smtp_use_tls: bool = True
+    smtp_use_ssl: bool = False
+
     # Yandex access is pooled server-side. One token today, more later —
     # rotation logic keys off this table rather than a single env value.
     yandex_tokens: list[str] = Field(default_factory=list)
