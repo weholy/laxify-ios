@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 enum APIError: LocalizedError {
     case notAuthenticated
@@ -330,6 +331,105 @@ actor LaxifyAPI {
         KeychainStore.save(tokens.refreshToken, for: .refreshToken)
     }
 
+    // MARK: - Email sign-in
+
+    func requestEmailCode(email: String, purpose: String) async throws -> EmailCodeResponse {
+        struct Body: Encodable {
+            let email: String
+            let purpose: String
+        }
+        return try await send(
+            "/auth/email/request-code",
+            method: "POST",
+            body: Body(email: email, purpose: purpose),
+            authenticated: false
+        )
+    }
+
+    func verifyEmailCode(email: String, code: String, purpose: String) async throws -> EmailVerifiedResponse {
+        struct Body: Encodable {
+            let email: String
+            let code: String
+            let purpose: String
+        }
+        return try await send(
+            "/auth/email/verify-code",
+            method: "POST",
+            body: Body(email: email, code: code, purpose: purpose),
+            authenticated: false
+        )
+    }
+
+    @discardableResult
+    func setEmailPassword(
+        email: String, code: String, password: String, purpose: String = "bind"
+    ) async throws -> BackendSessionResponse {
+        struct Body: Encodable {
+            let email: String
+            let code: String
+            let password: String
+            let purpose: String
+            let deviceName: String
+        }
+        let session: BackendSessionResponse = try await send(
+            "/auth/email/set-password",
+            method: "POST",
+            body: Body(
+                email: email,
+                code: code,
+                password: password,
+                purpose: purpose,
+                deviceName: await UIDevice.current.name
+            ),
+            authenticated: false
+        )
+        store(session.tokens)
+        return session
+    }
+
+    @discardableResult
+    func signInWithEmail(email: String, password: String) async throws -> BackendSessionResponse {
+        struct Body: Encodable {
+            let email: String
+            let password: String
+            let deviceName: String
+            let appVersion: String?
+        }
+        let session: BackendSessionResponse = try await send(
+            "/auth/email/login",
+            method: "POST",
+            body: Body(
+                email: email,
+                password: password,
+                deviceName: await UIDevice.current.name,
+                appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+            ),
+            authenticated: false
+        )
+        store(session.tokens)
+        return session
+    }
+
+    func changeEmail(to email: String, code: String) async throws -> MessageResponse {
+        struct Body: Encodable {
+            let email: String
+            let code: String
+        }
+        return try await send("/auth/email/change", method: "POST", body: Body(email: email, code: code))
+    }
+
+    func changePassword(current: String?, new: String) async throws -> MessageResponse {
+        struct Body: Encodable {
+            let currentPassword: String?
+            let newPassword: String
+        }
+        return try await send(
+            "/auth/email/password",
+            method: "POST",
+            body: Body(currentPassword: current, newPassword: new)
+        )
+    }
+
     // MARK: - Catalogue
 
     /// Percent-encodes one query value.
@@ -387,6 +487,18 @@ actor LaxifyAPI {
 
     func catalogCharts(limit: Int = 30) async throws -> [CatalogTrackDTO] {
         try await send("/catalog/charts?limit=\(limit)", method: "GET")
+    }
+
+    /// Address and headers for streaming a track through this server.
+    ///
+    /// Returns nil when there is no session — the proxy is authenticated like
+    /// everything else, and there is nothing useful to hand the player.
+    func proxyAudioRequest(trackId: String) -> (url: URL, headers: [String: String])? {
+        guard let token = KeychainStore.read(.accessToken),
+              let url = URL(string: baseURL.absoluteString + "/catalog/tracks/\(escaped(trackId))/audio")
+        else { return nil }
+
+        return (url, ["Authorization": "Bearer \(token)"])
     }
 
     // MARK: - Wave

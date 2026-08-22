@@ -185,3 +185,15 @@ struct HomeFeedResponse: Codable, Sendable {
     let forYou: [CatalogTrackDTO]
     let charts: [CatalogTrackDTO]
 }
+
+struct EmailCodeResponse: Codable, Sendable {
+    let sent: Bool
+    let resendAfterSeconds: Int
+    /// Present only while mail delivery is still being configured server-side.
+    let debugCode: String?
+}
+
+struct EmailVerifiedResponse: Codable, Sendable {
+    let verified: Bool
+    let needsPassword: Bool
+}

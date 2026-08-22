@@ -227,7 +227,7 @@ final class AudioPlayerController {
                     return
                 }
 
-                let item = AVPlayerItem(url: url)
+                let item = await Self.playerItem(for: url, trackId: song.id)
                 AppLogger.log("play: created AVPlayerItem")
                 let newPlayer = AVPlayer(playerItem: item)
                 AppLogger.log("play: created AVPlayer")
@@ -253,6 +253,53 @@ final class AudioPlayerController {
                     errorMessage = "Не удалось воспроизвести трек"
                 }
             }
+        }
+    }
+
+    /// Builds the item to play, falling back to our own server if the media
+    /// host cannot be reached.
+    ///
+    /// The signed url points straight at a CDN, which is faster and costs us
+    /// nothing — but only when the listener's connection can reach it. Rather
+    /// than let that fail as "не удалось воспроизвести", an unreachable CDN
+    /// switches to streaming the same bytes through the backend, which is
+    /// already reachable or nothing else in the app would work either.
+    private static func playerItem(for url: URL, trackId: String) async -> AVPlayerItem {
+        guard !url.isFileURL else { return AVPlayerItem(url: url) }
+
+        if await canReach(url) {
+            return AVPlayerItem(url: url)
+        }
+
+        AppLogger.log("play: media host unreachable, streaming through backend")
+        CrashReporter.breadcrumb("stream fallback \(trackId)")
+
+        guard let proxy = await LaxifyAPI.shared.proxyAudioRequest(trackId: trackId) else {
+            return AVPlayerItem(url: url)
+        }
+
+        // AVPlayer has no public way to attach a header to its own requests,
+        // and the proxy needs the access token like every other endpoint.
+        let asset = AVURLAsset(
+            url: proxy.url,
+            options: ["AVURLAssetHTTPHeaderFieldsKey": proxy.headers]
+        )
+        return AVPlayerItem(asset: asset)
+    }
+
+    /// One tiny ranged request, purely to learn whether the host answers.
+    private static func canReach(_ url: URL) async -> Bool {
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("bytes=0-1", forHTTPHeaderField: "Range")
+        request.timeoutInterval = 6
+
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            return (200..<400).contains(status)
+        } catch {
+            return false
         }
     }
 

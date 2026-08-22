@@ -17,9 +17,10 @@ struct AppRootView: View {
                 launchScreen
 
             case .signedOut:
-                SignInView { user in
-                    await signIn(user)
-                }
+                SignInView(
+                    onSignedIn: { user in await signIn(user) },
+                    onSignedInWithEmail: { await signInWithEmail() }
+                )
                 .transition(.opacity)
 
             case .needsOnboarding:
@@ -95,6 +96,14 @@ struct AppRootView: View {
         guard await session.signIn(idToken: user.idToken, deviceName: Self.deviceName) else {
             return
         }
+        await migrateLocalDataIfNeeded()
+    }
+
+    /// The email flow already holds a session by the time it calls back —
+    /// the tokens were stored when the server issued them. All that is left is
+    /// to load the account behind them.
+    private func signInWithEmail() async {
+        await session.restore()
         await migrateLocalDataIfNeeded()
     }
 

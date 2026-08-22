@@ -7,7 +7,9 @@ which is what lets a second source be added later without touching the app.
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, status
+import httpx
+from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.api.deps import CurrentUser, SessionDep
@@ -177,6 +179,58 @@ async def stream(track_id: str, user: CurrentUser) -> StreamResponse:
         return StreamResponse(url=await soundcloud.stream_url(raw))
     except SoundCloudError as exc:
         raise _guard(exc) from exc
+
+
+@router.get("/tracks/{track_id}/audio")
+async def audio(track_id: str, user: CurrentUser, request: Request) -> StreamingResponse:
+    """Streams the audio through this server.
+
+    The signed url points at a CDN the phone normally reaches directly, which
+    is faster and costs us nothing. This is the fallback for connections that
+    cannot: the bytes take the same route as everything else the app asks for.
+
+    Range headers are passed through in both directions — without them
+    seeking within a track does not work, and the player will not scrub.
+    """
+    try:
+        raw = await soundcloud.track(track_id)
+        source = await soundcloud.stream_url(raw)
+    except SoundCloudError as exc:
+        raise _guard(exc) from exc
+
+    headers = {}
+    if range_header := request.headers.get("range"):
+        headers["Range"] = range_header
+
+    client = httpx.AsyncClient(timeout=httpx.Timeout(30, read=None), follow_redirects=True)
+    upstream = await client.send(
+        client.build_request("GET", source, headers=headers), stream=True
+    )
+
+    if upstream.status_code >= 400:
+        await upstream.aclose()
+        await client.aclose()
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail="Не удалось получить аудио"
+        )
+
+    async def body():
+        try:
+            async for chunk in upstream.aiter_bytes(chunk_size=64 * 1024):
+                yield chunk
+        finally:
+            await upstream.aclose()
+            await client.aclose()
+
+    passthrough = {
+        name: value
+        for name, value in upstream.headers.items()
+        if name.lower() in ("content-length", "content-range", "accept-ranges", "content-type")
+    }
+    passthrough.setdefault("Accept-Ranges", "bytes")
+    passthrough.setdefault("Content-Type", "audio/mpeg")
+
+    return StreamingResponse(body(), status_code=upstream.status_code, headers=passthrough)
 
 
 @router.get("/artists/{artist_id}", response_model=CatalogArtist)

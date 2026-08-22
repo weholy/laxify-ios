@@ -2,12 +2,16 @@ import SwiftUI
 
 struct SignInView: View {
     var onSignedIn: (AuthenticatedGoogleUser) async -> Void
+    /// Called when a session was created without Google — the caller has a
+    /// session already and only needs to move on.
+    var onSignedInWithEmail: () async -> Void
 
     @State private var isSigningIn = false
     @State private var errorMessage: String?
     @State private var appear = false
     @State private var buttonAppear = false
     @State private var coverSongs: [Song] = CoverArtCache.load()
+    @State private var showsEmailSignIn = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -21,6 +25,15 @@ struct SignInView: View {
         .background(LaxifyPalette.background.ignoresSafeArea())
         .task {
             await loadCovers()
+        }
+        .fullScreenCover(isPresented: $showsEmailSignIn) {
+            EmailSignInView(
+                onSignedIn: {
+                    showsEmailSignIn = false
+                    await onSignedInWithEmail()
+                },
+                onCancel: { showsEmailSignIn = false }
+            )
         }
         .onAppear {
             withAnimation(.easeOut(duration: 0.7).delay(0.15)) {
@@ -71,11 +84,14 @@ struct SignInView: View {
                 .lineSpacing(2)
                 .padding(.bottom, 28)
 
-            googleButton
-                .padding(.horizontal, LaxifyMetrics.screenPadding)
-                .opacity(buttonAppear ? 1 : 0)
-                .offset(y: buttonAppear ? 0 : 24)
-                .scaleEffect(buttonAppear ? 1 : 0.96)
+            VStack(spacing: 12) {
+                googleButton
+                emailButton
+            }
+            .padding(.horizontal, LaxifyMetrics.screenPadding)
+            .opacity(buttonAppear ? 1 : 0)
+            .offset(y: buttonAppear ? 0 : 24)
+            .scaleEffect(buttonAppear ? 1 : 0.96)
 
             if let errorMessage {
                 Text(errorMessage)
@@ -99,6 +115,26 @@ struct SignInView: View {
         .offset(y: appear ? 0 : 20)
     }
 
+
+    /// The way in that does not depend on Google being reachable.
+    private var emailButton: some View {
+        Button {
+            showsEmailSignIn = true
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "envelope.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                Text("Войти по почте")
+                    .font(.system(size: 17, weight: .semibold))
+            }
+            .foregroundStyle(LaxifyPalette.textPrimary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 17)
+            .glassEffect(.regular.interactive(), in: .capsule)
+        }
+        .buttonStyle(.plain)
+        .disabled(isSigningIn)
+    }
 
     private var googleButton: some View {
         Button {
@@ -195,5 +231,5 @@ struct SignInView: View {
 }
 
 #Preview {
-    SignInView(onSignedIn: { _ in })
+    SignInView(onSignedIn: { _ in }, onSignedInWithEmail: {})
 }
