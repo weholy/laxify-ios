@@ -3,6 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import CurrentDeviceId, CurrentUser, OptionalUser, SessionDep
 from app.models import Device, Follow, User
@@ -15,7 +16,13 @@ from app.schemas.user import (
     UserUpdate,
     UserWithCounts,
 )
-from app.services.users import is_following, is_username_taken, profile_counts, suggest_usernames
+from app.services.reserved_usernames import is_reserved
+from app.services.users import (
+    is_following,
+    is_username_taken,
+    profile_counts,
+    suggest_usernames,
+)
 
 router = APIRouter(tags=["users"])
 
@@ -32,7 +39,12 @@ async def update_me(payload: UserUpdate, user: CurrentUser, session: SessionDep)
     if "username" in data and data["username"] != user.username:
         if await is_username_taken(session, data["username"], exclude_id=user.id):
             raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail="Этот юзернейм уже занят"
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Этот юзернейм зарезервирован"
+                    if is_reserved(data["username"])
+                    else "Этот юзернейм уже занят"
+                ),
             )
 
     if "settings" in data and data["settings"] is not None:
@@ -43,6 +55,14 @@ async def update_me(payload: UserUpdate, user: CurrentUser, session: SessionDep)
     for field, value in data.items():
         setattr(user, field, value)
 
+    try:
+        await session.flush()
+    except IntegrityError as exc:
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Этот юзернейм уже занят"
+        ) from exc
+
     return user
 
 
@@ -51,7 +71,14 @@ async def complete_onboarding(
     payload: OnboardingRequest, user: CurrentUser, session: SessionDep
 ) -> User:
     if await is_username_taken(session, payload.username, exclude_id=user.id):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Этот юзернейм уже занят")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Этот юзернейм зарезервирован"
+                if is_reserved(payload.username)
+                else "Этот юзернейм уже занят"
+            ),
+        )
 
     user.display_name = payload.display_name
     user.username = payload.username
@@ -59,6 +86,15 @@ async def complete_onboarding(
     if payload.avatar_url:
         user.avatar_url = payload.avatar_url
     user.has_completed_onboarding = True
+
+    try:
+        await session.flush()
+    except IntegrityError as exc:
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Этот юзернейм уже занят"
+        ) from exc
+
     return user
 
 
@@ -72,6 +108,13 @@ async def check_username(
     return UsernameAvailability(
         username=normalised,
         available=not taken,
+        reason=(
+            None
+            if not taken
+            else "Этот юзернейм зарезервирован"
+            if is_reserved(normalised)
+            else "Этот юзернейм уже занят"
+        ),
         suggestions=await suggest_usernames(session, normalised) if taken else [],
     )
 

@@ -196,7 +196,7 @@ actor YandexMusicService: MusicService {
         return (playlist.tracks ?? []).compactMap(\.track).map(song(from:))
     }
 
-    private func ensureReady() async throws {
+    func ensureReady() async throws {
         guard !isReady else { return }
         guard let key = AppSecrets.accessKey else {
             throw MusicServiceError.missingAccessKey

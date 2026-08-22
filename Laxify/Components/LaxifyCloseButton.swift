@@ -35,13 +35,12 @@ struct LaxifyCloseButton: View {
                 .font(.system(size: 17, weight: .bold))
                 .foregroundStyle(tinted ? .white : LaxifyPalette.textPrimary)
                 .frame(width: diameter, height: diameter)
-                .background {
-                    if tinted {
-                        Circle().fill(LaxifyPalette.accent)
-                    } else {
-                        Circle().fill(.ultraThinMaterial)
-                    }
-                }
+                .glassEffect(
+                    tinted
+                        ? .regular.tint(LaxifyPalette.accent).interactive()
+                        : .regular.interactive(),
+                    in: Circle()
+                )
                 .contentShape(Circle())
         }
         .buttonStyle(PressableStyle())
@@ -75,7 +74,7 @@ struct LaxifyPillButton: View {
             .foregroundStyle(LaxifyPalette.textPrimary)
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
-            .background(.ultraThinMaterial, in: Capsule())
+            .glassEffect(.regular.interactive(), in: Capsule())
             .contentShape(Capsule())
         }
         .buttonStyle(PressableStyle())

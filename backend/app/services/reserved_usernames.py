@@ -1,0 +1,153 @@
+"""Handles nobody may register.
+
+Three reasons a handle ends up here: it would let someone impersonate a
+public figure or a brand, it would let someone impersonate the service
+itself, or it collides with a URL path the app already uses.
+
+Uniqueness of ordinary handles is enforced separately by a unique index —
+this list only covers names that must never be claimed in the first place.
+"""
+
+# Public figures and well-known handles — squatting on these invites
+# impersonation, and the first person to grab one is rarely the real owner.
+PUBLIC_FIGURES = {
+    "durov",
+    "pavel",
+    "monk",
+    "elonmusk",
+    "musk",
+    "zuck",
+    "zuckerberg",
+    "morgenshtern",
+    "instasamka",
+    "oxxxymiron",
+    "basta",
+    "noize",
+    "face",
+    "pharaoh",
+    "kizaru",
+    "scally",
+    "macan",
+    "aarne",
+    "slava",
+    "egor",
+    "kreed",
+    "bilan",
+    "lolita",
+    "kirkorov",
+    "buzova",
+    "dud",
+    "varlamov",
+    "navalny",
+    "putin",
+    "medvedev",
+}
+
+# Anything that could be mistaken for an official account.
+SERVICE_NAMES = {
+    "laxify",
+    "laxifyapp",
+    "laxifyofficial",
+    "official",
+    "team",
+    "staff",
+    "admin",
+    "administrator",
+    "moderator",
+    "mod",
+    "support",
+    "help",
+    "helpdesk",
+    "service",
+    "system",
+    "root",
+    "superuser",
+    "owner",
+    "security",
+    "billing",
+    "payments",
+    "noreply",
+    "no-reply",
+    "postmaster",
+    "webmaster",
+    "abuse",
+    "legal",
+    "press",
+    "news",
+    "info",
+    "contact",
+    "feedback",
+    "bot",
+    "bots",
+    "api",
+    "verified",
+    "premium",
+}
+
+# Reserved because the app and API already route on these words; letting a
+# user own one would make share links ambiguous.
+ROUTE_NAMES = {
+    "me",
+    "my",
+    "user",
+    "users",
+    "profile",
+    "profiles",
+    "account",
+    "accounts",
+    "settings",
+    "search",
+    "explore",
+    "home",
+    "feed",
+    "wave",
+    "radio",
+    "track",
+    "tracks",
+    "song",
+    "songs",
+    "album",
+    "albums",
+    "artist",
+    "artists",
+    "playlist",
+    "playlists",
+    "shared",
+    "share",
+    "invite",
+    "invites",
+    "library",
+    "favorites",
+    "favourites",
+    "liked",
+    "history",
+    "stats",
+    "download",
+    "downloads",
+    "auth",
+    "login",
+    "logout",
+    "signin",
+    "signup",
+    "register",
+    "oauth",
+    "callback",
+    "terms",
+    "privacy",
+    "about",
+    "docs",
+    "health",
+    "static",
+    "assets",
+    "null",
+    "undefined",
+    "none",
+    "true",
+    "false",
+}
+
+RESERVED_USERNAMES: frozenset[str] = frozenset(PUBLIC_FIGURES | SERVICE_NAMES | ROUTE_NAMES)
+
+
+def is_reserved(username: str) -> bool:
+    return username.strip().lower() in RESERVED_USERNAMES

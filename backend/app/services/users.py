@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Follow, Playlist, User
+from app.services.reserved_usernames import is_reserved
 
 USERNAME_SAFE = re.compile(r"[^a-z0-9_.]")
 
@@ -16,6 +17,14 @@ def slugify_username(source: str) -> str:
 
 
 async def is_username_taken(session: AsyncSession, username: str, exclude_id: UUID | None = None) -> bool:
+    """Reserved handles count as taken.
+
+    Checked here rather than at the endpoints so every path — onboarding,
+    profile edit, availability check, auto-generation — gets the same answer.
+    """
+    if is_reserved(username):
+        return True
+
     stmt = select(User.id).where(func.lower(User.username) == username.lower())
     if exclude_id:
         stmt = stmt.where(User.id != exclude_id)

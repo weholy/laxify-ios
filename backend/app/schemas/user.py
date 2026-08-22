@@ -82,6 +82,7 @@ class OnboardingRequest(BaseModel):
 class UsernameAvailability(BaseModel):
     username: str
     available: bool
+    reason: str | None = None
     suggestions: list[str] = Field(default_factory=list)
 
 
