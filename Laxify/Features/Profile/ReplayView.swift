@@ -32,11 +32,16 @@ struct ReplayView: View {
 
                 content
             }
+            // The screen arrives before its numbers do, so the content
+            // settles in rather than appearing complete — which is what made
+            // it feel abrupt.
             .opacity(appear ? 1 : 0)
+            .scaleEffect(appear ? 1 : 0.96)
+            .blur(radius: appear ? 0 : 8)
         }
         .task { await load() }
         .onAppear {
-            withAnimation(.easeOut(duration: 0.4)) { appear = true }
+            withAnimation(.spring(response: 0.55, dampingFraction: 0.85)) { appear = true }
         }
     }
 
@@ -151,21 +156,27 @@ struct ReplayView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 30) {
                     headline(summary)
+                        .revealed(after: 0.05, when: appear)
                     figures(summary)
+                        .revealed(after: 0.12, when: appear)
 
                     if !summary.topArtists.isEmpty {
                         artistsSection(summary.topArtists)
+                            .revealed(after: 0.19, when: appear)
                     }
 
                     if !summary.topTracks.isEmpty {
                         tracksSection(summary.topTracks)
+                            .revealed(after: 0.26, when: appear)
                     }
 
                     if !summary.genres.isEmpty {
                         genresSection(summary.genres)
+                            .revealed(after: 0.33, when: appear)
                     }
 
                     habitSection(summary)
+                        .revealed(after: 0.4, when: appear)
                     lifetimeSection
                 }
                 .padding(.bottom, 130)
