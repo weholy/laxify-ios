@@ -6,7 +6,7 @@ struct ProfileView: View {
 
     @State private var isEditPresented = false
     @State private var isSettingsPresented = false
-    @State private var replayStory: ReplayStory?
+    @State private var isReplayPresented = false
     @State private var serverStats: BackendStats?
 
     private var user: BackendUser? { session.user }
@@ -24,8 +24,8 @@ struct ProfileView: View {
                         identitySection(user)
                     }
 
-                    ReplayEntryCard { summary, previous in
-                        replayStory = ReplayStory(summary: summary, previous: previous)
+                    ReplayEntryCard { _, _ in
+                        isReplayPresented = true
                     }
                     .padding(.horizontal, LaxifyMetrics.screenPadding)
 
@@ -46,13 +46,8 @@ struct ProfileView: View {
         .fullScreenCover(isPresented: $isSettingsPresented) {
             SettingsView { isSettingsPresented = false }
         }
-        .fullScreenCover(item: $replayStory) { story in
-            ReplayStoriesView(
-                summary: story.summary,
-                previous: story.previous
-            ) {
-                replayStory = nil
-            }
+        .fullScreenCover(isPresented: $isReplayPresented) {
+            ReplayView { isReplayPresented = false }
         }
     }
 

@@ -6,16 +6,19 @@ which is what lets a second source be added later without touching the app.
 """
 
 import asyncio
+import re
 import time
+from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.api.deps import CurrentUser, SessionDep
 from app.schemas.common import MessageOut
+from app.services import audio_cache
 from app.services.playability import filter_playable
 from app.services.soundcloud import SoundCloudError, soundcloud
 
@@ -205,36 +208,106 @@ async def stream(track_id: str, user: CurrentUser) -> StreamResponse:
 
 @router.post("/tracks/{track_id}/warm", response_model=MessageOut)
 async def warm(track_id: str, user: CurrentUser) -> MessageOut:
-    """Resolves a track's stream ahead of being asked to play it.
+    """Fetches a track ahead of being asked to play it.
 
-    Called for the next track in a queue while the current one is still
-    playing, so the moment it is needed there is nothing left to look up.
+    Called for the next in a queue while the current one is still playing.
+    Resolving is the cheap half; having the audio already on disk is what
+    makes the next track start the instant it is wanted.
+
+    Returns as soon as the work is scheduled — nobody is waiting on this, and
+    holding the request open would only delay the track that is playing.
     """
     try:
-        await soundcloud.resolved_stream(track_id)
-        return MessageOut(detail="ok")
+        source = await soundcloud.resolved_stream(track_id)
     except SoundCloudError:
         # A track that cannot be warmed is not an error worth surfacing; it
         # will be skipped when its turn comes.
         return MessageOut(detail="skip")
 
+    asyncio.create_task(audio_cache.ensure(track_id, source))
+    return MessageOut(detail="ok")
+
 
 @router.get("/tracks/{track_id}/audio")
-async def audio(track_id: str, user: CurrentUser, request: Request) -> StreamingResponse:
-    """Streams the audio through this server.
+async def audio(track_id: str, user: CurrentUser, request: Request) -> Response:
+    """Streams the audio for a track.
 
-    The signed url points at a CDN the phone normally reaches directly, which
-    is faster and costs us nothing. This is the fallback for connections that
-    cannot: the bytes take the same route as everything else the app asks for.
+    The signed url the source hands out is bound to the region it was issued
+    in, so a phone elsewhere is refused even though the link looks valid. The
+    server holds the signature that matches and serves the bytes on.
 
-    Range headers are passed through in both directions — without them
-    seeking within a track does not work, and the player will not scrub.
+    Those bytes come from disk. A player asks for a track in pieces — several
+    ranged requests before the first sound, more while it plays — and going
+    back to the source for each one meant a new connection every time, which
+    was almost all of the delay before playback began.
     """
     try:
         source = await soundcloud.resolved_stream(track_id)
     except SoundCloudError as exc:
         raise _guard(exc) from exc
 
+    path = await audio_cache.ensure(track_id, source)
+
+    if path is None:
+        # Nothing cached and the fetch failed: fall back to passing the
+        # source through, which is slower but better than silence.
+        return await _passthrough(source, request)
+
+    return _ranged_file(path, request)
+
+
+def _ranged_file(path: Path, request: Request) -> Response:
+    """Serves a file, honouring the Range header.
+
+    Without ranges a player cannot seek and will often refuse to start at
+    all, so this is not optional.
+    """
+    size = path.stat().st_size
+    start = 0
+    end = size - 1
+    partial = False
+
+    if header := request.headers.get("range"):
+        match = re.match(r"bytes=(\d*)-(\d*)", header.strip())
+        if match:
+            first, last = match.groups()
+            if first:
+                start = min(int(first), size - 1)
+                end = int(last) if last else size - 1
+            elif last:
+                # A suffix range: the last N bytes.
+                start = max(size - int(last), 0)
+            end = min(end, size - 1)
+            partial = True
+
+    length = max(end - start + 1, 0)
+
+    def chunks():
+        with path.open("rb") as handle:
+            handle.seek(start)
+            remaining = length
+            while remaining > 0:
+                block = handle.read(min(256 * 1024, remaining))
+                if not block:
+                    break
+                remaining -= len(block)
+                yield block
+
+    headers = {
+        "Content-Length": str(length),
+        "Accept-Ranges": "bytes",
+        "Content-Type": "audio/mpeg",
+    }
+    if partial:
+        headers["Content-Range"] = f"bytes {start}-{end}/{size}"
+
+    return StreamingResponse(
+        chunks(), status_code=206 if partial else 200, headers=headers
+    )
+
+
+async def _passthrough(source: str, request: Request) -> StreamingResponse:
+    """Relays the source directly. Used only when caching failed."""
     headers = {}
     if range_header := request.headers.get("range"):
         headers["Range"] = range_header
