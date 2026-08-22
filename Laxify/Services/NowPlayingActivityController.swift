@@ -59,8 +59,8 @@ final class NowPlayingActivityController {
         lastTrackId = song.id
         lastPushedAt = Date()
 
-        Task {
-            await activity?.update(ActivityContent(state: state, staleDate: nil))
+        Task { @MainActor in
+            await self.activity?.update(ActivityContent(state: state, staleDate: nil))
         }
     }
 
@@ -81,12 +81,12 @@ final class NowPlayingActivityController {
     }
 
     func end() {
-        guard let activity else { return }
-        self.activity = nil
+        guard activity != nil else { return }
         lastTrackId = nil
 
-        Task {
-            await activity.end(nil, dismissalPolicy: .immediate)
+        Task { @MainActor in
+            await self.activity?.end(nil, dismissalPolicy: .immediate)
+            self.activity = nil
         }
     }
 }
