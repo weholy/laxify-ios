@@ -12,7 +12,7 @@ import UIKit
 actor RemoteLog {
     static let shared = RemoteLog()
 
-    struct Entry: Encodable {
+    struct Entry: Codable {
         let at: Date
         let level: String
         let category: String
@@ -27,6 +27,14 @@ actor RemoteLog {
 
     private var pending: [Entry] = []
     private var flushTask: Task<Void, Never>?
+
+    /// Everything from this launch, for the diagnostics screen.
+    ///
+    /// The networks worth diagnosing are precisely the ones where nothing can
+    /// be sent, so a log that only exists on the server describes the cases
+    /// that already work.
+    private var history: [Entry] = []
+    private let maxHistory = 500
 
     /// Small enough to arrive promptly, large enough that a burst of lines
     /// travels as one request.
@@ -83,6 +91,11 @@ actor RemoteLog {
     }
 
     private func append(_ entry: Entry) {
+        history.append(entry)
+        if history.count > maxHistory {
+            history.removeFirst(history.count - maxHistory)
+        }
+
         pending.append(entry)
 
         // Losing the oldest lines beats growing without limit on a device
@@ -109,6 +122,41 @@ actor RemoteLog {
             guard !Task.isCancelled else { return }
             await flush()
         }
+    }
+
+    // MARK: - Reading back
+
+    /// The log, oldest first.
+    func recent(limit: Int = 300) -> [Entry] {
+        Array(history.suffix(limit))
+    }
+
+    /// Writes the log to a file for the share sheet.
+    func exportFile() throws -> URL {
+        struct Dump: Encodable {
+            let session: String
+            let appVersion: String?
+            let exportedAt: Date
+            let entries: [Entry]
+        }
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .withoutEscapingSlashes]
+        encoder.dateEncodingStrategy = .iso8601
+
+        let data = try encoder.encode(
+            Dump(
+                session: sessionId,
+                appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
+                exportedAt: Date(),
+                entries: history
+            )
+        )
+
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("laxify-log.json")
+        try data.write(to: url, options: .atomic)
+        return url
     }
 
     // MARK: - Sending

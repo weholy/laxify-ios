@@ -18,6 +18,7 @@ struct SettingsView: View {
         case account
         case appearance
         case export
+        case diagnostics
 
         var id: String { rawValue }
 
@@ -28,6 +29,7 @@ struct SettingsView: View {
             case .account: "Аккаунт"
             case .appearance: "Дизайн"
             case .export: "Выгрузка артистов"
+            case .diagnostics: "Диагностика"
             }
         }
 
@@ -38,6 +40,7 @@ struct SettingsView: View {
             case .account: "Почта, пароль, имя"
             case .appearance: "Светлая или тёмная тема"
             case .export: "Список исполнителей файлом"
+            case .diagnostics: "Что не работает и почему"
             }
         }
 
@@ -54,7 +57,7 @@ struct SettingsView: View {
 
                 ScrollView {
                     VStack(spacing: 12) {
-                        ForEach([Page.privacy, .about, .account, .appearance, .export]) { entry in
+                        ForEach([Page.privacy, .about, .account, .appearance, .export, .diagnostics]) { entry in
                             entryRow(entry)
                         }
 
@@ -78,6 +81,8 @@ struct SettingsView: View {
                 AppearanceSettingsView { page = nil }
             case .export:
                 CatalogExportView { page = nil }
+            case .diagnostics:
+                DiagnosticsView { page = nil }
             }
         }
         .confirmationDialog(

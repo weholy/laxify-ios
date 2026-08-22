@@ -91,32 +91,99 @@ actor SoundCloudDirect {
     }
 
     /// Reads the key out of the web player's own scripts.
+    ///
+    /// Logged at every step. This is the first thing that has to work, and
+    /// when it does not, nothing downstream gives any hint why — which is
+    /// exactly the situation this had to be diagnosed from.
     private func scrapeKey() async -> String? {
-        guard let home = URL(string: Self.webBase),
-              let (data, _) = try? await session.data(from: home),
-              let html = String(data: data, encoding: .utf8) else {
+        guard let home = URL(string: Self.webBase) else { return nil }
+
+        let started = Date()
+        let data: Data
+        let response: URLResponse
+
+        do {
+            (data, response) = try await session.data(from: home)
+        } catch {
+            RemoteLog.shared.error(
+                "источник: страница не открылась",
+                category: "source",
+                context: ["error": "\(error)"]
+            )
+            return nil
+        }
+
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        RemoteLog.shared.timing(
+            "источник: страница открыта",
+            milliseconds: Int(Date().timeIntervalSince(started) * 1000),
+            category: "source",
+            context: ["status": "\(status)", "bytes": "\(data.count)"]
+        )
+
+        guard let html = String(data: data, encoding: .utf8) else {
+            RemoteLog.shared.error("источник: страница не читается", category: "source")
             return nil
         }
 
         let scriptPattern = /src="(https:\/\/a-v2\.sndcdn\.com\/assets\/[^"]+\.js)"/
         let scripts = html.matches(of: scriptPattern).map { String($0.1) }
 
+        RemoteLog.shared.info(
+            "источник: скриптов в разметке",
+            category: "source",
+            context: ["count": "\(scripts.count)"]
+        )
+
+        guard !scripts.isEmpty else {
+            RemoteLog.shared.error("источник: скриптов нет в разметке", category: "source")
+            return nil
+        }
+
         // The key lives in one of the later bundles, so walk them newest
         // first rather than downloading all of them.
-        for script in scripts.reversed() {
+        for (index, script) in scripts.reversed().enumerated() {
             guard let url = URL(string: script),
-                  let (data, _) = try? await session.data(from: url),
-                  let body = String(data: data, encoding: .utf8) else {
+                  let (body, _) = try? await session.data(from: url),
+                  let text = String(data: body, encoding: .utf8) else {
                 continue
             }
 
             let keyPattern = /client_id[:=]"([a-zA-Z0-9]{32})"/
-            if let match = body.firstMatch(of: keyPattern) {
+            if let match = text.firstMatch(of: keyPattern) {
+                RemoteLog.shared.info(
+                    "источник: ключ получен",
+                    category: "source",
+                    context: ["bundle": "\(index)"]
+                )
                 return String(match.1)
             }
         }
 
+        RemoteLog.shared.error(
+            "источник: ключа нет ни в одном скрипте",
+            category: "source",
+            context: ["scripts": "\(scripts.count)"]
+        )
         return nil
+    }
+
+    /// Fetches a key and reports why if it cannot.
+    ///
+    /// Used by the diagnostics screen, which needs the reason rather than
+    /// just the absence.
+    func diagnosticKey() async throws -> String {
+        guard let found = await key(refreshing: true) else {
+            throw NSError(
+                domain: "Laxify",
+                code: 1,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Не удалось получить ключ источника. Подробности — в записях ниже."
+                ]
+            )
+        }
+        return found
     }
 
     // MARK: - Requests
@@ -136,8 +203,31 @@ actor SoundCloudDirect {
 
         guard let url = components?.url else { throw MusicServiceError.notFound }
 
-        let (data, response) = try await session.data(from: url)
+        let label = path.isEmpty ? (absolute ?? "?") : path
+
+        let data: Data
+        let response: URLResponse
+
+        do {
+            (data, response) = try await session.data(from: url)
+        } catch {
+            RemoteLog.shared.error(
+                "источник: запрос не прошёл",
+                category: "source",
+                context: ["path": label, "error": "\(error)"]
+            )
+            throw MusicServiceError.underlying(error)
+        }
+
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+
+        if status != 200 {
+            RemoteLog.shared.warn(
+                "источник: ответ \(status)",
+                category: "source",
+                context: ["path": label]
+            )
+        }
 
         if (status == 401 || status == 403), !retrying {
             // The key rotated; read a fresh one and try once more.
@@ -261,6 +351,11 @@ actor SoundCloudDirect {
         let track = try await track(trackId)
 
         guard let transcodings = track.media?.transcodings, !transcodings.isEmpty else {
+            RemoteLog.shared.error(
+                "источник: у трека нет вариантов потока",
+                category: "source",
+                context: ["track": trackId, "policy": track.policy ?? "-"]
+            )
             throw MusicServiceError.notFound
         }
 
@@ -290,9 +385,19 @@ actor SoundCloudDirect {
                 continue
             }
 
+            RemoteLog.shared.info(
+                "источник: ссылка получена",
+                category: "source",
+                context: ["track": trackId, "protocol": candidate.format?.protocol_ ?? "-"]
+            )
             return url
         }
 
+        RemoteLog.shared.error(
+            "источник: ни один вариант не открылся",
+            category: "source",
+            context: ["track": trackId, "variants": "\(ranked.count)"]
+        )
         throw MusicServiceError.notFound
     }
 }
