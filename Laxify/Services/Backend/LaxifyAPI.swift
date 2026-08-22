@@ -161,28 +161,18 @@ actor LaxifyAPI {
     func completeOnboarding(
         displayName: String,
         username: String,
-        birthdate: Date?,
         avatarURL: String?
     ) async throws -> BackendUser {
         struct Body: Encodable {
             let displayName: String
             let username: String
-            let birthdate: String?
             let avatarUrl: String?
         }
-
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
 
         return try await send(
             "/me/onboarding",
             method: "POST",
-            body: Body(
-                displayName: displayName,
-                username: username,
-                birthdate: birthdate.map(formatter.string(from:)),
-                avatarUrl: avatarURL
-            )
+            body: Body(displayName: displayName, username: username, avatarUrl: avatarURL)
         )
     }
 

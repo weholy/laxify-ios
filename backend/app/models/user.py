@@ -39,6 +39,15 @@ class User(Base, UUIDMixin, TimestampMixin):
     has_migrated_local_data: Mapped[bool] = mapped_column(Boolean, default=False)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
+    @property
+    def has_password(self) -> bool:
+        """Whether sign-in by password is possible.
+
+        Exposed instead of the hash so the client can show the right thing
+        without the hash ever leaving the server.
+        """
+        return self.password_hash is not None
+
     devices: Mapped[list["Device"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     playlists: Mapped[list["Playlist"]] = relationship(
         back_populates="owner", cascade="all, delete-orphan", foreign_keys="Playlist.owner_id"

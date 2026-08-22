@@ -21,11 +21,14 @@ struct BackendUser: Codable, Sendable, Identifiable {
     let avatarUrl: String?
     let googleAvatarUrl: String?
     let bio: String?
-    let birthdate: String?
     let isProfilePublic: Bool
     let isStatsPublic: Bool
     let hasCompletedOnboarding: Bool
     let isAdmin: Bool
+    /// Whether the address has been confirmed, and whether a password
+    /// exists — a Google account starts with neither.
+    var emailVerified: Bool = false
+    var hasPassword: Bool = false
 
     var avatarURL: URL? {
         if let avatarUrl, let url = URL(string: avatarUrl) { return url }

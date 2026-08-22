@@ -19,9 +19,14 @@ struct LaxifyApp: App {
         }
     }
 
+    @State private var appearance = AppearanceSettings.shared
+
     var body: some Scene {
         WindowGroup {
             AppRootView()
+                // nil follows the system, which is the default and what most
+                // people leave it on.
+                .preferredColorScheme(appearance.theme.colorScheme)
         }
         .modelContainer(container)
     }

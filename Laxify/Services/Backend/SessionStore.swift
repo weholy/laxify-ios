@@ -102,7 +102,6 @@ final class SessionStore {
     func completeOnboarding(
         displayName: String,
         username: String,
-        birthdate: Date?,
         avatarURL: String?
     ) async -> String? {
         isBusy = true
@@ -112,7 +111,6 @@ final class SessionStore {
             user = try await LaxifyAPI.shared.completeOnboarding(
                 displayName: displayName,
                 username: username,
-                birthdate: birthdate,
                 avatarURL: avatarURL
             )
             cache(user)

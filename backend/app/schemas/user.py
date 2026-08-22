@@ -22,6 +22,9 @@ class UserPublic(ORMModel):
 class UserProfileOut(UserPublic):
     email: str
     is_stats_public: bool
+    email_verified: bool = False
+    # Whether a password exists, never the password itself.
+    has_password: bool = False
     has_completed_onboarding: bool
     settings: dict = Field(default_factory=dict)
     is_admin: bool = False

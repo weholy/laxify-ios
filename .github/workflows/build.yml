@@ -5,51 +5,31 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  # A push supersedes the build still running for the previous one — waiting
+  # on a result nobody wants any more is the slowest part of a fast loop.
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  simulator:
-    name: Simulator build
-    runs-on: macos-26
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Show Xcode version
-        run: xcodebuild -version
-
-      - name: Install XcodeGen
-        run: brew install xcodegen
-
-      - name: Prepare secrets
-        env:
-          LAXIFY_ACCESS_KEY: ${{ secrets.LAXIFY_ACCESS_KEY }}
-        run: |
-          if [ -n "$LAXIFY_ACCESS_KEY" ]; then
-            printf 'LAXIFY_ACCESS_KEY = %s\n' "$LAXIFY_ACCESS_KEY" > Config/Secrets.xcconfig
-          else
-            cp Config/Secrets.example.xcconfig Config/Secrets.xcconfig
-          fi
-
-      - name: Generate Xcode project
-        run: xcodegen generate
-
-      - name: Build for iOS Simulator
-        run: |
-          xcodebuild build \
-            -project Laxify.xcodeproj \
-            -scheme Laxify \
-            -destination 'generic/platform=iOS Simulator' \
-            CODE_SIGNING_ALLOWED=NO
-
-  unsigned-ipa:
+  build:
     name: Unsigned IPA
     runs-on: macos-26
-    needs: simulator
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Homebrew resolves and updates its whole index first, which costs more
+      # than the tool itself. The release binary is one download.
       - name: Install XcodeGen
-        run: brew install xcodegen
+        run: |
+          set -euo pipefail
+          VERSION=2.43.0
+          curl -fsSL -o xcodegen.zip \
+            "https://github.com/yonaskolb/XcodeGen/releases/download/$VERSION/xcodegen.zip"
+          unzip -q xcodegen.zip
+          sudo make -C xcodegen install PREFIX=/usr/local
+          xcodegen --version
 
       - name: Prepare secrets
         env:
@@ -63,14 +43,32 @@ jobs:
 
       - name: Generate Xcode project
         run: xcodegen generate
+
+      # Restores the previous run's build products so only what changed is
+      # recompiled. The fallback key matters more than an exact hit: a partial
+      # match still saves most of the work.
+      - name: Restore build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/DerivedData
+            ~/Library/Caches/org.swift.swiftpm
+          key: xcode-${{ runner.os }}-${{ hashFiles('Laxify/**/*.swift', 'project.yml') }}
+          restore-keys: |
+            xcode-${{ runner.os }}-
 
       - name: Archive
         run: |
+          set -o pipefail
           xcodebuild archive \
             -project Laxify.xcodeproj \
             -scheme Laxify \
             -destination 'generic/platform=iOS' \
             -archivePath build/Laxify.xcarchive \
+            -derivedDataPath build/DerivedData \
+            -clonedSourcePackagesDirPath build/SourcePackages \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            SWIFT_COMPILATION_MODE=incremental \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
@@ -79,6 +77,7 @@ jobs:
 
       - name: Package unsigned IPA
         run: |
+          set -euo pipefail
           mkdir -p build/Payload
           cp -r "build/Laxify.xcarchive/Products/Applications/Laxify.app" build/Payload/
           cd build && zip -qr Laxify.ipa Payload

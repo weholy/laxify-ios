@@ -1,0 +1,53 @@
+import SwiftUI
+
+/// How the app looks on this device.
+///
+/// Deliberately local rather than on the account: someone using a dark phone
+/// and a light iPad wants each to follow that device, not the last one they
+/// changed.
+@MainActor
+@Observable
+final class AppearanceSettings {
+    static let shared = AppearanceSettings()
+
+    enum Theme: String, CaseIterable, Sendable {
+        case system
+        case light
+        case dark
+
+        var title: String {
+            switch self {
+            case .system: "Как в системе"
+            case .light: "Светлая"
+            case .dark: "Тёмная"
+            }
+        }
+
+        var colorScheme: ColorScheme? {
+            switch self {
+            case .system: nil
+            case .light: .light
+            case .dark: .dark
+            }
+        }
+    }
+
+    var theme: Theme {
+        didSet { UserDefaults.standard.set(theme.rawValue, forKey: Self.themeKey) }
+    }
+
+    /// Turning this off is an accessibility affordance as much as a taste
+    /// one — the player's expand animation is large and moves fast.
+    var animationsEnabled: Bool {
+        didSet { UserDefaults.standard.set(animationsEnabled, forKey: Self.animationsKey) }
+    }
+
+    private static let themeKey = "laxify.appearance.theme"
+    private static let animationsKey = "laxify.appearance.animations"
+
+    private init() {
+        let stored = UserDefaults.standard.string(forKey: Self.themeKey)
+        theme = stored.flatMap(Theme.init(rawValue:)) ?? .system
+        animationsEnabled = UserDefaults.standard.object(forKey: Self.animationsKey) as? Bool ?? true
+    }
+}

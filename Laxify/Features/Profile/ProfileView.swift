@@ -5,6 +5,7 @@ struct ProfileView: View {
     var stats = ListeningStatsService.shared
 
     @State private var isEditPresented = false
+    @State private var isSettingsPresented = false
     @State private var serverStats: BackendStats?
 
     private var user: BackendUser? { session.user }
@@ -36,6 +37,9 @@ struct ProfileView: View {
         .fullScreenCover(isPresented: $isEditPresented) {
             EditProfileView { isEditPresented = false }
         }
+        .fullScreenCover(isPresented: $isSettingsPresented) {
+            SettingsView { isSettingsPresented = false }
+        }
     }
 
     private var header: some View {
@@ -46,6 +50,17 @@ struct ProfileView: View {
                 LaxifyPillButton(title: "Изм.", systemImage: "pencil") {
                     isEditPresented = true
                 }
+
+                Button {
+                    isSettingsPresented = true
+                } label: {
+                    Image(systemName: "gearshape.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(LaxifyPalette.textPrimary)
+                        .frame(width: 38, height: 38)
+                        .glassEffect(.regular.interactive(), in: .circle)
+                }
+                .buttonStyle(.plain)
             }
         }
         .padding(.horizontal, LaxifyMetrics.screenPadding)
