@@ -7,7 +7,7 @@ final class HomeViewModel {
     private(set) var isLoading = false
     private(set) var errorMessage: String?
 
-    private(set) var waveTracks: [Song] = []
+    private(set) var waveTracks: [Song] = HomeCache.loadWave()
     private(set) var isLoadingWave = false
     private(set) var waveError: String?
     private(set) var waveBatchId: String?
@@ -17,10 +17,19 @@ final class HomeViewModel {
 
     init(service: any MusicService = YandexMusicService.shared) {
         self.service = service
+
+        // Render last session's feed immediately; the network refresh below
+        // replaces it once it arrives, so the screen is never a bare spinner.
+        let cached = HomeCache.loadRecommended()
+        if !cached.isEmpty {
+            content = HomeContent(collections: [], recommendedTracks: cached)
+        }
     }
 
     func loadIfNeeded() async {
-        guard content == nil, !isLoading else { return }
+        guard !isLoading else { return }
+        // Refresh even when cached content is on screen — it is a starting
+        // point, not a reason to skip loading.
         await load()
     }
 
@@ -34,7 +43,7 @@ final class HomeViewModel {
     /// and tempo rather than just by artist, and adapts to the skip/finish
     /// feedback the player reports back.
     func loadWave(force: Bool = false) async {
-        guard force || waveTracks.isEmpty, !isLoadingWave else { return }
+        guard !isLoadingWave else { return }
 
         isLoadingWave = true
         waveError = nil
@@ -45,8 +54,14 @@ final class HomeViewModel {
             let batch = try await YandexMusicService.shared.waveBatch()
             waveTracks = batch.songs
             waveBatchId = batch.batchId
+            HomeCache.save(
+                recommended: content?.recommendedTracks ?? [],
+                wave: batch.songs
+            )
         } catch {
-            waveError = "Волна пока недоступна"
+            if waveTracks.isEmpty {
+                waveError = "Волна пока недоступна"
+            }
         }
 
         isLoadingWave = false
@@ -76,13 +91,19 @@ final class HomeViewModel {
         isLoading = true
         errorMessage = nil
         do {
-            content = try await service.homeContent()
+            let fresh = try await service.homeContent()
+            content = fresh
+            HomeCache.save(recommended: fresh.recommendedTracks, wave: waveTracks)
         } catch MusicServiceError.missingAccessKey {
             errorMessage = "Добавьте ключ доступа в Профиле"
         } catch MusicServiceError.notFound {
-            errorMessage = "Похоже, сеть блокирует доступ к музыке. Если включён VPN, попробуйте отключить его или пропустить музыку мимо туннеля"
+            if content == nil {
+                errorMessage = "Похоже, сеть блокирует доступ к музыке. Если включён VPN, попробуйте отключить его или пропустить музыку мимо туннеля"
+            }
         } catch {
-            errorMessage = "Не удалось загрузить главную (\(error))"
+            if content == nil {
+                errorMessage = "Не удалось загрузить главную"
+            }
         }
         isLoading = false
     }

@@ -25,8 +25,7 @@ extension YandexMusicService {
         Song(
             id: track.trackId,
             title: track.trackTitle,
-            artistName: track.artistsName.joined(separator: ", "),
-            artistId: track.artists.first.map { String($0.id) },
+            artists: track.artists.map { SongArtist(id: String($0.id), name: $0.artistName) },
             albumTitle: track.albums.first?.title,
             coverURL: coverURL(from: track.coverUri),
             duration: TimeInterval(track.durationMs) / 1000

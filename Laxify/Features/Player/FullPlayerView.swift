@@ -13,6 +13,7 @@ struct FullPlayerView: View {
     @State private var isLyricsPresented = false
     @State private var isQueuePresented = false
     @State private var artworkDragOffset: CGFloat = 0
+    @State private var selectedArtistId: String?
     @State private var isScrubbing = false
     @State private var scrubTarget: TimeInterval = 0
 
@@ -65,6 +66,14 @@ struct FullPlayerView: View {
         }
         .sheet(isPresented: $isQueuePresented) {
             QueueView { isQueuePresented = false }
+        }
+        .fullScreenCover(isPresented: Binding(
+            get: { selectedArtistId != nil },
+            set: { if !$0 { selectedArtistId = nil } }
+        )) {
+            if let selectedArtistId {
+                ArtistView(artistId: selectedArtistId) { self.selectedArtistId = nil }
+            }
         }
     }
 
@@ -211,10 +220,7 @@ struct FullPlayerView: View {
                     .foregroundStyle(.white)
                     .lineLimit(1)
 
-                Text(player.currentSong?.artistName ?? "")
-                    .font(LaxifyTypography.playerArtist)
-                    .foregroundStyle(.white.opacity(0.7))
-                    .lineLimit(1)
+                artistRow
             }
 
             Spacer()
@@ -232,6 +238,45 @@ struct FullPlayerView: View {
                     .contentTransition(.symbolEffect(.replace))
             }
             .buttonStyle(.plain)
+        }
+    }
+
+    /// Each credited artist is its own tap target, so a track by two people
+    /// opens whichever one was tapped rather than only the first.
+    @ViewBuilder
+    private var artistRow: some View {
+        let artists = player.currentSong?.artists ?? []
+
+        if artists.isEmpty {
+            Text(player.currentSong?.artistName ?? "")
+                .font(LaxifyTypography.playerArtist)
+                .foregroundStyle(.white.opacity(0.7))
+                .lineLimit(1)
+        } else {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 0) {
+                    ForEach(Array(artists.enumerated()), id: \.offset) { index, artist in
+                        Button {
+                            guard !artist.id.isEmpty else { return }
+                            selectedArtistId = artist.id
+                        } label: {
+                            Text(artist.name)
+                                .font(LaxifyTypography.playerArtist)
+                                .foregroundStyle(.white.opacity(0.75))
+                                .underline(!artist.id.isEmpty, pattern: .solid)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(artist.id.isEmpty)
+
+                        if index < artists.count - 1 {
+                            Text(", ")
+                                .font(LaxifyTypography.playerArtist)
+                                .foregroundStyle(.white.opacity(0.5))
+                        }
+                    }
+                }
+            }
+            .scrollClipDisabled()
         }
     }
 

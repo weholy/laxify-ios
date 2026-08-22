@@ -41,6 +41,13 @@ struct LaxifySlider: View {
                 Capsule()
                     .fill(tint)
                     .frame(width: max(knobX, 0), height: trackHeight)
+                    // Follows the finger exactly while dragging, and eases
+                    // between clock ticks the rest of the time so playback
+                    // progress glides instead of stepping.
+                    .animation(
+                        isDragging ? .interactiveSpring(response: 0.15) : .linear(duration: 0.25),
+                        value: knobX
+                    )
 
                 if knobSize > 0 {
                     Circle()
