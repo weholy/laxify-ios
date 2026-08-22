@@ -57,6 +57,7 @@ final class AudioPlayerController {
         }
         isPlaying.toggle()
         updateNowPlayingInfo()
+        NowPlayingActivityController.shared.refresh()
     }
 
     func next() {
@@ -170,6 +171,7 @@ final class AudioPlayerController {
                 isPlaying = true
                 isLoading = false
                 updateNowPlayingInfo()
+                NowPlayingActivityController.shared.refresh()
                 reportWaveStart(for: song)
                 AppLogger.log("play: done")
             } catch {
@@ -197,6 +199,9 @@ final class AudioPlayerController {
                     ListeningStatsService.shared.recordPlayback(seconds: delta)
                 }
                 self.currentTime = time.seconds
+                // The controller throttles this internally; the system drops
+                // activity updates pushed at the tick rate.
+                NowPlayingActivityController.shared.refresh()
             }
         }
 
@@ -236,6 +241,7 @@ final class AudioPlayerController {
         } else {
             isPlaying = false
             updateNowPlayingInfo()
+            NowPlayingActivityController.shared.end()
         }
     }
 
