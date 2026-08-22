@@ -133,6 +133,30 @@ actor CoverImageLoader {
         return result
     }
 
+    /// Fetches artwork before anything asks to draw it.
+    ///
+    /// A feed arrives as a list of urls a moment before its rows appear.
+    /// Starting those fetches then, rather than when each row scrolls into
+    /// place, is the difference between covers that are already there and
+    /// covers that fade in one by one.
+    nonisolated static func prefetch(_ urls: [URL?], displayWidth: CGFloat = 200) {
+        let wanted = urls
+            .compactMap { $0 }
+            .map { variant(of: $0, forDisplayWidth: displayWidth) }
+            .filter { shared.cached($0) == nil }
+
+        guard !wanted.isEmpty else { return }
+
+        Task.detached(priority: .utility) {
+            // Sequential on purpose: these are background fetches, and firing
+            // thirty at once would compete with whatever the listener is
+            // actually waiting for.
+            for url in wanted.prefix(40) {
+                _ = await shared.image(for: url)
+            }
+        }
+    }
+
     /// Rewrites an artwork url to the smallest variant that still looks sharp.
     ///
     /// The source publishes several sizes under a predictable suffix. Asking
@@ -162,5 +186,12 @@ actor CoverImageLoader {
         }
 
         return URL(string: rewritten) ?? url
+    }
+}
+
+extension AsyncCoverImage {
+    /// Convenience for the common case: a list of tracks about to be shown.
+    static func prefetchCovers(for songs: [Song], width: CGFloat = 200) {
+        CoverImageLoader.prefetch(songs.map(\.coverURL), displayWidth: width)
     }
 }

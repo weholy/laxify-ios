@@ -87,6 +87,7 @@ final class HomeViewModel {
             waveTracks = batch.songs
             waveBatchId = batch.batchId
             waveLoadedAt = Date()
+            AsyncCoverImage.prefetchCovers(for: batch.songs, width: 150)
             HomeCache.save(
                 recommended: content?.recommendedTracks ?? [],
                 wave: batch.songs
@@ -171,6 +172,11 @@ final class HomeViewModel {
             let fresh = try await service.homeContent()
             content = fresh
             loadedAt = Date()
+
+            // Artwork starts loading now, while the rows are still being
+            // laid out, rather than when each one scrolls into view.
+            AsyncCoverImage.prefetchCovers(for: fresh.recommendedTracks, width: 150)
+            AsyncCoverImage.prefetchCovers(for: waveTracks, width: 150)
             HomeCache.save(recommended: fresh.recommendedTracks, wave: waveTracks)
         } catch MusicServiceError.missingAccessKey {
             errorMessage = "Добавьте ключ доступа в Профиле"
