@@ -333,8 +333,10 @@ struct FullPlayerView: View {
         guard let song = player.currentSong else { return }
         if let existing = favorites.first(where: { $0.id == song.id }) {
             modelContext.delete(existing)
+            SyncService.shared.favoriteRemoved(trackId: song.id)
         } else {
             modelContext.insert(FavoriteTrack(song: song))
+            SyncService.shared.favoriteAdded(song)
         }
     }
 
@@ -342,9 +344,11 @@ struct FullPlayerView: View {
         guard let song = player.currentSong else { return }
         if !dislikedTracks.contains(where: { $0.id == song.id }) {
             modelContext.insert(DislikedTrack(id: song.id))
+            SyncService.shared.dislikeAdded(trackId: song.id)
         }
         if let existingFavorite = favorites.first(where: { $0.id == song.id }) {
             modelContext.delete(existingFavorite)
+            SyncService.shared.favoriteRemoved(trackId: song.id)
         }
         if player.hasNext {
             player.next()

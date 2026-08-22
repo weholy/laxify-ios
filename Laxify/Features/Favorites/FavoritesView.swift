@@ -2,6 +2,7 @@ import SwiftUI
 import SwiftData
 
 struct FavoritesView: View {
+    @Environment(\.modelContext) private var modelContext
     @Query private var allFavorites: [FavoriteTrack]
     @State private var sortOption: SortOption = .recent
 
@@ -50,6 +51,9 @@ struct FavoritesView: View {
             .padding(.bottom, LaxifyMetrics.tabBarHeight + LaxifyMetrics.miniPlayerHeight + 40)
         }
         .background(LaxifyPalette.background)
+        .task {
+            await SyncService.shared.pullLibrary(into: modelContext)
+        }
     }
 
     private var header: some View {

@@ -1,44 +1,52 @@
 import SwiftUI
 import SwiftData
+import UIKit
 
 struct AppRootView: View {
-    @Environment(\.modelContext) private var modelContext
-    @Query private var profiles: [UserProfile]
+    @Query private var favorites: [FavoriteTrack]
+    @Query private var dislikedTracks: [DislikedTrack]
 
-    @State private var isRestoring = true
+    var session = SessionStore.shared
+
     @State private var hasShownWelcome = false
-
-    private var profile: UserProfile? { profiles.first }
 
     var body: some View {
         Group {
-            if isRestoring {
-                launchLoading
-            } else if let profile {
-                if !profile.hasCompletedOnboarding {
-                    OnboardingView(profile: profile, onFinished: {})
-                } else if !hasShownWelcome {
-                    WelcomeView(name: profile.displayName) {
-                        withAnimation(.easeInOut(duration: 0.3)) {
+            switch session.state {
+            case .unknown:
+                launchScreen
+
+            case .signedOut:
+                SignInView { user in
+                    await signIn(user)
+                }
+                .transition(.opacity)
+
+            case .needsOnboarding:
+                OnboardingView(
+                    suggestedName: session.user?.displayName ?? "",
+                    suggestedUsername: session.user?.username ?? "",
+                    googleAvatarURL: session.user?.avatarURL
+                )
+                .transition(.opacity)
+
+            case .signedIn:
+                if hasShownWelcome {
+                    RootView()
+                        .transition(.opacity)
+                } else {
+                    WelcomeView(name: session.user?.displayName ?? "") {
+                        withAnimation(.easeInOut(duration: 0.35)) {
                             hasShownWelcome = true
                         }
                     }
                     .transition(.opacity)
-                } else {
-                    RootView()
-                        .transition(.opacity)
                 }
-            } else {
-                SignInView { user in
-                    withAnimation(.easeInOut(duration: 0.4)) {
-                        handleSignedIn(user)
-                    }
-                }
-                .transition(.opacity)
             }
         }
+        .animation(.easeInOut(duration: 0.35), value: session.state)
         .task {
-            await restoreSession()
+            await restore()
         }
         .onOpenURL { url in
             guard !DeepLinkRouter.shared.handle(url) else { return }
@@ -46,73 +54,73 @@ struct AppRootView: View {
         }
     }
 
-    /// Deliberately just the brand mark, no spinner: the check is usually
-    /// instant, and a spinner that appears for two frames reads as a glitch.
-    private var launchLoading: some View {
+    /// Just the brand mark: the check is usually instant, and a spinner shown
+    /// for two frames reads as a glitch.
+    private var launchScreen: some View {
         ZStack {
             LaxifyPalette.background.ignoresSafeArea()
 
             Image(systemName: "waveform")
                 .font(.system(size: 34, weight: .bold))
                 .foregroundStyle(LaxifyPalette.accent)
-                .opacity(0.9)
         }
         .transition(.opacity)
     }
 
-    /// Restores a previous session, but never blocks the launch on it.
-    ///
-    /// The SDK call can hang indefinitely when the network is unreachable or
-    /// the token endpoint is slow, which left the app sitting on the launch
-    /// mark with no way forward. Racing it against a timeout means the worst
-    /// case is landing on the sign-in screen, which is recoverable — unlike a
-    /// screen that never changes.
-    private func restoreSession() async {
+    private func restore() async {
+        await session.restore()
+
+        // The backend session outlives Google's, and it is what actually
+        // authorises requests — so Google is only consulted when there is no
+        // server session left to restore.
+        guard session.state == .signedOut else { return }
+
+        // Never block the launch on this: the SDK call can hang on an
+        // unreachable network, and the sign-in screen is a recoverable place
+        // to land, unlike a screen that never changes.
         let restored = await withTaskGroup(of: AuthenticatedGoogleUser?.self) { group in
-            group.addTask {
-                await AuthService.shared.restorePreviousSignIn()
-            }
+            group.addTask { await AuthService.shared.restorePreviousSignIn() }
             group.addTask {
                 try? await Task.sleep(for: .seconds(4))
                 return nil
             }
-
             let first = await group.next() ?? nil
             group.cancelAll()
             return first
         }
 
-        if let restored {
-            handleSignedIn(restored)
-            // Give SwiftData a beat to surface the inserted profile, otherwise
-            // the query is still empty when the flag drops and the sign-in
-            // screen flashes for a frame.
-            try? await Task.sleep(for: .milliseconds(120))
-        }
-
-        withAnimation(.easeInOut(duration: 0.35)) {
-            isRestoring = false
+        if let restored, !restored.idToken.isEmpty {
+            _ = await session.signIn(idToken: restored.idToken, deviceName: Self.deviceName)
         }
     }
 
-    private func handleSignedIn(_ user: AuthenticatedGoogleUser) {
-        if let existing = profiles.first(where: { $0.googleUserId == user.googleUserId }) {
-            existing.email = user.email
-            if existing.displayName.isEmpty {
-                existing.displayName = user.displayName
-            }
-            if existing.googleAvatarURLString == nil {
-                existing.googleAvatarURLString = user.avatarURLString
-            }
-        } else {
-            let newProfile = UserProfile(
-                googleUserId: user.googleUserId,
-                email: user.email,
-                displayName: user.displayName,
-                googleAvatarURLString: user.avatarURLString
-            )
-            modelContext.insert(newProfile)
+    private func signIn(_ user: AuthenticatedGoogleUser) async {
+        guard !user.idToken.isEmpty else { return }
+        guard await session.signIn(idToken: user.idToken, deviceName: Self.deviceName) else {
+            return
         }
+        await migrateLocalDataIfNeeded()
+    }
+
+    /// Sends whatever the app collected before this account existed. The
+    /// server accepts this once per account and rejects repeats, so there is
+    /// no risk of double-counting listening time.
+    private func migrateLocalDataIfNeeded() async {
+        let localFavorites = favorites.map { (song: $0.song, addedAt: $0.addedAt) }
+        let localDislikes = dislikedTracks.map(\.id)
+        let seconds = ListeningStatsService.shared.totalSecondsListened
+
+        guard !localFavorites.isEmpty || !localDislikes.isEmpty || seconds > 0 else { return }
+
+        try? await LaxifyAPI.shared.migrateLocalData(
+            favorites: localFavorites,
+            dislikedTrackIds: localDislikes,
+            totalSecondsListened: seconds
+        )
+    }
+
+    private static var deviceName: String {
+        UIDevice.current.name
     }
 }
 

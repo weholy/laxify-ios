@@ -1,24 +1,25 @@
 import SwiftUI
-import SwiftData
 
 struct ProfileView: View {
-    @Query private var profiles: [UserProfile]
+    var session = SessionStore.shared
     var stats = ListeningStatsService.shared
-    @State private var isEditPresented = false
 
-    private var profile: UserProfile? { profiles.first }
+    @State private var isEditPresented = false
+    @State private var serverStats: BackendStats?
+
+    private var user: BackendUser? { session.user }
 
     var body: some View {
-        // The header sits outside the ScrollView rather than in an overlay:
-        // layered over a scroll view the button only caught occasional taps,
-        // because the scroll gesture consumed most of them.
+        // The header sits outside the ScrollView: layered over a scroll view
+        // the button only caught occasional taps, because the scroll gesture
+        // consumed most of them.
         VStack(spacing: 0) {
             header
 
             ScrollView {
                 VStack(spacing: LaxifyMetrics.sectionSpacing) {
-                    if let profile {
-                        identitySection(profile)
+                    if let user {
+                        identitySection(user)
                     }
 
                     statsSection
@@ -28,10 +29,12 @@ struct ProfileView: View {
             }
         }
         .background(profileBackground)
+        .task {
+            await session.refreshUser()
+            serverStats = try? await LaxifyAPI.shared.stats()
+        }
         .fullScreenCover(isPresented: $isEditPresented) {
-            if let profile {
-                EditProfileView(profile: profile) { isEditPresented = false }
-            }
+            EditProfileView { isEditPresented = false }
         }
     }
 
@@ -39,7 +42,7 @@ struct ProfileView: View {
         HStack {
             Spacer()
 
-            if profile != nil {
+            if user != nil {
                 LaxifyPillButton(title: "Изм.", systemImage: "pencil") {
                     isEditPresented = true
                 }
@@ -55,7 +58,7 @@ struct ProfileView: View {
             LaxifyPalette.background
 
             Group {
-                if let profile, profile.avatarData == nil, let url = profile.googleAvatarURL {
+                if let url = user?.avatarURL {
                     AsyncImage(url: url) { phase in
                         if let image = phase.image {
                             image
@@ -65,15 +68,8 @@ struct ProfileView: View {
                                 .opacity(0.5)
                         }
                     }
-                } else if let profile, let data = profile.avatarData, let uiImage = UIImage(data: data) {
-                    Image(uiImage: uiImage)
-                        .resizable()
-                        .scaledToFill()
-                        .blur(radius: 90)
-                        .opacity(0.5)
                 } else {
-                    LaxifyPalette.accent.opacity(0.22)
-                        .blur(radius: 90)
+                    LaxifyPalette.accent.opacity(0.22).blur(radius: 90)
                 }
             }
             .frame(height: 420)
@@ -87,6 +83,48 @@ struct ProfileView: View {
         }
         .clipped()
         .ignoresSafeArea()
+    }
+
+    private func identitySection(_ user: BackendUser) -> some View {
+        VStack(spacing: 14) {
+            avatarView(user)
+                .frame(width: 104, height: 104)
+                .clipShape(Circle())
+                .overlay { Circle().stroke(.white.opacity(0.15), lineWidth: 1) }
+                .shadow(color: .black.opacity(0.3), radius: 20, y: 10)
+
+            VStack(spacing: 3) {
+                Text(user.displayName)
+                    .font(.system(size: 26, weight: .bold))
+                    .foregroundStyle(LaxifyPalette.textPrimary)
+
+                Text("@\(user.username)")
+                    .font(LaxifyTypography.subheadline)
+                    .foregroundStyle(LaxifyPalette.textSecondary)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, LaxifyMetrics.screenPadding)
+    }
+
+    @ViewBuilder
+    private func avatarView(_ user: BackendUser) -> some View {
+        if let url = user.avatarURL {
+            AsyncImage(url: url) { phase in
+                if let image = phase.image {
+                    image.resizable().scaledToFill()
+                } else {
+                    Circle().fill(LaxifyPalette.surface)
+                }
+            }
+        } else {
+            Circle()
+                .fill(LaxifyPalette.surface)
+                .overlay {
+                    Image(systemName: "person.fill")
+                        .foregroundStyle(LaxifyPalette.textTertiary)
+                }
+        }
     }
 
     private var statsSection: some View {
@@ -109,59 +147,12 @@ struct ProfileView: View {
         .frame(maxWidth: .infinity)
     }
 
+    /// Prefers the server total, which spans every device, and falls back to
+    /// the local count when the server has not answered yet.
     private var formattedHours: String {
-        String(format: "%.1f", stats.totalSecondsListened / 3600)
+        let seconds = serverStats?.totalSeconds ?? stats.totalSecondsListened
+        return String(format: "%.1f", seconds / 3600)
     }
-
-    private func identitySection(_ profile: UserProfile) -> some View {
-        VStack(spacing: 14) {
-            avatarView(profile)
-                .frame(width: 104, height: 104)
-                .clipShape(Circle())
-                .overlay {
-                    Circle().stroke(.white.opacity(0.15), lineWidth: 1)
-                }
-                .shadow(color: .black.opacity(0.3), radius: 20, y: 10)
-
-            VStack(spacing: 3) {
-                Text(profile.displayName)
-                    .font(.system(size: 26, weight: .bold))
-                    .foregroundStyle(LaxifyPalette.textPrimary)
-                if !profile.username.isEmpty {
-                    Text("@\(profile.username)")
-                        .font(LaxifyTypography.subheadline)
-                        .foregroundStyle(LaxifyPalette.textSecondary)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, LaxifyMetrics.screenPadding)
-    }
-
-    @ViewBuilder
-    private func avatarView(_ profile: UserProfile) -> some View {
-        if let avatarData = profile.avatarData, let uiImage = UIImage(data: avatarData) {
-            Image(uiImage: uiImage)
-                .resizable()
-                .scaledToFill()
-        } else if let url = profile.googleAvatarURL {
-            AsyncImage(url: url) { phase in
-                if let image = phase.image {
-                    image.resizable().scaledToFill()
-                } else {
-                    Circle().fill(LaxifyPalette.surface)
-                }
-            }
-        } else {
-            Circle()
-                .fill(LaxifyPalette.surface)
-                .overlay {
-                    Image(systemName: "person.fill")
-                        .foregroundStyle(LaxifyPalette.textTertiary)
-                }
-        }
-    }
-
 }
 
 #Preview {

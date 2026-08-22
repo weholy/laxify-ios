@@ -74,6 +74,8 @@ final class AudioPlayerController {
     }
 
     private func reportSkipIfNeeded() {
+        reportPlaybackToAccount(completed: false)
+
         guard waveBatchId != nil, let song = currentSong, currentTime > 0 else { return }
         // Only a genuine skip counts: a track left to finish on its own is
         // reported separately as completed.
@@ -215,6 +217,7 @@ final class AudioPlayerController {
     }
 
     private func handleDidFinishPlaying() {
+        reportPlaybackToAccount(completed: true)
         reportWaveFinished()
 
         if hasNext {
@@ -233,6 +236,18 @@ final class AudioPlayerController {
         reportedStartForTrackId = song.id
         let trackId = song.id
         Task { await YandexMusicService.shared.reportWaveTrackStarted(trackId: trackId, batchId: batchId) }
+    }
+
+    /// Reports the finished track to the account so stats and
+    /// recommendations reflect every device, not just this one.
+    private func reportPlaybackToAccount(completed: Bool) {
+        guard let song = currentSong, currentTime > 3 else { return }
+        SyncService.shared.recordPlayback(
+            song: song,
+            seconds: currentTime,
+            completed: completed,
+            source: waveBatchId == nil ? "library" : "wave"
+        )
     }
 
     private func reportWaveFinished() {

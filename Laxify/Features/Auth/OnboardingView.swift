@@ -2,96 +2,142 @@ import SwiftUI
 import PhotosUI
 
 struct OnboardingView: View {
-    let profile: UserProfile
-    var onFinished: () -> Void
+    let suggestedName: String
+    let suggestedUsername: String
+    let googleAvatarURL: URL?
 
     @State private var name: String
     @State private var username: String
-    @State private var includesBirthdate: Bool
+    @State private var includesBirthdate = false
     @State private var birthdate: Date
     @State private var avatarItem: PhotosPickerItem?
     @State private var avatarData: Data?
+
+    @State private var usernameStatus: UsernameStatus = .idle
+    @State private var errorMessage: String?
+    @State private var isSaving = false
     @State private var appear = false
 
-    init(profile: UserProfile, onFinished: @escaping () -> Void) {
-        self.profile = profile
-        self.onFinished = onFinished
-        _name = State(initialValue: profile.displayName)
-        _username = State(initialValue: profile.username)
-        _includesBirthdate = State(initialValue: profile.birthdate != nil)
-        _birthdate = State(initialValue: profile.birthdate ?? Calendar.current.date(byAdding: .year, value: -18, to: .now) ?? .now)
-        _avatarData = State(initialValue: profile.avatarData)
+    private var session = SessionStore.shared
+
+    private enum UsernameStatus: Equatable {
+        case idle
+        case checking
+        case available
+        case taken(reason: String, suggestions: [String])
+    }
+
+    init(suggestedName: String, suggestedUsername: String, googleAvatarURL: URL?) {
+        self.suggestedName = suggestedName
+        self.suggestedUsername = suggestedUsername
+        self.googleAvatarURL = googleAvatarURL
+        _name = State(initialValue: suggestedName)
+        _username = State(initialValue: suggestedUsername)
+        _birthdate = State(
+            initialValue: Calendar.current.date(byAdding: .year, value: -18, to: .now) ?? .now
+        )
     }
 
     private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
-    private var trimmedUsername: String { username.trimmingCharacters(in: .whitespacesAndNewlines) }
-    private var canContinue: Bool { !trimmedName.isEmpty && !trimmedUsername.isEmpty }
+    private var trimmedUsername: String {
+        username.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private var canContinue: Bool {
+        !trimmedName.isEmpty
+            && trimmedUsername.count >= 2
+            && usernameStatus != .checking
+            && !isSaving
+            && !isUsernameTaken
+    }
+
+    private var isUsernameTaken: Bool {
+        if case .taken = usernameStatus { return true }
+        return false
+    }
 
     var body: some View {
         ScrollView {
-            VStack(spacing: LaxifyMetrics.sectionSpacing) {
+            VStack(spacing: 26) {
                 header
                 avatarPicker
-                fieldsSection
+                fields
                 birthdateSection
+
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(LaxifyTypography.footnote)
+                        .foregroundStyle(.red)
+                        .multilineTextAlignment(.center)
+                }
+
                 continueButton
             }
             .padding(.horizontal, LaxifyMetrics.screenPadding)
-            .padding(.top, 24)
+            .padding(.top, 28)
             .padding(.bottom, 40)
+            .opacity(appear ? 1 : 0)
+            .offset(y: appear ? 0 : 16)
         }
         .background(LaxifyPalette.background.ignoresSafeArea())
+        .scrollDismissesKeyboard(.interactively)
         .onAppear {
-            withAnimation(.easeOut(duration: 0.5)) {
-                appear = true
-            }
+            withAnimation(.easeOut(duration: 0.5)) { appear = true }
         }
         .task(id: avatarItem) {
-            guard let avatarItem, let data = try? await avatarItem.loadTransferable(type: Data.self) else { return }
-            avatarData = data
+            guard let avatarItem,
+                  let data = try? await avatarItem.loadTransferable(type: Data.self) else { return }
+            withAnimation(.easeInOut(duration: 0.25)) { avatarData = data }
+        }
+        .task(id: trimmedUsername) {
+            await checkUsername()
         }
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Расскажи о себе")
-                .font(LaxifyTypography.largeTitle)
+        VStack(spacing: 6) {
+            Text("Almost done")
+                .font(LaxifyTypography.footnote)
+                .foregroundStyle(LaxifyPalette.accent)
+                .textCase(.uppercase)
+                .kerning(1.2)
+                .hidden()
+
+            Text("Расскажите о себе")
+                .font(.system(size: 30, weight: .bold))
                 .foregroundStyle(LaxifyPalette.textPrimary)
+
             Text("Это займёт меньше минуты")
                 .font(LaxifyTypography.body)
                 .foregroundStyle(LaxifyPalette.textSecondary)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .opacity(appear ? 1 : 0)
     }
 
     private var avatarPicker: some View {
         PhotosPicker(selection: $avatarItem, matching: .images) {
             ZStack(alignment: .bottomTrailing) {
                 avatarImage
-                    .frame(width: 108, height: 108)
+                    .frame(width: 112, height: 112)
                     .clipShape(Circle())
+                    .overlay { Circle().stroke(.white.opacity(0.15), lineWidth: 1) }
 
                 Image(systemName: "camera.fill")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.white)
-                    .frame(width: 32, height: 32)
+                    .frame(width: 34, height: 34)
                     .background(LaxifyPalette.accent, in: Circle())
                     .overlay(Circle().stroke(LaxifyPalette.background, lineWidth: 3))
             }
         }
         .buttonStyle(.plain)
-        .opacity(appear ? 1 : 0)
     }
 
     @ViewBuilder
     private var avatarImage: some View {
         if let avatarData, let uiImage = UIImage(data: avatarData) {
-            Image(uiImage: uiImage)
-                .resizable()
-                .scaledToFill()
-        } else if let url = profile.googleAvatarURL {
-            AsyncImage(url: url) { phase in
+            Image(uiImage: uiImage).resizable().scaledToFill()
+        } else if let googleAvatarURL {
+            AsyncImage(url: googleAvatarURL) { phase in
                 if let image = phase.image {
                     image.resizable().scaledToFill()
                 } else {
@@ -108,20 +154,72 @@ struct OnboardingView: View {
             .fill(LaxifyPalette.surface)
             .overlay {
                 Image(systemName: "person.fill")
-                    .font(.system(size: 36))
+                    .font(.system(size: 38))
                     .foregroundStyle(LaxifyPalette.textTertiary)
             }
     }
 
-    private var fieldsSection: some View {
-        VStack(spacing: 12) {
-            labeledField(title: "Имя", text: $name, placeholder: "Имя")
-            labeledField(title: "Юзернейм", text: $username, placeholder: "username", prefix: "@")
+    private var fields: some View {
+        VStack(spacing: 16) {
+            field(title: "Имя", text: $name, placeholder: "Как вас зовут")
+
+            VStack(alignment: .leading, spacing: 8) {
+                field(title: "Юзернейм", text: $username, placeholder: "username", prefix: "@")
+                usernameFeedback
+            }
         }
-        .opacity(appear ? 1 : 0)
     }
 
-    private func labeledField(title: String, text: Binding<String>, placeholder: String, prefix: String? = nil) -> some View {
+    @ViewBuilder
+    private var usernameFeedback: some View {
+        switch usernameStatus {
+        case .idle:
+            EmptyView()
+
+        case .checking:
+            Text("Проверяем…")
+                .font(LaxifyTypography.caption)
+                .foregroundStyle(LaxifyPalette.textTertiary)
+
+        case .available:
+            Label("Свободен", systemImage: "checkmark.circle.fill")
+                .font(LaxifyTypography.caption)
+                .foregroundStyle(.green)
+
+        case .taken(let reason, let suggestions):
+            VStack(alignment: .leading, spacing: 8) {
+                Label(reason, systemImage: "exclamationmark.circle.fill")
+                    .font(LaxifyTypography.caption)
+                    .foregroundStyle(.orange)
+
+                if !suggestions.isEmpty {
+                    HStack(spacing: 8) {
+                        ForEach(suggestions.prefix(3), id: \.self) { suggestion in
+                            Button {
+                                username = suggestion
+                            } label: {
+                                Text("@\(suggestion)")
+                                    .font(LaxifyTypography.caption)
+                                    .foregroundStyle(LaxifyPalette.accent)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(LaxifyPalette.accentMuted, in: Capsule())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+            .transition(.opacity)
+        }
+    }
+
+    private func field(
+        title: String,
+        text: Binding<String>,
+        placeholder: String,
+        prefix: String? = nil
+    ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(LaxifyTypography.footnote)
@@ -129,8 +227,7 @@ struct OnboardingView: View {
 
             HStack(spacing: 4) {
                 if let prefix {
-                    Text(prefix)
-                        .foregroundStyle(LaxifyPalette.textTertiary)
+                    Text(prefix).foregroundStyle(LaxifyPalette.textTertiary)
                 }
                 TextField(placeholder, text: text)
                     .foregroundStyle(LaxifyPalette.textPrimary)
@@ -139,7 +236,7 @@ struct OnboardingView: View {
             }
             .font(LaxifyTypography.body)
             .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.vertical, 13)
             .laxGlassCapsule()
         }
     }
@@ -147,9 +244,14 @@ struct OnboardingView: View {
     private var birthdateSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Toggle(isOn: $includesBirthdate.animation(.easeInOut(duration: 0.2))) {
-                Text("Указать дату рождения")
-                    .font(LaxifyTypography.body)
-                    .foregroundStyle(LaxifyPalette.textPrimary)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Дата рождения")
+                        .font(LaxifyTypography.body)
+                        .foregroundStyle(LaxifyPalette.textPrimary)
+                    Text("По желанию")
+                        .font(LaxifyTypography.caption)
+                        .foregroundStyle(LaxifyPalette.textTertiary)
+                }
             }
             .tint(LaxifyPalette.accent)
 
@@ -162,28 +264,70 @@ struct OnboardingView: View {
         }
         .padding(16)
         .laxGlassCard()
-        .opacity(appear ? 1 : 0)
     }
 
     private var continueButton: some View {
         Button {
-            save()
+            Task { await save() }
         } label: {
-            Text("Готово")
-                .frame(maxWidth: .infinity)
+            HStack(spacing: 8) {
+                if isSaving {
+                    ProgressView().tint(.white)
+                }
+                Text(isSaving ? "Сохраняем…" : "Продолжить")
+            }
+            .frame(maxWidth: .infinity)
         }
         .buttonStyle(.laxifyPrimary)
         .disabled(!canContinue)
         .opacity(canContinue ? 1 : 0.5)
-        .opacity(appear ? 1 : 0)
     }
 
-    private func save() {
-        profile.displayName = trimmedName
-        profile.username = trimmedUsername
-        profile.birthdate = includesBirthdate ? birthdate : nil
-        profile.avatarData = avatarData
-        profile.hasCompletedOnboarding = true
-        onFinished()
+    /// Checks the handle as it is typed, debounced so a burst of keystrokes
+    /// doesn't turn into a burst of requests.
+    private func checkUsername() async {
+        guard trimmedUsername.count >= 2 else {
+            usernameStatus = .idle
+            return
+        }
+
+        try? await Task.sleep(for: .milliseconds(450))
+        guard !Task.isCancelled else { return }
+
+        usernameStatus = .checking
+
+        guard let result = try? await LaxifyAPI.shared.checkUsername(trimmedUsername) else {
+            usernameStatus = .idle
+            return
+        }
+        guard !Task.isCancelled else { return }
+
+        withAnimation(.easeInOut(duration: 0.2)) {
+            usernameStatus = result.available
+                ? .available
+                : .taken(
+                    reason: result.reason ?? "Этот юзернейм занят",
+                    suggestions: result.suggestions
+                )
+        }
+    }
+
+    private func save() async {
+        isSaving = true
+        errorMessage = nil
+        defer { isSaving = false }
+
+        // The avatar image itself needs an upload endpoint that does not exist
+        // yet, so only the Google picture URL is carried over for now.
+        let failure = await session.completeOnboarding(
+            displayName: trimmedName,
+            username: trimmedUsername,
+            birthdate: includesBirthdate ? birthdate : nil,
+            avatarURL: googleAvatarURL?.absoluteString
+        )
+
+        if let failure {
+            withAnimation { errorMessage = failure }
+        }
     }
 }

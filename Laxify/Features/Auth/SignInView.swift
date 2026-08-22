@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct SignInView: View {
-    var onSignedIn: (AuthenticatedGoogleUser) -> Void
+    var onSignedIn: (AuthenticatedGoogleUser) async -> Void
 
     @State private var isSigningIn = false
     @State private var errorMessage: String?
@@ -155,8 +155,8 @@ struct SignInView: View {
         Task {
             do {
                 let user = try await AuthService.shared.signIn()
+                await onSignedIn(user)
                 isSigningIn = false
-                onSignedIn(user)
             } catch AuthError.cancelled {
                 isSigningIn = false
             } catch {

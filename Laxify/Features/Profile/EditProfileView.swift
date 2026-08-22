@@ -1,51 +1,69 @@
 import SwiftUI
-import PhotosUI
 
 struct EditProfileView: View {
-    let profile: UserProfile
     var onClose: () -> Void
+
+    private var session = SessionStore.shared
 
     @State private var name: String
     @State private var username: String
     @State private var includesBirthdate: Bool
     @State private var birthdate: Date
-    @State private var avatarItem: PhotosPickerItem?
-    @State private var avatarData: Data?
+    @State private var errorMessage: String?
+    @State private var isSaving = false
 
-    init(profile: UserProfile, onClose: @escaping () -> Void) {
-        self.profile = profile
+    init(onClose: @escaping () -> Void) {
         self.onClose = onClose
-        _name = State(initialValue: profile.displayName)
-        _username = State(initialValue: profile.username)
-        _includesBirthdate = State(initialValue: profile.birthdate != nil)
-        _birthdate = State(initialValue: profile.birthdate ?? Calendar.current.date(byAdding: .year, value: -18, to: .now) ?? .now)
-        _avatarData = State(initialValue: profile.avatarData)
+        let user = SessionStore.shared.user
+        _name = State(initialValue: user?.displayName ?? "")
+        _username = State(initialValue: user?.username ?? "")
+
+        let parsed = user?.birthdate.flatMap { raw -> Date? in
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd"
+            return formatter.date(from: raw)
+        }
+        _includesBirthdate = State(initialValue: parsed != nil)
+        _birthdate = State(
+            initialValue: parsed ?? Calendar.current.date(byAdding: .year, value: -18, to: .now) ?? .now
+        )
     }
 
     private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
-    private var trimmedUsername: String { username.trimmingCharacters(in: .whitespacesAndNewlines) }
-    private var canSave: Bool { !trimmedName.isEmpty && !trimmedUsername.isEmpty }
+    private var trimmedUsername: String {
+        username.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+    private var canSave: Bool {
+        !trimmedName.isEmpty && trimmedUsername.count >= 2 && !isSaving
+    }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: LaxifyMetrics.sectionSpacing) {
-                header
-                avatarPicker
-                fields
-                birthdateSection
-                saveButton
+        VStack(spacing: 0) {
+            header
+
+            ScrollView {
+                VStack(spacing: 20) {
+                    avatarSection
+                    fields
+                    birthdateSection
+
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(LaxifyTypography.footnote)
+                            .foregroundStyle(.red)
+                            .multilineTextAlignment(.center)
+                    }
+
+                    saveButton
+                    signOutButton
+                }
+                .padding(.horizontal, LaxifyMetrics.screenPadding)
+                .padding(.top, 12)
+                .padding(.bottom, 40)
             }
-            .padding(.horizontal, LaxifyMetrics.screenPadding)
-            .padding(.top, 16)
-            .padding(.bottom, 40)
         }
         .background(LaxifyPalette.background.ignoresSafeArea())
-        .task(id: avatarItem) {
-            guard let avatarItem, let data = try? await avatarItem.loadTransferable(type: Data.self) else { return }
-            withAnimation(.easeInOut(duration: 0.25)) {
-                avatarData = data
-            }
-        }
+        .scrollDismissesKeyboard(.interactively)
     }
 
     private var header: some View {
@@ -56,39 +74,29 @@ struct EditProfileView: View {
 
             Spacer()
 
-            Button(action: onClose) {
-                Image(systemName: "xmark")
-            }
-            .buttonStyle(.laxifyIcon)
+            LaxifyCloseButton(style: .xmark, tinted: false, action: onClose)
         }
+        .padding(.horizontal, LaxifyMetrics.screenPadding)
+        .padding(.top, 12)
+        .padding(.bottom, 12)
     }
 
-    private var avatarPicker: some View {
-        PhotosPicker(selection: $avatarItem, matching: .images) {
-            ZStack(alignment: .bottomTrailing) {
-                avatarImage
-                    .frame(width: 112, height: 112)
-                    .clipShape(Circle())
-                    .overlay { Circle().stroke(.white.opacity(0.15), lineWidth: 1) }
+    private var avatarSection: some View {
+        VStack(spacing: 10) {
+            avatarImage
+                .frame(width: 96, height: 96)
+                .clipShape(Circle())
+                .overlay { Circle().stroke(.white.opacity(0.15), lineWidth: 1) }
 
-                Image(systemName: "camera.fill")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 34, height: 34)
-                    .background(LaxifyPalette.accent, in: Circle())
-                    .overlay(Circle().stroke(LaxifyPalette.background, lineWidth: 3))
-            }
+            Text("Фото берётся из аккаунта Google")
+                .font(LaxifyTypography.caption)
+                .foregroundStyle(LaxifyPalette.textTertiary)
         }
-        .buttonStyle(.plain)
     }
 
     @ViewBuilder
     private var avatarImage: some View {
-        if let avatarData, let uiImage = UIImage(data: avatarData) {
-            Image(uiImage: uiImage)
-                .resizable()
-                .scaledToFill()
-        } else if let url = profile.googleAvatarURL {
+        if let url = session.user?.avatarURL {
             AsyncImage(url: url) { phase in
                 if let image = phase.image {
                     image.resizable().scaledToFill()
@@ -106,19 +114,24 @@ struct EditProfileView: View {
             .fill(LaxifyPalette.surface)
             .overlay {
                 Image(systemName: "person.fill")
-                    .font(.system(size: 38))
+                    .font(.system(size: 34))
                     .foregroundStyle(LaxifyPalette.textTertiary)
             }
     }
 
     private var fields: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 14) {
             field(title: "Имя", text: $name, placeholder: "Имя")
             field(title: "Юзернейм", text: $username, placeholder: "username", prefix: "@")
         }
     }
 
-    private func field(title: String, text: Binding<String>, placeholder: String, prefix: String? = nil) -> some View {
+    private func field(
+        title: String,
+        text: Binding<String>,
+        placeholder: String,
+        prefix: String? = nil
+    ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(LaxifyTypography.footnote)
@@ -126,8 +139,7 @@ struct EditProfileView: View {
 
             HStack(spacing: 4) {
                 if let prefix {
-                    Text(prefix)
-                        .foregroundStyle(LaxifyPalette.textTertiary)
+                    Text(prefix).foregroundStyle(LaxifyPalette.textTertiary)
                 }
                 TextField(placeholder, text: text)
                     .foregroundStyle(LaxifyPalette.textPrimary)
@@ -136,7 +148,7 @@ struct EditProfileView: View {
             }
             .font(LaxifyTypography.body)
             .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.vertical, 13)
             .laxGlassCapsule()
         }
     }
@@ -163,21 +175,49 @@ struct EditProfileView: View {
 
     private var saveButton: some View {
         Button {
-            save()
+            Task { await save() }
         } label: {
-            Text("Сохранить")
-                .frame(maxWidth: .infinity)
+            HStack(spacing: 8) {
+                if isSaving { ProgressView().tint(.white) }
+                Text(isSaving ? "Сохраняем…" : "Сохранить")
+            }
+            .frame(maxWidth: .infinity)
         }
         .buttonStyle(.laxifyPrimary)
         .disabled(!canSave)
         .opacity(canSave ? 1 : 0.5)
     }
 
-    private func save() {
-        profile.displayName = trimmedName
-        profile.username = trimmedUsername
-        profile.birthdate = includesBirthdate ? birthdate : nil
-        profile.avatarData = avatarData
-        onClose()
+    private var signOutButton: some View {
+        Button {
+            Task {
+                await session.signOut()
+                onClose()
+            }
+        } label: {
+            Text("Выйти из аккаунта")
+                .font(LaxifyTypography.subheadline)
+                .foregroundStyle(.red)
+        }
+        .buttonStyle(.plain)
+        .padding(.top, 8)
+    }
+
+    private func save() async {
+        isSaving = true
+        errorMessage = nil
+        defer { isSaving = false }
+
+        let failure = await session.updateProfile(
+            displayName: trimmedName,
+            username: trimmedUsername,
+            birthdate: includesBirthdate ? birthdate : nil
+        )
+
+        if let failure {
+            withAnimation { errorMessage = failure }
+        } else {
+            onClose()
+        }
     }
 }

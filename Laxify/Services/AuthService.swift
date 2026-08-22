@@ -7,6 +7,10 @@ struct AuthenticatedGoogleUser: Sendable {
     let email: String
     let displayName: String
     let avatarURLString: String?
+    /// Google's signed assertion of who this is. The backend verifies it
+    /// against Google's public keys — the other fields here are convenience
+    /// only and are never trusted server-side.
+    let idToken: String
 }
 
 enum AuthError: Error {
@@ -30,7 +34,11 @@ final class AuthService {
                     continuation.resume(returning: nil)
                     return
                 }
-                continuation.resume(returning: Self.map(user))
+                // A restored session often carries an expired ID token, which
+                // the backend would reject; refreshing first avoids that.
+                user.refreshTokensIfNeeded { refreshed, _ in
+                    continuation.resume(returning: Self.map(refreshed ?? user))
+                }
             }
         }
     }
@@ -72,7 +80,8 @@ final class AuthService {
             googleUserId: user.userID ?? UUID().uuidString,
             email: user.profile?.email ?? "",
             displayName: user.profile?.name ?? "",
-            avatarURLString: user.profile?.imageURL(withDimension: 200)?.absoluteString
+            avatarURLString: user.profile?.imageURL(withDimension: 200)?.absoluteString,
+            idToken: user.idToken?.tokenString ?? ""
         )
     }
 
