@@ -277,6 +277,40 @@ class SoundCloudClient:
         data = await self.request(f"users/{user_id}/playlists", {"limit": limit})
         return data.get("collection", [])
 
+    async def user_likes(self, user_id: str, limit: int = 50) -> list[dict]:
+        """Tracks an account has liked."""
+        try:
+            data = await self.request(f"users/{user_id}/likes", {"limit": limit})
+        except SoundCloudError:
+            return []
+
+        tracks = []
+        for item in data.get("collection", []):
+            track = item.get("track") or item
+            if track.get("kind") == "track":
+                tracks.append(track)
+        return tracks
+
+    async def resolve(self, url: str) -> dict:
+        """Turns a public link into the object behind it."""
+        return await self.request("resolve", {"url": url})
+
+    @_cached(600)
+    async def query_suggestions(self, query: str, limit: int = 10) -> list[str]:
+        """What the source thinks someone is typing towards."""
+        try:
+            data = await self.request(
+                "search/queries", {"q": query, "limit": limit}
+            )
+        except SoundCloudError:
+            return []
+
+        return [
+            item["query"]
+            for item in data.get("collection", [])
+            if isinstance(item, dict) and item.get("query")
+        ]
+
     async def related_artists(self, user_id: str, limit: int = 12) -> list[dict]:
         """Artists the source associates with this one."""
         try:

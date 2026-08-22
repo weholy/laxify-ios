@@ -29,7 +29,6 @@ enum LocalStateReset {
     /// every sign-out.
     private static let devicePreferences = [
         "laxify.appearance.theme",
-        "laxify.appearance.animations",
         "laxify.api.host",
         "laxify.device.uuid"
     ]

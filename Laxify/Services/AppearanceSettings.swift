@@ -23,6 +23,15 @@ final class AppearanceSettings {
             }
         }
 
+        /// One line saying what picking this actually does.
+        var explanation: String {
+            switch self {
+            case .system: "Меняется вместе с телефоном"
+            case .light: "Всегда светлое оформление"
+            case .dark: "Всегда тёмное оформление"
+            }
+        }
+
         var colorScheme: ColorScheme? {
             switch self {
             case .system: nil
@@ -36,18 +45,10 @@ final class AppearanceSettings {
         didSet { UserDefaults.standard.set(theme.rawValue, forKey: Self.themeKey) }
     }
 
-    /// Turning this off is an accessibility affordance as much as a taste
-    /// one — the player's expand animation is large and moves fast.
-    var animationsEnabled: Bool {
-        didSet { UserDefaults.standard.set(animationsEnabled, forKey: Self.animationsKey) }
-    }
-
     private static let themeKey = "laxify.appearance.theme"
-    private static let animationsKey = "laxify.appearance.animations"
 
     private init() {
         let stored = UserDefaults.standard.string(forKey: Self.themeKey)
         theme = stored.flatMap(Theme.init(rawValue:)) ?? .system
-        animationsEnabled = UserDefaults.standard.object(forKey: Self.animationsKey) as? Bool ?? true
     }
 }

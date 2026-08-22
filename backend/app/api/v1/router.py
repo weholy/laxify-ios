@@ -6,6 +6,7 @@ from app.api.v1 import (
     auth,
     catalog,
     diagnostics,
+    discover,
     email_auth,
     library,
     music,
@@ -25,4 +26,5 @@ api_router.include_router(music.router)
 api_router.include_router(admin.router)
 api_router.include_router(diagnostics.router)
 api_router.include_router(catalog.router)
+api_router.include_router(discover.router)
 api_router.include_router(wave.router)
