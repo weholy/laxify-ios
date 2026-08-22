@@ -546,6 +546,16 @@ actor LaxifyAPI {
         }
     }
 
+    func lyrics(
+        trackId: String, title: String, artist: String, duration: TimeInterval
+    ) async throws -> LyricsResponse {
+        let path = "/lyrics/\(escaped(trackId))"
+            + "?title=\(escaped(title))"
+            + "&artist=\(escaped(artist))"
+            + "&duration=\(Int(duration))"
+        return try await send(path, method: "GET")
+    }
+
     // MARK: - Listening statistics
 
     func replayPeriods() async throws -> [ReplayPeriod] {

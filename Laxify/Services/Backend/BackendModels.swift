@@ -272,3 +272,17 @@ struct ReplaySummary: Codable, Sendable {
 
     var isEmpty: Bool { totalPlays == 0 }
 }
+
+// MARK: - Lyrics
+
+struct LyricsResponse: Codable, Sendable {
+    struct Line: Codable, Sendable {
+        let timestamp: Double
+        let text: String
+    }
+
+    let found: Bool
+    let source: String?
+    let synced: [Line]
+    let plain: String?
+}

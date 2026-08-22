@@ -143,3 +143,24 @@ class PlaylistInvite(Base, UUIDMixin, TimestampMixin):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     max_uses: Mapped[int | None] = mapped_column(default=None)
     use_count: Mapped[int] = mapped_column(default=0)
+
+
+class LyricsCache(Base, TimestampMixin):
+    """Words for a track, and the fact that a track has none.
+
+    Both are worth keeping. Without recording a miss, every play of a track
+    nobody has lyrics for searches every source again — which is most of the
+    catalogue, and most of the traffic.
+    """
+
+    __tablename__ = "lyrics_cache"
+
+    track_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    title: Mapped[str] = mapped_column(Text, default="")
+    artist_name: Mapped[str] = mapped_column(Text, default="")
+
+    found: Mapped[bool] = mapped_column(Boolean, default=False)
+    source: Mapped[str | None] = mapped_column(String(32), default=None)
+    plain: Mapped[str | None] = mapped_column(Text, default=None)
+    # Timed lines, as [{"timestamp": 12.34, "text": "..."}].
+    synced: Mapped[list] = mapped_column(JSONB, default=list)

@@ -13,7 +13,12 @@ final class LyricsViewModel {
         loadedSongId = song.id
         isLoading = true
         hasLoaded = false
-        lyrics = await LyricsService.fetch(title: song.title, artistName: song.artistName, duration: song.duration)
+        lyrics = await LyricsService.fetch(
+            trackId: song.id,
+            title: song.title,
+            artistName: song.artistName,
+            duration: song.duration
+        )
         isLoading = false
         hasLoaded = true
     }

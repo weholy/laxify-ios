@@ -17,7 +17,6 @@ struct SettingsView: View {
         case about
         case account
         case appearance
-        case replay
 
         var id: String { rawValue }
 
@@ -27,7 +26,6 @@ struct SettingsView: View {
             case .about: "О себе"
             case .account: "Аккаунт"
             case .appearance: "Дизайн"
-            case .replay: "Статистика"
             }
         }
 
@@ -37,7 +35,6 @@ struct SettingsView: View {
             case .about: "Пара строк для вашей страницы"
             case .account: "Почта, пароль, имя"
             case .appearance: "Светлая или тёмная тема"
-            case .replay: "Сколько и что вы слушали"
             }
         }
 
@@ -54,7 +51,7 @@ struct SettingsView: View {
 
                 ScrollView {
                     VStack(spacing: 12) {
-                        ForEach([Page.privacy, .about, .account, .appearance, .replay]) { entry in
+                        ForEach([Page.privacy, .about, .account, .appearance]) { entry in
                             entryRow(entry)
                         }
 
@@ -76,8 +73,6 @@ struct SettingsView: View {
                 AccountSettingsView { page = nil }
             case .appearance:
                 AppearanceSettingsView { page = nil }
-            case .replay:
-                ReplayView { page = nil }
             }
         }
         .confirmationDialog(

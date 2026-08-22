@@ -9,6 +9,7 @@ from app.api.v1 import (
     discover,
     email_auth,
     library,
+    lyrics,
     music,
     playlists,
     replay,
@@ -22,6 +23,7 @@ api_router.include_router(auth.router)
 api_router.include_router(email_auth.router)
 api_router.include_router(users.router)
 api_router.include_router(library.router)
+api_router.include_router(lyrics.router)
 api_router.include_router(playlists.router)
 api_router.include_router(activity.router)
 api_router.include_router(replay.router)
