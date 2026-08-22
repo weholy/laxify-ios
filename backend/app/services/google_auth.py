@@ -59,6 +59,7 @@ async def verify_id_token(id_token: str) -> GoogleIdentity:
     try:
         unverified_header = jose_jwt.get_unverified_header(id_token)
     except JWTError as exc:
+        logger.warning("Google token header unreadable: %s (len=%d)", exc, len(id_token))
         raise GoogleAuthError("Некорректный токен Google") from exc
 
     key = next((k for k in jwks.get("keys", []) if k.get("kid") == unverified_header.get("kid")), None)
@@ -70,6 +71,11 @@ async def verify_id_token(id_token: str) -> GoogleIdentity:
             (k for k in jwks.get("keys", []) if k.get("kid") == unverified_header.get("kid")), None
         )
     if key is None:
+        logger.warning(
+            "Google signing key not found for kid=%r; available=%r",
+            unverified_header.get("kid"),
+            [k.get("kid") for k in jwks.get("keys", [])],
+        )
         raise GoogleAuthError("Не найден ключ подписи Google")
 
     # Read the unverified audience purely for diagnostics: a mismatch here is
@@ -110,11 +116,15 @@ async def verify_id_token(id_token: str) -> GoogleIdentity:
         raise GoogleAuthError("Токен Google не прошёл проверку") from last_error
 
     if claims.get("iss") not in GOOGLE_ISSUERS:
+        logger.warning("Google token issuer rejected: %r", claims.get("iss"))
         raise GoogleAuthError("Неверный издатель токена")
 
     sub = claims.get("sub")
     if not sub:
+        logger.warning("Google token has no subject; claims=%r", sorted(claims))
         raise GoogleAuthError("В токене нет идентификатора пользователя")
+
+    logger.info("Google sign-in verified for %s", claims.get("email", "<no email>"))
 
     return GoogleIdentity(
         sub=sub,

@@ -4,14 +4,14 @@ import SwiftUI
 ///
 /// SwiftUI's stock `Slider` picks up the system's thick, glassy treatment,
 /// which reads as heavy next to the rest of the player. This draws a plain
-/// capsule track with a small knob, and reports drags continuously while
-/// suppressing external updates mid-gesture — otherwise the playback clock
-/// fights the finger and the knob jumps.
+/// capsule track — no knob by default, so the fill alone marks the position —
+/// and reports drags continuously while suppressing external updates
+/// mid-gesture, otherwise the playback clock fights the finger.
 struct LaxifySlider: View {
     @Binding var value: Double
     var range: ClosedRange<Double> = 0...1
     var trackHeight: CGFloat = 4
-    var knobSize: CGFloat = 10
+    var knobSize: CGFloat = 0
     var tint: Color = .white
     var onEditingChanged: ((Bool) -> Void)?
 
@@ -42,12 +42,12 @@ struct LaxifySlider: View {
                     .fill(tint)
                     .frame(width: max(knobX, 0), height: trackHeight)
 
-                // Small and fixed-size: a knob that swells on touch draws
-                // the eye away from the track, which the reference avoids.
-                Circle()
-                    .fill(tint)
-                    .frame(width: knobSize, height: knobSize)
-                    .offset(x: knobX - knobSize / 2)
+                if knobSize > 0 {
+                    Circle()
+                        .fill(tint)
+                        .frame(width: knobSize, height: knobSize)
+                        .offset(x: knobX - knobSize / 2)
+                }
             }
             .frame(height: max(knobSize, trackHeight))
             .frame(maxHeight: .infinity, alignment: .center)

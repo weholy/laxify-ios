@@ -26,6 +26,15 @@ final class SessionStore {
 
     private init() {
         user = Self.loadCachedUser()
+
+        // Start optimistically when a session is already on the device: the
+        // launch screen used to sit there until the server answered, which is
+        // a visible wait for something that is almost always still valid.
+        // `restore()` then confirms it in the background and corrects course
+        // only if the server disagrees.
+        if KeychainStore.read(.accessToken) != nil, let cached = user {
+            state = cached.hasCompletedOnboarding ? .signedIn : .needsOnboarding
+        }
     }
 
     /// The profile is cached so the app can render a name and avatar while

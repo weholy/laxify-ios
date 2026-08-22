@@ -54,19 +54,13 @@ struct AppRootView: View {
         }
     }
 
-    /// Just the brand mark: the check is usually instant, and a spinner shown
-    /// for two frames reads as a glitch.
+    /// Plain background, no mark: this state is normally skipped entirely
+    /// because a stored session starts signed-in, and anything drawn for a
+    /// frame or two reads as a flash rather than as branding.
     private var launchScreen: some View {
-        ZStack {
-            LaxifyPalette.background.ignoresSafeArea()
-
-            Image("LaxifyLogo")
-                .resizable()
-                .scaledToFill()
-                .frame(width: 76, height: 76)
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        }
-        .transition(.opacity)
+        LaxifyPalette.background
+            .ignoresSafeArea()
+            .transition(.opacity)
     }
 
     private func restore() async {
