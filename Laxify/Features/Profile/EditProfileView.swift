@@ -211,6 +211,7 @@ struct EditProfileView: View {
         let failure = await session.updateProfile(
             displayName: trimmedName,
             username: trimmedUsername,
+            birthdate: nil
         )
 
         if let failure {

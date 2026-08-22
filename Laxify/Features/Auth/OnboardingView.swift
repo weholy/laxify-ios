@@ -291,6 +291,7 @@ struct OnboardingView: View {
         let failure = await session.completeOnboarding(
             displayName: trimmedName,
             username: trimmedUsername,
+            birthdate: nil,
             avatarURL: googleAvatarURL?.absoluteString
         )
 
