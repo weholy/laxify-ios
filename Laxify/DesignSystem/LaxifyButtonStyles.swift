@@ -9,7 +9,7 @@ struct LaxifyPrimaryButtonStyle: ButtonStyle {
             .minimumScaleFactor(0.8)
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
-            .background(LaxifyPalette.accent, in: Capsule())
+            .glassEffect(.regular.tint(LaxifyPalette.accent).interactive(), in: Capsule())
             .scaleEffect(configuration.isPressed ? 0.96 : 1)
             .animation(.spring(response: 0.3, dampingFraction: 0.7), value: configuration.isPressed)
     }

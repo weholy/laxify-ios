@@ -38,17 +38,7 @@ struct AppRootView: View {
             }
         }
         .task {
-            if let user = await AuthService.shared.restorePreviousSignIn() {
-                handleSignedIn(user)
-                // Give SwiftData a beat to surface the inserted profile.
-                // Without this the query is still empty when the flag drops,
-                // so the sign-in screen flashes for a frame before the app
-                // replaces it.
-                try? await Task.sleep(for: .milliseconds(120))
-            }
-            withAnimation(.easeInOut(duration: 0.35)) {
-                isRestoring = false
-            }
+            await restoreSession()
         }
         .onOpenURL { url in
             guard !DeepLinkRouter.shared.handle(url) else { return }
@@ -68,6 +58,41 @@ struct AppRootView: View {
                 .opacity(0.9)
         }
         .transition(.opacity)
+    }
+
+    /// Restores a previous session, but never blocks the launch on it.
+    ///
+    /// The SDK call can hang indefinitely when the network is unreachable or
+    /// the token endpoint is slow, which left the app sitting on the launch
+    /// mark with no way forward. Racing it against a timeout means the worst
+    /// case is landing on the sign-in screen, which is recoverable — unlike a
+    /// screen that never changes.
+    private func restoreSession() async {
+        let restored = await withTaskGroup(of: AuthenticatedGoogleUser?.self) { group in
+            group.addTask {
+                await AuthService.shared.restorePreviousSignIn()
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(4))
+                return nil
+            }
+
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+
+        if let restored {
+            handleSignedIn(restored)
+            // Give SwiftData a beat to surface the inserted profile, otherwise
+            // the query is still empty when the flag drops and the sign-in
+            // screen flashes for a frame.
+            try? await Task.sleep(for: .milliseconds(120))
+        }
+
+        withAnimation(.easeInOut(duration: 0.35)) {
+            isRestoring = false
+        }
     }
 
     private func handleSignedIn(_ user: AuthenticatedGoogleUser) {

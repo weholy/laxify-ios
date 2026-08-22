@@ -249,7 +249,7 @@ struct FullPlayerView: View {
                 ),
                 range: 0...max(player.duration, 1),
                 trackHeight: 4,
-                knobSize: 13,
+                knobSize: 10,
                 onEditingChanged: { editing in
                     isScrubbing = editing
                     if !editing {
@@ -318,7 +318,7 @@ struct FullPlayerView: View {
                 ),
                 range: 0...1,
                 trackHeight: 4,
-                knobSize: 13,
+                knobSize: 10,
                 tint: .white.opacity(0.9)
             )
 
