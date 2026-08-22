@@ -16,7 +16,6 @@ struct ReplayView: View {
     @State private var errorMessage: String?
     @State private var appear = false
     @State private var palette: ArtworkPalette = .neutral
-    @State private var lifetime: BackendStats?
 
     var body: some View {
         ZStack {
@@ -177,7 +176,6 @@ struct ReplayView: View {
 
                     habitSection(summary)
                         .revealed(after: 0.4, when: appear)
-                    lifetimeSection
                 }
                 .padding(.bottom, 130)
             }
@@ -386,24 +384,6 @@ struct ReplayView: View {
         }
     }
 
-    /// The all-time total, kept at the bottom where a lifetime figure
-    /// belongs — it changes slowly and is not what anyone opens this for.
-    @ViewBuilder
-    private var lifetimeSection: some View {
-        if let lifetime {
-            VStack(alignment: .leading, spacing: 12) {
-                sectionTitle("За всё время")
-
-                HStack(spacing: 10) {
-                    figure(Int(lifetime.totalSeconds / 3600), "часов")
-                    figure(lifetime.totalTracks, "треков")
-                    figure(lifetime.longestStreakDays, "дней подряд")
-                }
-                .padding(.horizontal, LaxifyMetrics.screenPadding)
-            }
-        }
-    }
-
     private func sectionTitle(_ text: String) -> some View {
         Text(text)
             .font(.system(size: 20, weight: .bold))
@@ -420,9 +400,7 @@ struct ReplayView: View {
         do {
             // One request rather than three in sequence: the months, this
             // month's figures and the month before all arrive together.
-            async let lifetimeTask = try? await LaxifyAPI.shared.stats()
             let bundle = try await LaxifyAPI.shared.replayBundle()
-            lifetime = await lifetimeTask
             periods = bundle.periods
             selected = bundle.current?.period ?? bundle.periods.first
 
