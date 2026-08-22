@@ -37,6 +37,10 @@ class TrackSnapshot(Base, TimestampMixin):
     album_id: Mapped[str | None] = mapped_column(String(64), index=True, default=None)
     cover_url: Mapped[str | None] = mapped_column(Text, default=None)
     duration_seconds: Mapped[float] = mapped_column(Float, default=0)
+    # Kept as a column rather than inside `extra` because listening stats
+    # group by it, and grouping by a JSON field is both slower and harder to
+    # index.
+    genre: Mapped[str | None] = mapped_column(String(64), index=True, default=None)
     extra: Mapped[dict] = mapped_column(JSONB, default=dict)
 
 

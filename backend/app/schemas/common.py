@@ -30,6 +30,7 @@ class TrackOut(ORMModel):
     album_id: str | None = None
     cover_url: str | None = None
     duration_seconds: float = 0
+    genre: str | None = Field(default=None, max_length=64)
 
 
 class TrackIn(BaseModel):
@@ -43,6 +44,7 @@ class TrackIn(BaseModel):
     album_id: str | None = Field(default=None, max_length=64)
     cover_url: str | None = None
     duration_seconds: float = 0
+    genre: str | None = Field(default=None, max_length=64)
 
 
 class MessageOut(BaseModel):

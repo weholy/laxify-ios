@@ -475,6 +475,16 @@ actor LaxifyAPI {
         )
     }
 
+    // MARK: - Listening statistics
+
+    func replayPeriods() async throws -> [ReplayPeriod] {
+        try await send("/replay/periods", method: "GET")
+    }
+
+    func replay(period: String) async throws -> ReplaySummary {
+        try await send("/replay?period=\(escaped(period))&limit=10", method: "GET")
+    }
+
     // MARK: - Catalogue
 
     /// Percent-encodes one query value.

@@ -21,5 +21,9 @@ enum LaxifyPalette {
         endPoint: .bottomTrailing
     )
 
+    /// Marks the chosen item in a set of choices. Neutral on purpose: the
+    /// accent belongs to things you can act on, not to what is already true.
+    static let selectionOutline = Color(light: Color(hex: 0x3C3C43), dark: Color(hex: 0xE5E5EA))
+
     static let glassTint = Color(light: .white.opacity(0.6), dark: .black.opacity(0.35))
 }

@@ -17,6 +17,7 @@ struct SettingsView: View {
         case about
         case account
         case appearance
+        case replay
 
         var id: String { rawValue }
 
@@ -26,6 +27,7 @@ struct SettingsView: View {
             case .about: "О себе"
             case .account: "Аккаунт"
             case .appearance: "Дизайн"
+            case .replay: "Статистика"
             }
         }
 
@@ -35,26 +37,10 @@ struct SettingsView: View {
             case .about: "Пара строк для вашей страницы"
             case .account: "Почта, пароль, имя"
             case .appearance: "Светлая или тёмная тема"
+            case .replay: "Сколько и что вы слушали"
             }
         }
 
-        var icon: String {
-            switch self {
-            case .privacy: "lock.fill"
-            case .about: "text.quote"
-            case .account: "person.fill"
-            case .appearance: "paintbrush.fill"
-            }
-        }
-
-        var tint: Color {
-            switch self {
-            case .privacy: .blue
-            case .about: .orange
-            case .account: .green
-            case .appearance: .purple
-            }
-        }
     }
 
     @State private var page: Page?
@@ -68,7 +54,7 @@ struct SettingsView: View {
 
                 ScrollView {
                     VStack(spacing: 12) {
-                        ForEach([Page.privacy, .about, .account, .appearance]) { entry in
+                        ForEach([Page.privacy, .about, .account, .appearance, .replay]) { entry in
                             entryRow(entry)
                         }
 
@@ -90,6 +76,8 @@ struct SettingsView: View {
                 AccountSettingsView { page = nil }
             case .appearance:
                 AppearanceSettingsView { page = nil }
+            case .replay:
+                ReplayView { page = nil }
             }
         }
         .confirmationDialog(
@@ -107,12 +95,6 @@ struct SettingsView: View {
             page = entry
         } label: {
             HStack(spacing: 14) {
-                Image(systemName: entry.icon)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 34, height: 34)
-                    .background(entry.tint, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-
                 VStack(alignment: .leading, spacing: 3) {
                     Text(entry.title)
                         .font(.system(size: 16, weight: .medium))
@@ -423,11 +405,6 @@ struct AppearanceSettingsView: View {
                 }
 
                 Spacer(minLength: 4)
-
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 20))
-                    .foregroundStyle(isSelected ? LaxifyPalette.accent : LaxifyPalette.textTertiary)
-                    .contentTransition(.symbolEffect(.replace))
             }
             .padding(16)
             .background(
@@ -435,8 +412,14 @@ struct AppearanceSettingsView: View {
                 in: RoundedRectangle(cornerRadius: 20, style: .continuous)
             )
             .overlay {
+                // The outline alone says which one is chosen. A tick as well
+                // was saying it twice, and in a colour that belonged to
+                // nothing else on the screen.
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .stroke(LaxifyPalette.accent, lineWidth: isSelected ? 2 : 0)
+                    .stroke(
+                        isSelected ? LaxifyPalette.selectionOutline : .clear,
+                        lineWidth: isSelected ? 2 : 0
+                    )
             }
             .contentShape(Rectangle())
         }

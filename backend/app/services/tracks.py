@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,9 +9,9 @@ from app.schemas.common import TrackIn
 async def upsert_track(session: AsyncSession, track: TrackIn) -> TrackSnapshot:
     """Store or refresh cached metadata for one track."""
     values = track.model_dump()
+    statement = insert(TrackSnapshot).values(**values)
     stmt = (
-        insert(TrackSnapshot)
-        .values(**values)
+        statement
         .on_conflict_do_update(
             index_elements=[TrackSnapshot.track_id],
             set_={
@@ -22,6 +22,10 @@ async def upsert_track(session: AsyncSession, track: TrackIn) -> TrackSnapshot:
                 "album_id": values["album_id"],
                 "cover_url": values["cover_url"],
                 "duration_seconds": values["duration_seconds"],
+                # Only overwrite a known genre with another known one: the
+                # client does not always have it, and losing it would empty
+                # the listening stats that group by it.
+                "genre": func.coalesce(statement.excluded.genre, TrackSnapshot.genre),
             },
         )
         .returning(TrackSnapshot)
@@ -54,6 +58,9 @@ async def upsert_tracks(session: AsyncSession, tracks: list[TrackIn]) -> dict[st
                 "album_id": insert(TrackSnapshot).excluded.album_id,
                 "cover_url": insert(TrackSnapshot).excluded.cover_url,
                 "duration_seconds": insert(TrackSnapshot).excluded.duration_seconds,
+                "genre": func.coalesce(
+                    insert(TrackSnapshot).excluded.genre, TrackSnapshot.genre
+                ),
             },
         )
     )

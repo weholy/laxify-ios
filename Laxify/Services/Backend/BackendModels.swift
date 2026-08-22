@@ -220,3 +220,55 @@ struct EmailVerifiedResponse: Codable, Sendable {
     let verified: Bool
     let needsPassword: Bool
 }
+
+// MARK: - Listening statistics
+
+struct ReplayPeriod: Codable, Sendable, Identifiable, Hashable {
+    let id: String
+    let title: String
+    let shortTitle: String
+    var isCurrent: Bool = false
+}
+
+struct ReplayArtist: Codable, Sendable, Identifiable, Hashable {
+    let id: String?
+    let name: String
+    let artworkUrl: String?
+    let minutes: Int
+    let plays: Int
+
+    var artworkURL: URL? { artworkUrl.flatMap(URL.init(string:)) }
+}
+
+struct ReplayTrack: Codable, Sendable, Identifiable, Hashable {
+    let id: String
+    let title: String
+    let artistName: String
+    let artworkUrl: String?
+    let plays: Int
+    let minutes: Int
+
+    var artworkURL: URL? { artworkUrl.flatMap(URL.init(string:)) }
+}
+
+struct ReplayGenre: Codable, Sendable, Identifiable, Hashable {
+    let name: String
+    let plays: Int
+
+    var id: String { name }
+}
+
+struct ReplaySummary: Codable, Sendable {
+    let period: ReplayPeriod
+    let totalMinutes: Int
+    let totalPlays: Int
+    let distinctTracks: Int
+    let distinctArtists: Int
+    let topArtists: [ReplayArtist]
+    let topTracks: [ReplayTrack]
+    let genres: [ReplayGenre]
+    let activeDays: Int
+    let longestStreakDays: Int
+
+    var isEmpty: Bool { totalPlays == 0 }
+}
