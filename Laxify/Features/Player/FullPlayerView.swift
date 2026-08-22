@@ -2,7 +2,8 @@ import SwiftUI
 import SwiftData
 
 struct FullPlayerView: View {
-    @Environment(\.dismiss) private var dismiss
+    var onClose: () -> Void
+
     @Environment(\.modelContext) private var modelContext
     @Query private var favorites: [FavoriteTrack]
     @Query private var dislikedTracks: [DislikedTrack]
@@ -12,6 +13,10 @@ struct FullPlayerView: View {
     @State private var isLyricsPresented = false
     @State private var isQueuePresented = false
     @State private var artworkDragOffset: CGFloat = 0
+    @State private var isScrubbing = false
+    @State private var scrubTarget: TimeInterval = 0
+
+    var volume = VolumeController.shared
 
     private var isFavorite: Bool {
         guard let song = player.currentSong else { return false }
@@ -59,7 +64,7 @@ struct FullPlayerView: View {
             LyricsView()
         }
         .sheet(isPresented: $isQueuePresented) {
-            QueueView()
+            QueueView { isQueuePresented = false }
         }
     }
 
@@ -85,7 +90,7 @@ struct FullPlayerView: View {
 
     private var topBar: some View {
         HStack {
-            glassIconButton(systemName: "chevron.down") { dismiss() }
+            LaxifyCloseButton(style: .chevronDown, tinted: false, action: onClose)
             Spacer()
             menuButton
         }
@@ -231,23 +236,36 @@ struct FullPlayerView: View {
     }
 
     private var scrubber: some View {
-        VStack(spacing: 6) {
-            Slider(
+        VStack(spacing: 2) {
+            LaxifySlider(
                 value: Binding(
-                    get: { player.currentTime },
-                    set: { player.seek(to: $0) }
+                    get: { isScrubbing ? scrubTarget : player.currentTime },
+                    set: { newValue in
+                        scrubTarget = newValue
+                        if !isScrubbing {
+                            player.seek(to: newValue)
+                        }
+                    }
                 ),
-                in: 0...max(player.duration, 1)
+                range: 0...max(player.duration, 1),
+                trackHeight: 4,
+                knobSize: 13,
+                onEditingChanged: { editing in
+                    isScrubbing = editing
+                    if !editing {
+                        player.seek(to: scrubTarget)
+                    }
+                }
             )
-            .tint(.white)
 
             HStack {
-                Text(formattedTime(player.currentTime))
+                Text(formattedTime(isScrubbing ? scrubTarget : player.currentTime))
                 Spacer()
-                Text("-" + formattedTime(max(player.duration - player.currentTime, 0)))
+                Text("-" + formattedTime(max(player.duration - (isScrubbing ? scrubTarget : player.currentTime), 0)))
             }
             .font(LaxifyTypography.caption)
             .foregroundStyle(.white.opacity(0.7))
+            .monospacedDigit()
         }
     }
 
@@ -290,24 +308,25 @@ struct FullPlayerView: View {
     }
 
     private var volumeSlider: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
             Image(systemName: "speaker.fill")
-            SystemVolumeSlider()
-                .frame(height: 24)
+
+            LaxifySlider(
+                value: Binding(
+                    get: { volume.volume },
+                    set: { volume.setVolume($0) }
+                ),
+                range: 0...1,
+                trackHeight: 4,
+                knobSize: 13,
+                tint: .white.opacity(0.9)
+            )
+
             Image(systemName: "speaker.wave.3.fill")
         }
         .font(.system(size: 12))
         .foregroundStyle(.white.opacity(0.7))
-    }
-
-    private func glassIconButton(systemName: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 40, height: 40)
-        }
-        .laxGlassCircle(interactive: true)
+        .background(volume.hostView)
     }
 
     private func toggleFavorite() {

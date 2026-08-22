@@ -26,17 +26,17 @@ struct RootView: View {
             .padding(.bottom, LaxifyMetrics.tabBarBottomInset)
         }
         .fullScreenCover(isPresented: $isSearchPresented) {
-            SearchView()
+            SearchView { isSearchPresented = false }
         }
         .fullScreenCover(isPresented: $isPlayerPresented) {
-            FullPlayerView()
+            FullPlayerView { isPlayerPresented = false }
         }
         .fullScreenCover(isPresented: Binding(
             get: { router.pendingArtistId != nil },
             set: { if !$0 { router.pendingArtistId = nil } }
         )) {
             if let artistId = router.pendingArtistId {
-                ArtistView(artistId: artistId)
+                ArtistView(artistId: artistId) { router.pendingArtistId = nil }
             }
         }
         .fullScreenCover(item: Binding(
@@ -49,7 +49,7 @@ struct RootView: View {
             get: { router.pendingCollection },
             set: { router.pendingCollection = $0 }
         )) { collection in
-            PlaylistDetailView(collection: collection)
+            PlaylistDetailView(collection: collection) { router.pendingCollection = nil }
         }
     }
 

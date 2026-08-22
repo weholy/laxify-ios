@@ -1,15 +1,16 @@
 import SwiftUI
 
 struct ArtistView: View {
-    @Environment(\.dismiss) private var dismiss
     @State private var viewModel: ArtistViewModel
     @State private var selectedAlbum: MusicAlbum?
     @State private var isAllTracksPresented = false
 
     private let artistId: String
+    private let onClose: () -> Void
 
-    init(artistId: String) {
+    init(artistId: String, onClose: @escaping () -> Void) {
         self.artistId = artistId
+        self.onClose = onClose
         _viewModel = State(initialValue: ArtistViewModel(artistId: artistId))
     }
 
@@ -100,15 +101,7 @@ struct ArtistView: View {
 
     private var dismissButton: some View {
         HStack {
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 36, height: 36)
-            }
-            .laxGlassCircle(interactive: true)
+            LaxifyCloseButton(style: .chevronDown, tinted: false, action: onClose)
 
             Spacer()
         }

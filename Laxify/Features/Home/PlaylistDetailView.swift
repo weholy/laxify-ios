@@ -1,10 +1,11 @@
 import SwiftUI
 
 struct PlaylistDetailView: View {
-    @Environment(\.dismiss) private var dismiss
     @State private var viewModel: PlaylistDetailViewModel
+    private let onClose: () -> Void
 
-    init(collection: MusicCollection) {
+    init(collection: MusicCollection, onClose: @escaping () -> Void) {
+        self.onClose = onClose
         _viewModel = State(initialValue: PlaylistDetailViewModel(collection: collection))
     }
 
@@ -54,12 +55,7 @@ struct PlaylistDetailView: View {
 
             Spacer()
 
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "checkmark")
-            }
-            .buttonStyle(.laxifyCheckmark)
+            LaxifyCloseButton(action: onClose)
         }
     }
 }

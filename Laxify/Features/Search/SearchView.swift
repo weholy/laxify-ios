@@ -2,7 +2,8 @@ import SwiftUI
 import SwiftData
 
 struct SearchView: View {
-    @Environment(\.dismiss) private var dismiss
+    var onClose: () -> Void
+
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \SearchHistoryEntry.searchedAt, order: .reverse) private var history: [SearchHistoryEntry]
 
@@ -47,7 +48,7 @@ struct SearchView: View {
             set: { if !$0 { selectedArtistId = nil } }
         )) {
             if let artistId = selectedArtistId {
-                ArtistView(artistId: artistId)
+                ArtistView(artistId: artistId) { selectedArtistId = nil }
             }
         }
         .fullScreenCover(item: $selectedAlbum) { album in
@@ -64,12 +65,7 @@ struct SearchView: View {
 
             Spacer()
 
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "checkmark")
-            }
-            .buttonStyle(.laxifyCheckmark)
+            LaxifyCloseButton(action: onClose)
         }
     }
 
@@ -313,5 +309,5 @@ struct SearchView: View {
 }
 
 #Preview {
-    SearchView()
+    SearchView(onClose: {})
 }

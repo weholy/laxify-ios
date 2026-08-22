@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct QueueView: View {
-    @Environment(\.dismiss) private var dismiss
+    var onClose: () -> Void
     var player = AudioPlayerController.shared
 
     var body: some View {
@@ -35,9 +35,7 @@ struct QueueView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        dismiss()
-                    } label: {
+                    Button(action: onClose) {
                         Image(systemName: "xmark")
                     }
                 }
@@ -47,5 +45,5 @@ struct QueueView: View {
 }
 
 #Preview {
-    QueueView()
+    QueueView(onClose: {})
 }

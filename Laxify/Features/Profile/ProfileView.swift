@@ -9,25 +9,25 @@ struct ProfileView: View {
     private var profile: UserProfile? { profiles.first }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: LaxifyMetrics.sectionSpacing) {
-                if let profile {
-                    identitySection(profile)
-                }
+        // The header sits outside the ScrollView rather than in an overlay:
+        // layered over a scroll view the button only caught occasional taps,
+        // because the scroll gesture consumed most of them.
+        VStack(spacing: 0) {
+            header
 
-                statsSection
+            ScrollView {
+                VStack(spacing: LaxifyMetrics.sectionSpacing) {
+                    if let profile {
+                        identitySection(profile)
+                    }
+
+                    statsSection
+                }
+                .padding(.top, 12)
+                .padding(.bottom, LaxifyMetrics.tabBarHeight + LaxifyMetrics.miniPlayerHeight + 40)
             }
-            .padding(.top, 44)
-            .padding(.bottom, LaxifyMetrics.tabBarHeight + LaxifyMetrics.miniPlayerHeight + 40)
         }
         .background(profileBackground)
-        .overlay(alignment: .topTrailing) {
-            if profile != nil {
-                editButton
-                    .padding(.horizontal, LaxifyMetrics.screenPadding)
-                    .padding(.top, 8)
-            }
-        }
         .fullScreenCover(isPresented: $isEditPresented) {
             if let profile {
                 EditProfileView(profile: profile) { isEditPresented = false }
@@ -35,18 +35,19 @@ struct ProfileView: View {
         }
     }
 
-    private var editButton: some View {
-        Button {
-            isEditPresented = true
-        } label: {
-            Text("Изм.")
-                .font(LaxifyTypography.subheadline)
-                .foregroundStyle(LaxifyPalette.textPrimary)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 9)
-                .laxGlassCapsule(interactive: true)
+    private var header: some View {
+        HStack {
+            Spacer()
+
+            if profile != nil {
+                LaxifyPillButton(title: "Изм.", systemImage: "pencil") {
+                    isEditPresented = true
+                }
+            }
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, LaxifyMetrics.screenPadding)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
     }
 
     private var profileBackground: some View {

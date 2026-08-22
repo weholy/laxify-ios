@@ -14,7 +14,7 @@ struct MiniPlayerOverlay: ViewModifier {
             .padding(.bottom, 12)
         }
         .fullScreenCover(isPresented: $isPlayerPresented) {
-            FullPlayerView()
+            FullPlayerView { isPlayerPresented = false }
         }
     }
 }

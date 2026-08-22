@@ -67,7 +67,7 @@ struct HomeView: View {
             set: { if !$0 { selectedArtistId = nil } }
         )) {
             if let artistId = selectedArtistId {
-                ArtistView(artistId: artistId)
+                ArtistView(artistId: artistId) { selectedArtistId = nil }
             }
         }
     }
