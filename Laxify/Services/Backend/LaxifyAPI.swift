@@ -32,7 +32,36 @@ private struct ErrorBody: Decodable {
 actor LaxifyAPI {
     static let shared = LaxifyAPI()
 
-    private let baseURL = URL(string: "https://laxify.31-76-27-182.sslip.io/api/v1")!
+    /// Where the server can be reached, best first.
+    ///
+    /// More than one, because a host being resolvable is not something the
+    /// app can assume: the wildcard-DNS hostname is not answered by every
+    /// resolver, which looked exactly like "music only works on a VPN". The
+    /// first entry shares a domain that listeners can already reach.
+    private static let hosts = [
+        "https://jutsovpn.online/laxify/api/v1",
+        "https://laxify.31-76-27-182.sslip.io/api/v1"
+    ]
+
+    /// Which host answered last. Kept so a working one is not re-discovered
+    /// on every request, and persisted so a fresh launch starts where the
+    /// last one left off.
+    private var hostIndex = UserDefaults.standard.integer(forKey: "laxify.api.host")
+
+    private var baseURL: URL {
+        URL(string: Self.hosts[min(hostIndex, Self.hosts.count - 1)])!
+    }
+
+    /// Moves to the next host after a transport failure.
+    ///
+    /// Returns false once every host has been tried, so a genuine outage
+    /// surfaces as an error instead of cycling forever.
+    private func rotateHost() -> Bool {
+        guard hostIndex + 1 < Self.hosts.count else { return false }
+        hostIndex += 1
+        UserDefaults.standard.set(hostIndex, forKey: "laxify.api.host")
+        return true
+    }
     private let session: URLSession
 
     /// Guards against a burst of 401s each kicking off its own refresh — the
@@ -415,6 +444,31 @@ actor LaxifyAPI {
         return session
     }
 
+    @discardableResult
+    func registerWithEmail(
+        email: String, password: String, displayName: String? = nil
+    ) async throws -> BackendSessionResponse {
+        struct Body: Encodable {
+            let email: String
+            let password: String
+            let displayName: String?
+            let deviceName: String
+        }
+        let session: BackendSessionResponse = try await send(
+            "/auth/email/register",
+            method: "POST",
+            body: Body(
+                email: email,
+                password: password,
+                displayName: displayName,
+                deviceName: await UIDevice.current.name
+            ),
+            authenticated: false
+        )
+        store(session.tokens)
+        return session
+    }
+
     func changeEmail(to email: String, code: String) async throws -> MessageResponse {
         struct Body: Encodable {
             let email: String
@@ -579,6 +633,14 @@ actor LaxifyAPI {
         do {
             (data, response) = try await session.data(for: request)
         } catch {
+            // A host that cannot be reached at all is worth retrying
+            // elsewhere; one that answered with an error is not.
+            if !isRetry, rotateHost() {
+                return try await perform(
+                    path, method: method, bodyData: bodyData,
+                    authenticated: authenticated, isRetry: true
+                )
+            }
             throw APIError.transport(error)
         }
 

@@ -12,6 +12,7 @@ is filtered out before it reaches them.
 
 import asyncio
 import random
+import time
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -108,6 +109,19 @@ async def _excluded_track_ids(session, user_id) -> set[str]:
     return disliked | recent
 
 
+def _rotating_genres(count: int) -> list[str]:
+    """Genres for right now.
+
+    Picking at random each time meant every request assembled a different set
+    of tracks, so nothing cached ever got reused and each home screen paid to
+    verify a fresh batch. Rotating on a clock keeps a window's worth of
+    requests on the same material — still varied through the day, but warm.
+    """
+    window = int(time.time() // 900)
+    start = window % len(DISCOVERY_GENRES)
+    return [DISCOVERY_GENRES[(start + offset) % len(DISCOVERY_GENRES)] for offset in range(count)]
+
+
 async def _discovery_tracks(limit: int) -> list[dict]:
     """Popular music, used when there is no listening history to build on.
 
@@ -128,7 +142,7 @@ async def _discovery_tracks(limit: int) -> list[dict]:
     take(await soundcloud.charts(limit=limit * 2))
 
     if len(collected) < limit:
-        for genre in random.sample(DISCOVERY_GENRES, k=min(3, len(DISCOVERY_GENRES))):
+        for genre in _rotating_genres(3):
             take(await soundcloud.genre_tracks(genre, limit=limit))
             if len(collected) >= limit:
                 break
@@ -283,7 +297,7 @@ async def home(
         seed=None,
     )
 
-    genre = random.choice(DISCOVERY_GENRES)
+    genre = _rotating_genres(1)[0]
     for_you_raw, top_raw = await asyncio.gather(
         soundcloud.genre_tracks(genre, limit=limit * 2),
         soundcloud.charts(limit=limit * 2),

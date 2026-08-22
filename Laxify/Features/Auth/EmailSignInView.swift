@@ -3,9 +3,13 @@ import SwiftUI
 /// Signing in with an address instead of Google.
 ///
 /// Google's sign-in is not reachable everywhere Laxify is, and an account
-/// nobody can get into is worse than one with an extra step. Three steps —
-/// address, the code that lands in the inbox, then a password — with each one
-/// replacing the last rather than stacking, so the screen never grows.
+/// nobody can get into is worse than one with an extra step.
+///
+/// Two fields, in sequence: the address, then a password. Whether that
+/// password signs in or creates an account is worked out from the address —
+/// asking which one someone meant is a question they should not have to
+/// answer. Confirming the address happens later, in settings, so a code that
+/// fails to arrive never blocks anyone from listening.
 struct EmailSignInView: View {
     /// Called once a session exists; the caller decides where to go next.
     var onSignedIn: () async -> Void
@@ -13,24 +17,21 @@ struct EmailSignInView: View {
 
     private enum Step {
         case email
-        case code
+        /// New account: a password is being chosen.
         case password
-        /// Existing account: the address is known and only the password is
-        /// missing, so the code step is skipped entirely.
+        /// Existing account: the password is being entered.
         case existingPassword
     }
 
     @State private var step: Step = .email
     @State private var email = ""
-    @State private var code = ""
     @State private var password = ""
     @State private var isBusy = false
     @State private var errorMessage: String?
-    @State private var resendAfter = 0
     @State private var appear = false
 
     @FocusState private var focus: Field?
-    private enum Field { case email, code, password }
+    private enum Field { case email, password }
 
     var body: some View {
         ZStack {
@@ -46,8 +47,6 @@ struct EmailSignInView: View {
                         switch step {
                         case .email:
                             emailField
-                        case .code:
-                            codeField
                         case .password, .existingPassword:
                             passwordField
                         }
@@ -62,8 +61,8 @@ struct EmailSignInView: View {
 
                         primaryButton
 
-                        if step == .code {
-                            resendButton
+                        if step != .email {
+                            switchModeButton
                         }
                     }
                     .padding(.horizontal, LaxifyMetrics.screenPadding)
@@ -77,11 +76,6 @@ struct EmailSignInView: View {
         .onAppear {
             withAnimation(.easeOut(duration: 0.35)) { appear = true }
             focus = .email
-        }
-        .task(id: resendAfter) {
-            guard resendAfter > 0 else { return }
-            try? await Task.sleep(for: .seconds(1))
-            resendAfter -= 1
         }
     }
 
@@ -124,7 +118,6 @@ struct EmailSignInView: View {
     private var headline: String {
         switch step {
         case .email: "Вход по почте"
-        case .code: "Введите код"
         case .password: "Придумайте пароль"
         case .existingPassword: "Введите пароль"
         }
@@ -132,10 +125,9 @@ struct EmailSignInView: View {
 
     private var subheadline: String {
         switch step {
-        case .email: "Пришлём код подтверждения"
-        case .code: "Отправили на \(email)"
+        case .email: "Войдём или создадим аккаунт"
         case .password: "Не короче 8 символов, с буквой и цифрой"
-        case .existingPassword: "Для \(email)"
+        case .existingPassword: email
         }
     }
 
@@ -149,11 +141,6 @@ struct EmailSignInView: View {
             .submitLabel(.continue)
             .onSubmit(advance)
             .fieldStyle()
-    }
-
-    private var codeField: some View {
-        CodeEntryField(code: $code, onComplete: advance)
-            .focused($focus, equals: .code)
     }
 
     private var passwordField: some View {
@@ -187,8 +174,7 @@ struct EmailSignInView: View {
 
     private var buttonTitle: String {
         switch step {
-        case .email: "Получить код"
-        case .code: "Подтвердить"
+        case .email: "Продолжить"
         case .password: "Создать аккаунт"
         case .existingPassword: "Войти"
         }
@@ -197,23 +183,25 @@ struct EmailSignInView: View {
     private var isStepComplete: Bool {
         switch step {
         case .email: email.contains("@") && email.contains(".")
-        case .code: code.count == 4
         case .password, .existingPassword: password.count >= 8
         }
     }
 
-    private var resendButton: some View {
+    /// Lets someone correct the guess — they have an account and the app
+    /// assumed otherwise, or the other way round.
+    private var switchModeButton: some View {
         Button {
-            requestCode(resend: true)
+            withAnimation(.snappy(duration: 0.25)) {
+                step = step == .password ? .existingPassword : .password
+                errorMessage = nil
+            }
         } label: {
-            Text(resendAfter > 0 ? "Отправить снова через \(resendAfter) с" : "Отправить код ещё раз")
+            Text(step == .password ? "У меня уже есть аккаунт" : "Создать новый аккаунт")
                 .font(LaxifyTypography.footnote)
-                .foregroundStyle(
-                    resendAfter > 0 ? LaxifyPalette.textTertiary : LaxifyPalette.accent
-                )
+                .foregroundStyle(LaxifyPalette.accent)
         }
         .buttonStyle(.plain)
-        .disabled(resendAfter > 0 || isBusy)
+        .disabled(isBusy)
     }
 
     // MARK: - Flow
@@ -222,9 +210,6 @@ struct EmailSignInView: View {
         switch step {
         case .email:
             onCancel()
-        case .code:
-            withAnimation(.snappy(duration: 0.25)) { step = .email }
-            code = ""
         case .password, .existingPassword:
             withAnimation(.snappy(duration: 0.25)) { step = .email }
             password = ""
@@ -236,59 +221,24 @@ struct EmailSignInView: View {
 
         switch step {
         case .email:
-            // An address that already has a password only needs the password,
-            // so try that route before sending anyone a code they don't need.
-            attemptExistingAccount()
-        case .code:
-            verifyCode()
+            // Assume an existing account and ask for the password. If there
+            // is none, signing in falls through to creating one — which is
+            // one fewer question than asking up front which was meant.
+            withAnimation(.snappy(duration: 0.25)) {
+                step = .existingPassword
+                errorMessage = nil
+            }
+            focus = .password
         case .password:
-            completeRegistration()
+            createAccount()
         case .existingPassword:
             signInWithPassword()
         }
     }
 
-    private func attemptExistingAccount() {
-        withAnimation(.snappy(duration: 0.25)) {
-            step = .existingPassword
-            errorMessage = nil
-        }
-        focus = .password
-    }
-
-    private func requestCode(resend: Bool = false) {
-        run { [email] in
-            let response = try await LaxifyAPI.shared.requestEmailCode(email: email, purpose: "bind")
-            await MainActor.run {
-                resendAfter = response.resendAfterSeconds
-                if !resend {
-                    withAnimation(.snappy(duration: 0.25)) { step = .code }
-                    focus = .code
-                }
-                code = ""
-            }
-        }
-    }
-
-    private func verifyCode() {
-        run { [email, code] in
-            let result = try await LaxifyAPI.shared.verifyEmailCode(
-                email: email, code: code, purpose: "bind"
-            )
-            await MainActor.run {
-                withAnimation(.snappy(duration: 0.25)) {
-                    step = result.needsPassword ? .password : .existingPassword
-                }
-                focus = .password
-            }
-        }
-    }
-
-    private func completeRegistration() {
-        run { [email, code, password] in
-            try await LaxifyAPI.shared.setEmailPassword(
-                email: email, code: code, password: password
-            )
+    private func createAccount() {
+        run { [email, password] in
+            try await LaxifyAPI.shared.registerWithEmail(email: email, password: password)
             await onSignedIn()
         }
     }
@@ -304,10 +254,16 @@ struct EmailSignInView: View {
                 isBusy = false
             } catch {
                 isBusy = false
-                // No account with this address yet — send a code and register
-                // instead of showing a dead end.
+
+                // No account with this address yet — move to creating one
+                // rather than showing a dead end.
                 if case APIError.server(let status, _) = error, status == 401 {
-                    requestCode()
+                    withAnimation(.snappy(duration: 0.25)) {
+                        step = .password
+                        password = ""
+                        errorMessage = nil
+                    }
+                    focus = .password
                 } else {
                     show(error)
                 }
@@ -339,67 +295,15 @@ struct EmailSignInView: View {
 
 // MARK: - Field styling
 
-private extension View {
+extension View {
     func fieldStyle() -> some View {
         font(.system(size: 17))
             .foregroundStyle(LaxifyPalette.textPrimary)
             .padding(.horizontal, 18)
             .padding(.vertical, 16)
-            .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-    }
-}
-
-/// Four boxes that read as one field.
-///
-/// A single text field is what actually receives the keystrokes; the boxes
-/// are drawn on top of it. Four real fields would mean managing focus between
-/// them, which breaks paste and the autofill code the keyboard offers.
-private struct CodeEntryField: View {
-    @Binding var code: String
-    var onComplete: () -> Void
-
-    @FocusState private var isFocused: Bool
-
-    var body: some View {
-        ZStack {
-            TextField("", text: $code)
-                .keyboardType(.numberPad)
-                .textContentType(.oneTimeCode)
-                .focused($isFocused)
-                .opacity(0.001)
-                .onChange(of: code) { _, value in
-                    let digits = String(value.filter(\.isNumber).prefix(4))
-                    if digits != value { code = digits }
-                    if digits.count == 4 { onComplete() }
-                }
-
-            HStack(spacing: 12) {
-                ForEach(0..<4, id: \.self) { index in
-                    box(at: index)
-                }
-            }
-            .allowsHitTesting(false)
-        }
-        .contentShape(Rectangle())
-        .onTapGesture { isFocused = true }
-        .onAppear { isFocused = true }
-    }
-
-    private func box(at index: Int) -> some View {
-        let characters = Array(code)
-        let isFilled = index < characters.count
-        let isNext = index == characters.count && isFocused
-
-        return Text(isFilled ? String(characters[index]) : "")
-            .font(.system(size: 28, weight: .semibold, design: .rounded))
-            .foregroundStyle(LaxifyPalette.textPrimary)
-            .frame(width: 62, height: 72)
-            .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .stroke(LaxifyPalette.accent, lineWidth: isNext ? 2 : 0)
-            }
-            .animation(.snappy(duration: 0.18), value: isFilled)
-            .animation(.snappy(duration: 0.18), value: isNext)
+            .background(
+                LaxifyPalette.surface,
+                in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+            )
     }
 }

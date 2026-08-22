@@ -300,6 +300,71 @@ async def set_password(payload: SetPasswordIn, session: SessionDep, ip: ClientIP
     )
 
 
+class RegisterIn(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=PASSWORD_MIN, max_length=128)
+    display_name: str | None = Field(default=None, max_length=80)
+    device_name: str = "iPhone"
+
+
+@router.post("/register", response_model=SessionOut)
+async def register(payload: RegisterIn, session: SessionDep, ip: ClientIP) -> SessionOut:
+    """Creates an account from an address and a password, with no code.
+
+    Confirming the address is worth doing, but making it a gate means nobody
+    can sign up at all until mail delivery works — and what is behind this
+    account is a music library, not a payment method. So the address is taken
+    on trust here and confirmed later, from settings, where a code that fails
+    to arrive costs nothing.
+    """
+    email = _normalise(payload.email)
+
+    existing = await _user_by_email(session, email)
+    if existing is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Аккаунт с этой почтой уже есть — войдите",
+        )
+
+    problem = _weak(payload.password)
+    if problem:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=problem)
+
+    display = (payload.display_name or email.split("@")[0]).strip()[:80] or "Слушатель"
+    user = User(
+        email=email,
+        display_name=display,
+        username=await generate_unique_username(session, display),
+        email_verified=False,
+        password_hash=hash_password(payload.password),
+    )
+    session.add(user)
+    await session.flush()
+
+    device = _new_device(user.id, payload.device_name)
+    session.add(device)
+    await session.flush()
+
+    refresh = create_refresh_token(user.id, device.id)
+    device.refresh_token_hash = hash_refresh_token(refresh)
+    device.last_used_at = datetime.now(UTC)
+
+    session.add(AuditLog(actor_id=user.id, action="register.email", ip=ip))
+    await session.commit()
+    await session.refresh(user)
+
+    return SessionOut(
+        tokens=TokenPair(
+            access_token=create_access_token(user.id, device.id),
+            refresh_token=refresh,
+            expires_in=settings.access_token_ttl_minutes * 60,
+        ),
+        is_new_user=True,
+        needs_onboarding=not user.has_completed_onboarding,
+        needs_local_migration=not user.has_migrated_local_data,
+    )
+
+
 @router.post("/login", response_model=SessionOut)
 async def login(payload: EmailLoginIn, session: SessionDep, ip: ClientIP) -> SessionOut:
     email = _normalise(payload.email)

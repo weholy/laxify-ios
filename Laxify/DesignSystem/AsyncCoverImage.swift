@@ -70,7 +70,11 @@ actor CoverImageLoader {
 
     /// Decoded images, which is the expensive half — keeping only the bytes
     /// would still cost a decode per appearance.
-    private static let memory: NSCache<NSURL, UIImage> = {
+    ///
+    /// NSCache is documented as thread-safe; Swift 6 cannot see that, so the
+    /// guarantee is stated here rather than wrapped in an actor that would
+    /// make the synchronous cache peek impossible.
+    nonisolated(unsafe) private static let memory: NSCache<NSURL, UIImage> = {
         let cache = NSCache<NSURL, UIImage>()
         cache.countLimit = 400
         // Roughly 80 MB of decoded pixels; the system evicts under pressure.

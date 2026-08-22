@@ -11,8 +11,10 @@ works regardless of what the phone's own connection can reach.
 """
 
 import asyncio
+import functools
 import logging
 import re
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -30,6 +32,44 @@ USER_AGENT = (
 
 _CLIENT_ID_PATTERN = re.compile(r'client_id[:=]"([a-zA-Z0-9]{32})"')
 _SCRIPT_PATTERN = re.compile(r'src="(https://a-v2\.sndcdn\.com/assets/[^"]+\.js)"')
+
+
+
+def _cached(seconds: int):
+    """Caches a listing call for a while.
+
+    Charts, genre listings and stations change on the order of hours, but the
+    home screen asks for them on every open. Without this each visit pays the
+    full round trip to the source — and then the playability check on a fresh
+    set of tracks, which is the expensive part.
+    """
+    store: dict[tuple, tuple[Any, float]] = {}
+
+    def decorator(func):
+        @functools.wraps(func)
+        async def wrapper(self, *args, **kwargs):
+            key = (func.__name__, args, tuple(sorted(kwargs.items())))
+            now = time.monotonic()
+
+            entry = store.get(key)
+            if entry is not None and now - entry[1] < seconds:
+                return entry[0]
+
+            result = await func(self, *args, **kwargs)
+
+            # An empty result is usually the source failing rather than an
+            # honest answer; caching it would make the failure stick.
+            if result:
+                store[key] = (result, now)
+                if len(store) > 500:
+                    for stale, _ in sorted(store.items(), key=lambda item: item[1][1])[:100]:
+                        store.pop(stale, None)
+
+            return result
+
+        return wrapper
+
+    return decorator
 
 
 class SoundCloudError(Exception):
@@ -170,6 +210,7 @@ class SoundCloudClient:
         data = await self.request(f"tracks/{track_id}/related", {"limit": limit})
         return data.get("collection", [])
 
+    @_cached(1800)
     async def station_tracks(self, track_id: str, limit: int = 50) -> list[dict]:
         """The personal-radio equivalent.
 
@@ -182,6 +223,7 @@ class SoundCloudClient:
         )
         return data.get("collection", [])
 
+    @_cached(900)
     async def charts(self, genre: str = "all-music", kind: str = "trending", limit: int = 30) -> list[dict]:
         """Chart tracks.
 
@@ -208,6 +250,7 @@ class SoundCloudClient:
 
         return [item.get("track") for item in data.get("collection", []) if item.get("track")]
 
+    @_cached(900)
     async def genre_tracks(self, genre: str, limit: int = 30) -> list[dict]:
         """Popular tracks in a genre.
 
@@ -227,6 +270,7 @@ class SoundCloudClient:
         items.sort(key=lambda item: item.get("playback_count") or 0, reverse=True)
         return items[:limit]
 
+    @_cached(1800)
     async def mixed_selections(self, limit: int = 10) -> list[dict]:
         """The editorial shelves the web player shows on its home page."""
         try:

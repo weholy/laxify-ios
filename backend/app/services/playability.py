@@ -22,10 +22,12 @@ logger = logging.getLogger("laxify.playability")
 # available again is not written off for good.
 TTL_SECONDS = 6 * 60 * 60
 MAX_ENTRIES = 20_000
-# Enough to check a screenful quickly without hammering the source.
-CONCURRENCY = 10
+# Deliberately low: this runs in the background where nothing is waiting,
+# and going faster is what got us throttled.
+CONCURRENCY = 6
 
 _verdicts: dict[str, tuple[bool, float]] = {}
+_background: asyncio.Task | None = None
 
 
 def _remember(track_id: str, playable: bool) -> None:
@@ -53,51 +55,54 @@ def _recall(track_id: str) -> bool | None:
 
 
 async def filter_playable(tracks: list[dict], limit: int) -> list[dict]:
-    """Returns up to `limit` tracks that will actually play.
+    """Returns up to `limit` tracks, dropping ones already known to be dead.
 
-    Known-good tracks are taken first and for free. Only the shortfall is
-    checked against the source, and only until the limit is met — so a warm
-    cache costs nothing and a cold one costs one request per track it needs.
+    This never blocks on an unknown track. Verifying on demand meant a home
+    screen waited on dozens of stream lookups — slow enough to hit the app's
+    own timeout, and enough traffic that the source started throttling us,
+    which made it slower still.
+
+    So the request pays nothing: known-dead tracks are dropped, everything
+    else is served, and the app skips anything that turns out not to play. A
+    background pass fills the cache in, so the feed gets cleaner on its own.
     """
     if not tracks:
         return []
 
-    kept: list[dict] = []
-    unknown: list[dict] = []
+    kept = [track for track in tracks if _recall(str(track.get("id"))) is not False]
 
-    for track in tracks:
-        verdict = _recall(str(track.get("id")))
-        if verdict is True:
-            kept.append(track)
-        elif verdict is None:
-            unknown.append(track)
-
-    if len(kept) >= limit or not unknown:
-        return kept[:limit]
-
-    semaphore = asyncio.Semaphore(CONCURRENCY)
-
-    async def check(track: dict) -> tuple[dict, bool]:
-        async with semaphore:
-            playable = await soundcloud.is_playable(track)
-            _remember(str(track.get("id")), playable)
-            return track, playable
-
-    # Check a margin beyond the shortfall, since some will come back dead.
-    needed = limit - len(kept)
-    batch = unknown[: max(needed * 2, needed + 10)]
-
-    results = await asyncio.gather(*(check(track) for track in batch), return_exceptions=True)
-
-    for result in results:
-        if isinstance(result, BaseException):
-            continue
-        track, playable = result
-        if playable:
-            kept.append(track)
-
-    dead = len(batch) - (len(kept) - (len(tracks) - len(unknown)))
-    if dead > 0:
-        logger.info("Отброшено недоступных треков: %s из %s", dead, len(batch))
+    unverified = [
+        track for track in kept[: limit * 2] if _recall(str(track.get("id"))) is None
+    ]
+    if unverified:
+        _schedule_verification(unverified)
 
     return kept[:limit]
+
+
+def _schedule_verification(tracks: list[dict]) -> None:
+    """Checks tracks after the response has gone out.
+
+    Nobody is waiting on this, so it can be slow and gentle — and by the next
+    time these tracks come round, the verdicts are already known.
+    """
+    global _background
+
+    if _background is not None and not _background.done():
+        return
+
+    async def run() -> None:
+        semaphore = asyncio.Semaphore(CONCURRENCY)
+
+        async def check(track: dict) -> None:
+            async with semaphore:
+                try:
+                    playable = await soundcloud.is_playable(track)
+                except Exception:
+                    return
+                _remember(str(track.get("id")), playable)
+
+        await asyncio.gather(*(check(track) for track in tracks), return_exceptions=True)
+        logger.info("Фоновая проверка: %s треков", len(tracks))
+
+    _background = asyncio.create_task(run())
