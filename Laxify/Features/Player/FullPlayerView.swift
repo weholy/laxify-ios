@@ -18,6 +18,7 @@ struct FullPlayerView: View {
     @State private var scrubTarget: TimeInterval = 0
 
     var volume = VolumeController.shared
+    var downloads = DownloadManager.shared
 
     private var isFavorite: Bool {
         guard let song = player.currentSong else { return false }
@@ -138,6 +139,8 @@ struct FullPlayerView: View {
                 Label("Таймер сна", systemImage: "moon.zzz")
             }
 
+            downloadButton
+
             Button {
                 markNotInterested()
             } label: {
@@ -160,6 +163,15 @@ struct FullPlayerView: View {
     private var artwork: some View {
         AsyncCoverImage(url: player.currentSong?.coverURL, cornerRadius: 24)
             .frame(width: 280, height: 280)
+            .overlay(alignment: .bottomTrailing) {
+                if let song = player.currentSong, downloads.isDownloaded(song.id) {
+                    Image(systemName: "arrow.down.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundStyle(.white, LaxifyPalette.accent)
+                        .padding(10)
+                        .transition(.scale.combined(with: .opacity))
+                }
+            }
             .shadow(color: .black.opacity(0.4), radius: 30, y: 20)
             .offset(y: artworkDragOffset)
             .gesture(
@@ -238,6 +250,34 @@ struct FullPlayerView: View {
                     .contentTransition(.symbolEffect(.replace))
             }
             .buttonStyle(.plain)
+        }
+    }
+
+    @ViewBuilder
+    private var downloadButton: some View {
+        if let song = player.currentSong {
+            switch downloads.status(for: song.id) {
+            case .downloaded:
+                Button(role: .destructive) {
+                    downloads.remove(song.id)
+                } label: {
+                    Label("Удалить загрузку", systemImage: "trash")
+                }
+
+            case .downloading:
+                Button {
+                    downloads.cancel(song.id)
+                } label: {
+                    Label("Отменить загрузку", systemImage: "xmark.circle")
+                }
+
+            case .none, .failed:
+                Button {
+                    downloads.download(song)
+                } label: {
+                    Label("Скачать", systemImage: "arrow.down.circle")
+                }
+            }
         }
     }
 

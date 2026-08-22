@@ -142,9 +142,17 @@ final class AudioPlayerController {
 
         Task {
             do {
-                AppLogger.log("play: requesting stream url")
-                let url = try await service.streamURL(for: song.id)
-                AppLogger.log("play: got url \(url.absoluteString)")
+                // A saved copy plays with no network at all, and avoids
+                // re-fetching a stream url that would only expire again.
+                let url: URL
+                if let local = DownloadManager.shared.localURL(for: song.id) {
+                    url = local
+                    AppLogger.log("play: using downloaded file")
+                } else {
+                    AppLogger.log("play: requesting stream url")
+                    url = try await service.streamURL(for: song.id)
+                    AppLogger.log("play: got url")
+                }
                 guard currentSong?.id == song.id else {
                     AppLogger.log("play: song changed while loading, aborting")
                     return

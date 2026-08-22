@@ -4,6 +4,7 @@ struct EditProfileView: View {
     var onClose: () -> Void
 
     private var session = SessionStore.shared
+    private var downloads = DownloadManager.shared
 
     @State private var name: String
     @State private var username: String
@@ -55,6 +56,7 @@ struct EditProfileView: View {
                     }
 
                     saveButton
+                    downloadsSection
                     signOutButton
                 }
                 .padding(.horizontal, LaxifyMetrics.screenPadding)
@@ -186,6 +188,37 @@ struct EditProfileView: View {
         .buttonStyle(.laxifyPrimary)
         .disabled(!canSave)
         .opacity(canSave ? 1 : 0.5)
+    }
+
+    @ViewBuilder
+    private var downloadsSection: some View {
+        if downloads.totalBytes > 0 {
+            VStack(spacing: 10) {
+                HStack {
+                    Label("Загруженная музыка", systemImage: "arrow.down.circle")
+                        .font(LaxifyTypography.body)
+                        .foregroundStyle(LaxifyPalette.textPrimary)
+
+                    Spacer()
+
+                    Text(downloads.formattedSize)
+                        .font(LaxifyTypography.footnote)
+                        .foregroundStyle(LaxifyPalette.textSecondary)
+                }
+
+                Button {
+                    withAnimation { downloads.removeAll() }
+                } label: {
+                    Text("Очистить загрузки")
+                        .font(LaxifyTypography.subheadline)
+                        .foregroundStyle(LaxifyPalette.accent)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(16)
+            .laxGlassCard()
+        }
     }
 
     private var signOutButton: some View {
