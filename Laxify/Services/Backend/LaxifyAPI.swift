@@ -136,6 +136,22 @@ actor LaxifyAPI {
         route.skipsHostnameCheck ? APITrust.pinnedSession : session
     }
 
+    /// Whether any route to the server answered the last time it was
+    /// checked.
+    ///
+    /// Callers that have a way to work without us — search, the home feed —
+    /// consult this before spending a timeout on a server that is known to
+    /// be unreachable.
+    var isServerReachable: Bool {
+        get async {
+            let results = await APIRouter.shared.lastProbeResults
+            // Nothing checked yet: assume reachable rather than write the
+            // server off before it has been tried.
+            guard !results.isEmpty else { return true }
+            return results.values.contains(true)
+        }
+    }
+
     var isSignedIn: Bool {
         KeychainStore.read(.accessToken) != nil
     }

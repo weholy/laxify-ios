@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import SwiftData
 import MediaPlayer
 import UIKit
 
@@ -233,6 +234,10 @@ final class AudioPlayerController {
 
     /// Feeds the current item. Kept alive for as long as it is playing.
     private var streamLoader: StreamLoader?
+
+    /// Set by the root view, so plays can be written to the device's own
+    /// record as well as sent to the account.
+    var modelContext: ModelContext?
 
     /// The playhead, read from the player itself.
     ///
@@ -554,12 +559,17 @@ final class AudioPlayerController {
     /// recommendations reflect every device, not just this one.
     private func reportPlaybackToAccount(completed: Bool) {
         guard let song = currentSong, currentTime > 3 else { return }
+
         SyncService.shared.recordPlayback(
             song: song,
             seconds: currentTime,
             completed: completed,
             source: waveBatchId == nil ? "library" : "wave"
         )
+
+        // Kept here too. Statistics computed only on the server show nothing
+        // whenever it cannot be reached, and on some networks it never can.
+        LocalReplay.record(song, seconds: currentTime, completed: completed, context: modelContext)
     }
 
     private func reportWaveFinished() {

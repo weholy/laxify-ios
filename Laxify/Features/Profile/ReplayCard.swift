@@ -8,6 +8,8 @@ import SwiftUI
 struct ReplayEntryCard: View {
     var onOpen: (ReplaySummary, ReplaySummary?) -> Void
 
+    @Environment(\.modelContext) private var modelContext
+
     @State private var summary: ReplaySummary?
     @State private var previous: ReplaySummary?
     @State private var palette: ArtworkPalette = .neutral
@@ -91,6 +93,15 @@ struct ReplayEntryCard: View {
     private func load() async {
         defer { isLoading = false }
 
+        // Whatever this device recorded, straight away. Waiting on the server
+        // is what made the card appear and disappear.
+        let local = LocalReplay.bundle(context: modelContext)
+        if let fresh = local.current {
+            summary = fresh
+            previous = local.previous
+            await applyPalette(for: fresh)
+        }
+
         guard let bundle = try? await LaxifyAPI.shared.replayBundle(),
               let fresh = bundle.current
         else { return }
@@ -98,7 +109,11 @@ struct ReplayEntryCard: View {
         summary = fresh
         previous = bundle.previous
 
-        let artwork = fresh.topArtists.first?.artworkURL ?? fresh.topTracks.first?.artworkURL
+        await applyPalette(for: fresh)
+    }
+
+    private func applyPalette(for summary: ReplaySummary) async {
+        let artwork = summary.topArtists.first?.artworkURL ?? summary.topTracks.first?.artworkURL
         let found = await PaletteExtractor.shared.palette(for: artwork)
         withAnimation(.easeInOut(duration: 0.4)) { palette = found }
     }

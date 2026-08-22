@@ -100,14 +100,58 @@ struct CatalogService: MusicService {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return SearchResults() }
 
-        // Straight to the source. Our server does this better — it filters
-        // out the accounts borrowing famous names — so it is tried first when
-        // it can be reached at all.
-        if let viaServer = try? await searchThroughServer(trimmed) {
+        // Our server does this better — it filters out the accounts borrowing
+        // famous names — but only when it can be reached. Asking one that
+        // cannot costs a full timeout before the source is tried at all,
+        // which is why searching took half a minute.
+        if await LaxifyAPI.shared.isServerReachable,
+           let viaServer = try? await searchThroughServer(trimmed) {
             return viaServer
         }
 
-        return try await SoundCloudDirect.shared.search(trimmed, limit: 30)
+        let direct = try await SoundCloudDirect.shared.search(trimmed, limit: 30)
+        return SearchResults(
+            tracks: direct.tracks,
+            artists: Self.ranked(direct.artists, for: trimmed),
+            albums: direct.albums
+        )
+    }
+
+    /// Puts the real artist first, without the server to ask.
+    ///
+    /// The source is open to anyone, so a name search returns the artist
+    /// alongside fan accounts and reposters using the same name. The server
+    /// checks each against an independent catalogue; here there is only what
+    /// came back, so it is ordered by the signals that came with it — an
+    /// exact name match, then how many people follow them.
+    private static func ranked(_ artists: [MusicArtist], for query: String) -> [MusicArtist] {
+        let needle = query
+            .folding(options: .diacriticInsensitive, locale: .current)
+            .lowercased()
+            .trimmingCharacters(in: .whitespaces)
+
+        func score(_ artist: MusicArtist) -> Int {
+            let name = artist.name
+                .folding(options: .diacriticInsensitive, locale: .current)
+                .lowercased()
+
+            // Decoration around a name is common — "☆LiL PEEP☆" — so an exact
+            // match is checked against the letters alone as well.
+            let letters = name.filter { $0.isLetter || $0.isNumber || $0.isWhitespace }
+                .trimmingCharacters(in: .whitespaces)
+
+            if name == needle || letters == needle { return 3 }
+            if name.hasPrefix(needle) { return 2 }
+            if name.contains(needle) { return 1 }
+            return 0
+        }
+
+        return artists.sorted { lhs, rhs in
+            let left = score(lhs)
+            let right = score(rhs)
+            if left != right { return left > right }
+            return (lhs.trackCount ?? 0) > (rhs.trackCount ?? 0)
+        }
     }
 
     private func searchThroughServer(_ trimmed: String) async throws -> SearchResults {

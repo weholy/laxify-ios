@@ -210,15 +210,11 @@ struct SearchView: View {
                     .font(LaxifyTypography.footnote)
                 }
 
-                // Lead with whatever the query actually matched: searching a
-                // song title should not bury tracks under artist results.
-                if results.bestMatch == .artist {
-                    artistsBlock(results)
-                    tracksBlock(results)
-                } else {
-                    tracksBlock(results)
-                    artistsBlock(results)
-                }
+                // Artists first. Someone searching a name is looking for the
+                // person, and a page of their uploads underneath answers that;
+                // the same page above it does not.
+                artistsBlock(results)
+                tracksBlock(results)
 
                 albumsBlock(results)
             }

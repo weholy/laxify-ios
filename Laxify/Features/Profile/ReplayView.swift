@@ -9,6 +9,8 @@ import SwiftUI
 struct ReplayView: View {
     var onClose: () -> Void
 
+    @Environment(\.modelContext) private var modelContext
+
     @State private var periods: [ReplayPeriod] = []
     @State private var selected: ReplayPeriod?
     @State private var summary: ReplaySummary?
@@ -397,6 +399,19 @@ struct ReplayView: View {
         isLoading = true
         errorMessage = nil
 
+        // What this device recorded, immediately. The server knows about
+        // every device and is therefore better, but it cannot always be
+        // reached — and statistics that disappear with the network are not
+        // statistics.
+        let local = LocalReplay.bundle(context: modelContext)
+        periods = local.periods
+        selected = local.current?.period ?? local.periods.first
+        if let fresh = local.current {
+            summary = fresh
+            await refreshPalette(for: fresh)
+        }
+        isLoading = false
+
         do {
             // One request rather than three in sequence: the months, this
             // month's figures and the month before all arrive together.
@@ -409,8 +424,9 @@ struct ReplayView: View {
                 await refreshPalette(for: fresh)
             }
         } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription
-                ?? "Не удалось загрузить статистику"
+            // The local figures are already on screen, so there is nothing to
+            // report — the server simply had nothing to add.
+            AppLogger.log("replay: сервер недоступен, показана локальная статистика")
         }
 
         isLoading = false
@@ -422,6 +438,11 @@ struct ReplayView: View {
         withAnimation(.snappy(duration: 0.3)) { selected = period }
 
         Task {
+            // The device answers instantly; the server refines it if it can.
+            let local = LocalReplay.summary(period: period, context: modelContext)
+            withAnimation(.easeInOut(duration: 0.35)) { summary = local }
+            await refreshPalette(for: local)
+
             guard let fresh = try? await LaxifyAPI.shared.replay(period: period.id) else { return }
             withAnimation(.easeInOut(duration: 0.35)) { summary = fresh }
             await refreshPalette(for: fresh)

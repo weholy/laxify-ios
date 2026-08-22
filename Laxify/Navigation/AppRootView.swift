@@ -55,6 +55,7 @@ struct AppRootView: View {
             // Signing out has to be able to clear the on-device library, and
             // only a view has the context to do it with.
             session.modelContext = modelContext
+            AudioPlayerController.shared.modelContext = modelContext
             await restore()
         }
         .onOpenURL { url in
