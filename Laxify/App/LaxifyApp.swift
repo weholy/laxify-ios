@@ -7,6 +7,8 @@ struct LaxifyApp: App {
 
     init() {
         AppLogger.log("app: launched")
+        CrashReporter.install()
+        CrashReporter.breadcrumb("app launched")
 
         do {
             container = try ModelContainer(

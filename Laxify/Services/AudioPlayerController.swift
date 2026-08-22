@@ -42,43 +42,59 @@ final class AudioPlayerController {
     }
 
     private func configureRemoteCommands() {
+        CrashReporter.breadcrumb("configuring remote commands")
         let centre = MPRemoteCommandCenter.shared()
 
-        centre.playCommand.addTarget { [weak self] _ in
-            guard let self, !self.isPlaying else { return .commandFailed }
-            self.togglePlayPause()
+        // These handlers are invoked by MediaPlayer on its own thread, so they
+        // must not touch main-actor state directly — doing that is what
+        // crashed the app moments after playback started. Each one hops to the
+        // main actor and answers the system immediately; the command result
+        // only reports that the request was accepted, not that it finished.
+        centre.playCommand.addTarget { _ in
+            Task { @MainActor in
+                let player = AudioPlayerController.shared
+                if !player.isPlaying { player.togglePlayPause() }
+            }
             return .success
         }
 
-        centre.pauseCommand.addTarget { [weak self] _ in
-            guard let self, self.isPlaying else { return .commandFailed }
-            self.togglePlayPause()
+        centre.pauseCommand.addTarget { _ in
+            Task { @MainActor in
+                let player = AudioPlayerController.shared
+                if player.isPlaying { player.togglePlayPause() }
+            }
             return .success
         }
 
-        centre.togglePlayPauseCommand.addTarget { [weak self] _ in
-            self?.togglePlayPause()
+        centre.togglePlayPauseCommand.addTarget { _ in
+            Task { @MainActor in
+                AudioPlayerController.shared.togglePlayPause()
+            }
             return .success
         }
 
-        centre.nextTrackCommand.addTarget { [weak self] _ in
-            guard let self, self.hasNext else { return .noSuchContent }
-            self.next()
+        centre.nextTrackCommand.addTarget { _ in
+            Task { @MainActor in
+                AudioPlayerController.shared.next()
+            }
             return .success
         }
 
-        centre.previousTrackCommand.addTarget { [weak self] _ in
-            guard let self, self.hasPrevious else { return .noSuchContent }
-            self.previous()
+        centre.previousTrackCommand.addTarget { _ in
+            Task { @MainActor in
+                AudioPlayerController.shared.previous()
+            }
             return .success
         }
 
-        centre.changePlaybackPositionCommand.addTarget { [weak self] event in
-            guard let self,
-                  let event = event as? MPChangePlaybackPositionCommandEvent else {
+        centre.changePlaybackPositionCommand.addTarget { event in
+            guard let event = event as? MPChangePlaybackPositionCommandEvent else {
                 return .commandFailed
             }
-            self.seek(to: event.positionTime)
+            let position = event.positionTime
+            Task { @MainActor in
+                AudioPlayerController.shared.seek(to: position)
+            }
             return .success
         }
 
@@ -184,6 +200,7 @@ final class AudioPlayerController {
         guard queue.indices.contains(currentIndex) else { return }
         let song = queue[currentIndex]
         AppLogger.log("play: start id=\(song.id) title=\(song.title)")
+        CrashReporter.breadcrumb("play start \(song.id)")
         currentSong = song
         currentTime = 0
         duration = song.duration
@@ -225,6 +242,7 @@ final class AudioPlayerController {
                 AppLogger.log("play: done")
             } catch {
                 AppLogger.log("play: ERROR \(error)")
+                CrashReporter.report("Не удалось воспроизвести трек", detail: "\(error)")
                 isLoading = false
                 isPlaying = false
                 errorMessage = "Не удалось воспроизвести трек"
@@ -367,6 +385,7 @@ final class AudioPlayerController {
 
     /// Downloads the cover once per track and hands it to the system.
     private func loadArtworkIfNeeded(for song: Song) {
+        CrashReporter.breadcrumb("artwork load \(song.id)")
         guard artworkTrackId != song.id, let url = song.coverURL else { return }
         artworkTrackId = song.id
 
@@ -376,10 +395,13 @@ final class AudioPlayerController {
                   let image = UIImage(data: data) else { return }
 
             guard !Task.isCancelled else { return }
+
+            // The size handler is invoked by the system on its own thread, so
+            // it closes over the image only — nothing actor-isolated.
+            let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+
             await MainActor.run {
                 guard let self, self.currentSong?.id == song.id else { return }
-
-                let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
                 var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
                 info[MPMediaItemPropertyArtwork] = artwork
                 MPNowPlayingInfoCenter.default().nowPlayingInfo = info

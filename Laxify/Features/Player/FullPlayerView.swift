@@ -14,10 +14,7 @@ struct FullPlayerView: View {
     @State private var isQueuePresented = false
     @State private var artworkDragOffset: CGFloat = 0
     @State private var selectedArtistId: String?
-    @State private var isScrubbing = false
-    @State private var scrubTarget: TimeInterval = 0
 
-    var volume = VolumeController.shared
     var downloads = DownloadManager.shared
 
     private var isFavorite: Bool {
@@ -45,13 +42,13 @@ struct FullPlayerView: View {
                     titleBlock
                         .padding(.bottom, 24)
 
-                    scrubber
+                    PlayerScrubber()
                         .padding(.bottom, 24)
 
                     controls
                         .padding(.bottom, 24)
 
-                    volumeSlider
+                    PlayerVolumeRow()
                         .padding(.bottom, 24)
 
                     bottomIconRow
@@ -320,39 +317,6 @@ struct FullPlayerView: View {
         }
     }
 
-    private var scrubber: some View {
-        VStack(spacing: 2) {
-            LaxifySlider(
-                value: Binding(
-                    get: { isScrubbing ? scrubTarget : player.currentTime },
-                    set: { newValue in
-                        scrubTarget = newValue
-                        if !isScrubbing {
-                            player.seek(to: newValue)
-                        }
-                    }
-                ),
-                range: 0...max(player.duration, 1),
-                trackHeight: 4,
-                knobSize: 0,
-                onEditingChanged: { editing in
-                    isScrubbing = editing
-                    if !editing {
-                        player.seek(to: scrubTarget)
-                    }
-                }
-            )
-
-            HStack {
-                Text(formattedTime(isScrubbing ? scrubTarget : player.currentTime))
-                Spacer()
-                Text("-" + formattedTime(max(player.duration - (isScrubbing ? scrubTarget : player.currentTime), 0)))
-            }
-            .font(LaxifyTypography.caption)
-            .foregroundStyle(.white.opacity(0.7))
-            .monospacedDigit()
-        }
-    }
 
     private var controls: some View {
         HStack(spacing: 36) {
@@ -392,27 +356,6 @@ struct FullPlayerView: View {
         .buttonStyle(.plain)
     }
 
-    private var volumeSlider: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "speaker.fill")
-
-            LaxifySlider(
-                value: Binding(
-                    get: { volume.volume },
-                    set: { volume.setVolume($0) }
-                ),
-                range: 0...1,
-                trackHeight: 4,
-                knobSize: 0,
-                tint: .white.opacity(0.9)
-            )
-
-            Image(systemName: "speaker.wave.3.fill")
-        }
-        .font(.system(size: 12))
-        .foregroundStyle(.white.opacity(0.7))
-        .background(volume.hostView)
-    }
 
     private func toggleFavorite() {
         guard let song = player.currentSong else { return }

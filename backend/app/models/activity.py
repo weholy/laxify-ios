@@ -118,3 +118,28 @@ class AuditLog(Base, UUIDMixin, TimestampMixin):
     target_id: Mapped[str | None] = mapped_column(String(64), default=None)
     payload: Mapped[dict] = mapped_column(JSONB, default=dict)
     ip: Mapped[str | None] = mapped_column(String(64), default=None)
+
+
+class ClientReport(Base, UUIDMixin, TimestampMixin):
+    """Crash and error reports sent by the app.
+
+    Kept server-side so a failure on someone's device can be diagnosed from
+    the actual stack and state, rather than reconstructed from a description
+    of what they saw.
+    """
+
+    __tablename__ = "client_reports"
+    __table_args__ = (Index("ix_client_reports_kind_time", "kind", "created_at"),)
+
+    user_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), default=None
+    )
+    kind: Mapped[str] = mapped_column(String(32))
+    message: Mapped[str] = mapped_column(Text)
+    detail: Mapped[str | None] = mapped_column(Text, default=None)
+    app_version: Mapped[str | None] = mapped_column(String(32), default=None)
+    os_version: Mapped[str | None] = mapped_column(String(32), default=None)
+    device_model: Mapped[str | None] = mapped_column(String(64), default=None)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    context: Mapped[dict] = mapped_column(JSONB, default=dict)
+    ip: Mapped[str | None] = mapped_column(String(64), default=None)

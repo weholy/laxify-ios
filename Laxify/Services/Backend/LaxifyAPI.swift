@@ -300,6 +300,29 @@ actor LaxifyAPI {
         ) as Result
     }
 
+    // MARK: - Diagnostics
+
+    func submitDiagnostic(_ body: some Encodable) async -> Bool {
+        guard let url = URL(string: baseURL.absoluteString + "/diagnostics/report"),
+              let data = try? encoder.encode(body) else {
+            return false
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = data
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let token = KeychainStore.read(.accessToken) {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        guard let (_, response) = try? await session.data(for: request),
+              let http = response as? HTTPURLResponse else {
+            return false
+        }
+        return (200..<300).contains(http.statusCode)
+    }
+
     // MARK: - Transport
 
     private func store(_ tokens: BackendTokens) {
