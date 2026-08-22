@@ -556,6 +556,25 @@ async def playlist_tracks(playlist_id: str, user: CurrentUser) -> list[CatalogTr
     return _tracks(hydrated)
 
 
+class SourceKey(BaseModel):
+    client_id: str
+
+
+@router.get("/source-key", response_model=SourceKey)
+async def source_key() -> SourceKey:
+    """The key the app needs to reach the source itself.
+
+    The app talks to the source directly now — it is reachable from networks
+    this server is not, and a stream it resolves carries a signature issued
+    for the listener rather than for Frankfurt. Handing over the key we
+    already hold saves the app several requests working it out alone.
+
+    Unauthenticated, because an app that cannot reach us to sign in is
+    exactly the case this exists for.
+    """
+    return SourceKey(client_id=await soundcloud.client_id())
+
+
 @router.get("/charts", response_model=list[CatalogTrack])
 async def charts(
     user: CurrentUser,

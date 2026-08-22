@@ -591,6 +591,18 @@ actor LaxifyAPI {
         )
     }
 
+    /// The key the app uses to reach the source directly.
+    ///
+    /// Unauthenticated on purpose: the case this exists for is a network
+    /// where we are unreachable and the source is not.
+    func sourceKey() async throws -> String {
+        struct Response: Decodable { let clientId: String }
+        let response: Response = try await send(
+            "/catalog/source-key", method: "GET", authenticated: false
+        )
+        return response.clientId
+    }
+
     // MARK: - Catalogue
 
     /// Percent-encodes one query value.

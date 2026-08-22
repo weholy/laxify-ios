@@ -1,15 +1,21 @@
 import Foundation
 
-/// The catalogue, served through our own backend.
+/// The catalogue.
 ///
-/// Everything the app plays comes from here. Talking to a music source
-/// directly from the phone meant every listener needed a VPN for whatever
-/// region that source happened to serve; routing through the server removes
-/// that entirely — the server is somewhere the source answers, and the app
-/// only ever talks to us.
+/// Fetched from the source directly by the phone, with our own server as the
+/// fallback. That is the opposite of how it started, and the reason is
+/// measured rather than assumed: the app's own probe found every route to
+/// our server unreachable on the network people use, while the source
+/// answered on that same connection perfectly well.
 ///
-/// It also means a source can be swapped, or a second one added behind the
-/// first, without shipping a new build.
+/// Resolving streams here also fixes something a relay could not. The signed
+/// media url is issued for whoever asked for it, so one obtained by a server
+/// in Germany is refused on a phone elsewhere. A link this device resolves is
+/// issued for this device.
+///
+/// The account — library, statistics, listening history — still comes from
+/// our server. The two are independent: music plays whenever the source is
+/// reachable, whether or not we are.
 struct CatalogService: MusicService {
     static let shared = CatalogService()
 
@@ -18,6 +24,32 @@ struct CatalogService: MusicService {
     // MARK: - Home
 
     func homeContent() async throws -> HomeContent {
+        do {
+            return try await homeFromServer()
+        } catch {
+            // The server is unreachable on some networks. Charts from the
+            // source are a smaller home screen, but a working one.
+            return try await homeFromSource()
+        }
+    }
+
+    /// What to show when only the source can be reached.
+    private func homeFromSource() async throws -> HomeContent {
+        let popular = try await SoundCloudDirect.shared.charts(limit: 40)
+
+        let collections = popular.isEmpty ? [] : [
+            MusicCollection(
+                id: "charts",
+                title: "Сейчас слушают",
+                subtitle: "Популярное прямо сейчас",
+                coverURL: popular.first?.coverURL
+            )
+        ]
+
+        return HomeContent(collections: collections, recommendedTracks: popular)
+    }
+
+    private func homeFromServer() async throws -> HomeContent {
         let feed = try await api.homeFeed(limit: 30)
 
         var collections: [MusicCollection] = []
@@ -68,6 +100,17 @@ struct CatalogService: MusicService {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return SearchResults() }
 
+        // Straight to the source. Our server does this better — it filters
+        // out the accounts borrowing famous names — so it is tried first when
+        // it can be reached at all.
+        if let viaServer = try? await searchThroughServer(trimmed) {
+            return viaServer
+        }
+
+        return try await SoundCloudDirect.shared.search(trimmed, limit: 30)
+    }
+
+    private func searchThroughServer(_ trimmed: String) async throws -> SearchResults {
         let response = try await api.catalogSearch(query: trimmed, limit: 30)
 
         let tracks = response.tracks.map(\.song)
@@ -121,6 +164,10 @@ struct CatalogService: MusicService {
     // MARK: - Tracks
 
     func song(id: String) async throws -> Song {
+        if let direct = try? await SoundCloudDirect.shared.track(id).song {
+            return direct
+        }
+
         do {
             return try await api.catalogTrack(id: id).song
         } catch let error as APIError {
@@ -129,11 +176,10 @@ struct CatalogService: MusicService {
     }
 
     func streamURL(for songId: String) async throws -> URL {
-        do {
-            return try await api.catalogStreamURL(trackId: songId)
-        } catch let error as APIError {
-            throw Self.translate(error)
-        }
+        // Resolved here so the signature belongs to this device. Going
+        // through the server produced a link issued for Frankfurt, which is
+        // refused anywhere else.
+        try await SoundCloudDirect.shared.streamURL(for: songId)
     }
 
     // MARK: - Artists
@@ -156,6 +202,13 @@ struct CatalogService: MusicService {
 
     func artistTracks(artistId: String, page: Int) async throws -> [Song] {
         let pageSize = 50
+
+        if let direct = try? await SoundCloudDirect.shared.artistTracks(
+            artistId, limit: pageSize, offset: page * pageSize
+        ), !direct.isEmpty {
+            return direct
+        }
+
         return try await api
             .catalogArtistTracks(id: artistId, limit: pageSize, offset: page * pageSize)
             .map(\.song)

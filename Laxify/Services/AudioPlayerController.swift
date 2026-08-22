@@ -388,45 +388,53 @@ final class AudioPlayerController {
         return true
     }
 
-    /// An item that streams through our own server, fetched in one go.
+    /// An item to play, fetched in one request rather than in pieces.
     ///
-    /// The signed url the source hands out is bound to the region it was
-    /// issued in, so a phone elsewhere is refused even though the link looks
-    /// valid. The server holds the matching signature and passes the bytes
-    /// on.
+    /// The url is resolved by this device, so the signature it carries was
+    /// issued for this device — the reason a link obtained by our server was
+    /// refused here. It points straight at the media host, which is reachable
+    /// on networks our server is not.
     ///
-    /// Those bytes arrive as a single download rather than as the six or
-    /// eight ranged requests AVPlayer would make on its own — on a slow link
-    /// those round trips were the whole wait before playback began.
+    /// The bytes still arrive through a loader of ours: the player would
+    /// otherwise fetch a track in six to eight ranged requests, and on a slow
+    /// link those round trips were most of the wait before any sound.
     private static func streamingItem(for trackId: String) async throws -> (AVPlayerItem, StreamLoader) {
-        guard let proxy = await LaxifyAPI.shared.proxyAudioRequest(trackId: trackId) else {
-            throw MusicServiceError.missingAccessKey
+        let source: URL
+        var headers: [String: String] = [:]
+        var pinned = false
+
+        if let direct = try? await SoundCloudDirect.shared.streamURL(for: trackId) {
+            source = direct
+        } else if let proxy = await LaxifyAPI.shared.proxyAudioRequest(trackId: trackId) {
+            // Only when the source cannot be reached directly. Slower, and
+            // the signature may not be valid here, but better than silence.
+            source = proxy.url
+            headers = proxy.headers
+            pinned = await LaxifyAPI.shared.routeNeedsPinnedTrust
+        } else {
+            throw MusicServiceError.notFound
         }
 
-        let loader = StreamLoader(
-            source: proxy.url,
-            headers: proxy.headers,
-            usesPinnedTrust: await LaxifyAPI.shared.routeNeedsPinnedTrust
-        )
+        let loader = StreamLoader(source: source, headers: headers, usesPinnedTrust: pinned)
 
         let item = AVPlayerItem(asset: loader.makeAsset())
-        // Everything is local by the time the player asks, so there is
-        // nothing to gain from buffering ahead.
+        // Everything is local by the time the player asks for it, so there is
+        // nothing to gain from buffering further ahead.
         item.preferredForwardBufferDuration = 1
         return (item, loader)
     }
 
-    /// Warms the next track on the server while this one plays.
+    /// Resolves the next track's url while this one plays.
     ///
-    /// Resolving a stream costs the server two calls upstream; doing it
-    /// before the listener asks makes the next track start immediately.
+    /// Resolving costs two requests to the source, and doing them before the
+    /// listener asks means the next track starts on the first tap.
     private func prefetchNext() {
         guard queue.indices.contains(currentIndex + 1) else { return }
         let nextId = queue[currentIndex + 1].id
         guard DownloadManager.shared.localURL(for: nextId) == nil else { return }
 
         Task.detached(priority: .background) {
-            await LaxifyAPI.shared.warmStream(trackId: nextId)
+            _ = try? await SoundCloudDirect.shared.streamURL(for: nextId)
         }
     }
 
