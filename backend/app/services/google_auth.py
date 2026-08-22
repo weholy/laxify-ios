@@ -1,11 +1,15 @@
 from dataclasses import dataclass
 
+import logging
+
 import httpx
 from cachetools import TTLCache
 from jose import jwt as jose_jwt
 from jose.exceptions import JWTError
 
 from app.core.config import settings
+
+logger = logging.getLogger("laxify.google")
 
 GOOGLE_CERTS_URL = "https://www.googleapis.com/oauth2/v3/certs"
 GOOGLE_ISSUERS = {"accounts.google.com", "https://accounts.google.com"}
@@ -68,6 +72,16 @@ async def verify_id_token(id_token: str) -> GoogleIdentity:
     if key is None:
         raise GoogleAuthError("Не найден ключ подписи Google")
 
+    # Read the unverified audience purely for diagnostics: a mismatch here is
+    # the usual cause, and without logging it the failure is a silent 401.
+    try:
+        unverified_claims = jose_jwt.get_unverified_claims(id_token)
+        token_audience = unverified_claims.get("aud")
+        token_issuer = unverified_claims.get("iss")
+    except JWTError:
+        token_audience = None
+        token_issuer = None
+
     last_error: Exception | None = None
     for audience in settings.google_client_ids:
         try:
@@ -82,6 +96,17 @@ async def verify_id_token(id_token: str) -> GoogleIdentity:
         except JWTError as exc:
             last_error = exc
     else:
+        logger.warning(
+            "Google token rejected: token aud=%r iss=%r, configured=%r, error=%s",
+            token_audience,
+            token_issuer,
+            settings.google_client_ids,
+            last_error,
+        )
+        if token_audience and token_audience not in settings.google_client_ids:
+            raise GoogleAuthError(
+                "Приложение не совпадает с настройками входа на сервере"
+            ) from last_error
         raise GoogleAuthError("Токен Google не прошёл проверку") from last_error
 
     if claims.get("iss") not in GOOGLE_ISSUERS:

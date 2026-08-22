@@ -6,9 +6,8 @@ struct SignInView: View {
     @State private var isSigningIn = false
     @State private var errorMessage: String?
     @State private var appear = false
-    @State private var logoAppear = false
     @State private var buttonAppear = false
-    @State private var coverSongs: [Song] = []
+    @State private var coverSongs: [Song] = CoverArtCache.load()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -24,10 +23,7 @@ struct SignInView: View {
             await loadCovers()
         }
         .onAppear {
-            withAnimation(.spring(response: 0.7, dampingFraction: 0.7).delay(0.1)) {
-                logoAppear = true
-            }
-            withAnimation(.easeOut(duration: 0.6).delay(0.28)) {
+            withAnimation(.easeOut(duration: 0.7).delay(0.15)) {
                 appear = true
             }
             withAnimation(.spring(response: 0.6, dampingFraction: 0.8).delay(0.45)) {
@@ -67,9 +63,6 @@ struct SignInView: View {
 
     private var bottomPanel: some View {
         VStack(spacing: 0) {
-            logo
-                .padding(.bottom, 18)
-                .opacity(logoAppear ? 1 : 0)
 
             Text("Вся твоя музыка\nв одном месте")
                 .font(.system(size: 30, weight: .bold))
@@ -106,20 +99,6 @@ struct SignInView: View {
         .offset(y: appear ? 0 : 20)
     }
 
-    private var logo: some View {
-        Image("LaxifyLogo")
-            .resizable()
-            .scaledToFill()
-            .frame(width: 74, height: 74)
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(.white.opacity(0.12), lineWidth: 1)
-            }
-            .shadow(color: .black.opacity(0.3), radius: 16, y: 8)
-            .scaleEffect(logoAppear ? 1 : 0.7)
-            .rotationEffect(.degrees(logoAppear ? 0 : -12))
-    }
 
     private var googleButton: some View {
         Button {
@@ -130,9 +109,7 @@ struct SignInView: View {
                     ProgressView()
                         .tint(LaxifyPalette.background)
                 } else {
-                    GoogleLogoView(size: 19)
-                        .padding(3)
-                        .background(Circle().fill(.white))
+                    GoogleLogoView(size: 20)
                 }
 
                 Text(isSigningIn ? "Входим…" : "Продолжить с Google")
@@ -167,36 +144,54 @@ struct SignInView: View {
         }
     }
 
-    /// Fills the backdrop with real artwork.
+    /// Refreshes the backdrop artwork.
     ///
-    /// Several terms are tried in turn because a single query can come back
-    /// empty for reasons that have nothing to do with the app — a regional
-    /// block, a slow first call while the session is established, or a term
-    /// that simply matched nothing. The gradient wall stays up meanwhile, so
-    /// a failure here is invisible rather than an empty screen.
+    /// The term is picked at random and mixed with a second query so the wall
+    /// differs between launches instead of always showing the same chart.
+    /// Cached covers are already on screen, so a failure here changes nothing
+    /// visible.
     private func loadCovers() async {
-        guard coverSongs.isEmpty else { return }
+        var collected: [Song] = []
+        var seen = Set(coverSongs.map(\.id))
 
-        for term in ["хиты", "популярное", "новинки", "рэп"] {
+        for term in Self.coverSearchTerms.shuffled().prefix(3) {
             guard !Task.isCancelled else { return }
 
             do {
                 let results = try await YandexMusicService.shared.search(query: term)
-                let tracks = results.tracks.filter { $0.coverURL != nil }
-
-                if tracks.count >= 4 {
-                    withAnimation(.easeInOut(duration: 0.7)) {
-                        coverSongs = Array(tracks.prefix(12))
-                    }
-                    return
+                for song in results.tracks where song.coverURL != nil && !seen.contains(song.id) {
+                    seen.insert(song.id)
+                    collected.append(song)
                 }
             } catch {
                 AppLogger.log("signin: covers failed for \(term) — \(error)")
             }
+
+            if collected.count >= 16 { break }
         }
 
-        AppLogger.log("signin: no covers loaded, keeping placeholders")
+        guard collected.count >= 6 else {
+            AppLogger.log("signin: not enough covers, keeping what is shown")
+            return
+        }
+
+        let fresh = collected.shuffled()
+        CoverArtCache.save(fresh)
+
+        withAnimation(.easeInOut(duration: 0.8)) {
+            coverSongs = fresh
+        }
     }
+
+    /// A deliberately wide mix so the backdrop is not always Russian chart
+    /// covers — the reference wall reads as "all music", not one scene.
+    private static let coverSearchTerms = [
+        "хиты", "новинки", "русский рэп", "поп музыка",
+        "Travis Scott", "Kendrick Lamar", "Drake", "Eminem",
+        "Kanye West", "Playboi Carti", "21 Savage", "Metro Boomin",
+        "The Weeknd", "Tyler The Creator", "Future", "Lil Peep",
+        "рок", "электронная музыка", "джаз", "инди"
+    ]
 }
 
 #Preview {
