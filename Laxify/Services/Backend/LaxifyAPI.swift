@@ -88,9 +88,43 @@ actor LaxifyAPI {
         session = URLSession(configuration: configuration)
     }
 
-    /// Picks a route before the first request goes out.
+    /// Picks a route before the first request goes out, then reports what
+    /// the network allowed.
+    ///
+    /// The report is the point: from the server there is no way to tell
+    /// which routes a listener's network permits, and that is exactly what
+    /// has to be known to stop guessing at it.
     func prepare() async {
         route = await APIRouter.shared.discover()
+
+        let results = await APIRouter.shared.lastProbeResults
+        guard !results.isEmpty else { return }
+
+        struct Report: Encodable {
+            let kind = "route-probe"
+            let message: String
+            let detail: String
+            let osVersion: String
+            let deviceModel: String
+            let occurredAt = Date()
+            let context: [String: String]
+        }
+
+        let summary = results
+            .map { "\($0.key): \($0.value ? "доступен" : "нет")" }
+            .sorted()
+            .joined(separator: "
+")
+
+        _ = await submitDiagnostic(
+            Report(
+                message: "Выбран маршрут \(route.base)",
+                detail: summary,
+                osVersion: await UIDevice.current.systemVersion,
+                deviceModel: await UIDevice.current.model,
+                context: results.mapValues { $0 ? "1" : "0" }
+            )
+        )
     }
 
     /// The session that can reach the current route.
