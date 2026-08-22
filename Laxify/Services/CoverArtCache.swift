@@ -8,7 +8,9 @@ import Foundation
 /// frame, and the fresh fetch quietly replaces it.
 enum CoverArtCache {
     private static let key = "laxify.signin.covers"
-    private static let maxItems = 24
+    /// Enough to fill the wall several times over, so it differs between
+    /// launches without another request.
+    private static let maxItems = 60
 
     private struct Entry: Codable {
         let id: String

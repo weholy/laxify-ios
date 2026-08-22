@@ -55,7 +55,7 @@ struct TermsView: View {
                             }
                         }
 
-                        Text("Полная версия — laxify.app/terms")
+                        Text("Полная версия — laxify.31-76-27-182.nip.io/terms")
                             .font(.system(size: 13))
                             .foregroundStyle(LaxifyPalette.textTertiary)
                             .padding(.top, 8)

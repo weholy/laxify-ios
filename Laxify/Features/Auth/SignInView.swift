@@ -54,9 +54,9 @@ struct SignInView: View {
     /// ends: sharp in the middle, gone behind the sign-in panel.
     private var driftingArtwork: some View {
         ZStack {
-            PlaceholderCoversView()
-                .opacity(coverSongs.isEmpty ? 1 : 0)
-
+            // Nothing at all until there is real artwork to show. Coloured
+            // squares standing in for covers were visible for a moment on
+            // every cold launch, and a moment is enough to notice.
             if !coverSongs.isEmpty {
                 FloatingCoversView(songs: coverSongs)
                     .transition(.opacity)
