@@ -21,62 +21,11 @@ struct EmailBindingSheet: View {
     var body: some View {
         SheetShell(title: codeSent ? "Введите код" : "Почта") {
             VStack(spacing: 20) {
-                Text(codeSent
-                     ? "Отправили код на \(email)"
-                     : "Подтвердите адрес, чтобы восстановить доступ, если забудете пароль")
-                    .font(LaxifyTypography.footnote)
-                    .foregroundStyle(LaxifyPalette.textSecondary)
-                    .multilineTextAlignment(.center)
-
-                if codeSent {
-                    CodeEntryField(code: $code) { confirm() }
-                } else {
-                    TextField("почта@example.com", text: $email)
-                        .textContentType(.emailAddress)
-                        .keyboardType(.emailAddress)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .focused($isEditingEmail)
-                        .fieldStyle()
-                }
-
-                if let errorMessage {
-                    Text(errorMessage)
-                        .font(LaxifyTypography.footnote)
-                        .foregroundStyle(.red)
-                        .multilineTextAlignment(.center)
-                }
-
-                Button(action: codeSent ? confirm : requestCode) {
-                    HStack(spacing: 8) {
-                        if isBusy { ProgressView().tint(LaxifyPalette.background) }
-                        Text(codeSent ? "Подтвердить" : "Отправить код")
-                            .font(.system(size: 17, weight: .semibold))
-                    }
-                    .foregroundStyle(LaxifyPalette.background)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .background(LaxifyPalette.textPrimary, in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .disabled(isBusy || !isReady)
-                .opacity(isReady ? 1 : 0.45)
-
-                if codeSent {
-                    Button {
-                        requestCode()
-                    } label: {
-                        Text(resendAfter > 0
-                             ? "Отправить снова через \(resendAfter) с"
-                             : "Отправить ещё раз")
-                            .font(LaxifyTypography.footnote)
-                            .foregroundStyle(
-                                resendAfter > 0 ? LaxifyPalette.textTertiary : LaxifyPalette.accent
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(resendAfter > 0 || isBusy)
-                }
+                explanation
+                entry
+                errorLabel
+                submitButton
+                resendButton
             }
         }
         .onAppear {
@@ -88,6 +37,87 @@ struct EmailBindingSheet: View {
             try? await Task.sleep(for: .seconds(1))
             resendAfter -= 1
         }
+    }
+
+    private var explanation: some View {
+        Text(explanationText)
+            .font(LaxifyTypography.footnote)
+            .foregroundStyle(LaxifyPalette.textSecondary)
+            .multilineTextAlignment(.center)
+    }
+
+    private var explanationText: String {
+        if codeSent {
+            return "Отправили код на \(email)"
+        }
+        return "Подтвердите адрес, чтобы восстановить доступ, если забудете пароль"
+    }
+
+    @ViewBuilder
+    private var entry: some View {
+        if codeSent {
+            CodeEntryField(code: $code) { confirm() }
+        } else {
+            TextField("почта@example.com", text: $email)
+                .textContentType(.emailAddress)
+                .keyboardType(.emailAddress)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .focused($isEditingEmail)
+                .fieldStyle()
+        }
+    }
+
+    @ViewBuilder
+    private var errorLabel: some View {
+        if let errorMessage {
+            Text(errorMessage)
+                .font(LaxifyTypography.footnote)
+                .foregroundStyle(.red)
+                .multilineTextAlignment(.center)
+        }
+    }
+
+    private var submitButton: some View {
+        Button {
+            if codeSent { confirm() } else { requestCode() }
+        } label: {
+            HStack(spacing: 8) {
+                if isBusy {
+                    ProgressView().tint(LaxifyPalette.background)
+                }
+                Text(codeSent ? "Подтвердить" : "Отправить код")
+                    .font(.system(size: 17, weight: .semibold))
+            }
+            .foregroundStyle(LaxifyPalette.background)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+            .background(LaxifyPalette.textPrimary, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(isBusy || !isReady)
+        .opacity(isReady ? 1 : 0.45)
+    }
+
+    @ViewBuilder
+    private var resendButton: some View {
+        if codeSent {
+            Button {
+                requestCode()
+            } label: {
+                Text(resendTitle)
+                    .font(LaxifyTypography.footnote)
+                    .foregroundStyle(
+                        resendAfter > 0 ? LaxifyPalette.textTertiary : LaxifyPalette.accent
+                    )
+            }
+            .buttonStyle(.plain)
+            .disabled(resendAfter > 0 || isBusy)
+        }
+    }
+
+    private var resendTitle: String {
+        resendAfter > 0 ? "Отправить снова через \(resendAfter) с" : "Отправить ещё раз"
     }
 
     private var isReady: Bool {
@@ -149,50 +179,73 @@ struct PasswordChangeSheet: View {
     var body: some View {
         SheetShell(title: hasPassword ? "Смена пароля" : "Пароль") {
             VStack(spacing: 20) {
-                Text(hasPassword
-                     ? "Введите текущий пароль и новый"
-                     : "Задайте пароль, чтобы входить по почте без Google")
-                    .font(LaxifyTypography.footnote)
-                    .foregroundStyle(LaxifyPalette.textSecondary)
-                    .multilineTextAlignment(.center)
-
-                if hasPassword {
-                    SecureField("Текущий пароль", text: $current)
-                        .textContentType(.password)
-                        .fieldStyle()
-                }
-
-                SecureField("Новый пароль", text: $updated)
-                    .textContentType(.newPassword)
-                    .fieldStyle()
-
-                Text("Не короче 8 символов, с буквой и цифрой")
-                    .font(.system(size: 12))
-                    .foregroundStyle(LaxifyPalette.textTertiary)
-
-                if let errorMessage {
-                    Text(errorMessage)
-                        .font(LaxifyTypography.footnote)
-                        .foregroundStyle(.red)
-                        .multilineTextAlignment(.center)
-                }
-
-                Button(action: submit) {
-                    HStack(spacing: 8) {
-                        if isBusy { ProgressView().tint(LaxifyPalette.background) }
-                        Text(hasPassword ? "Сменить пароль" : "Задать пароль")
-                            .font(.system(size: 17, weight: .semibold))
-                    }
-                    .foregroundStyle(LaxifyPalette.background)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .background(LaxifyPalette.textPrimary, in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .disabled(isBusy || updated.count < 8)
-                .opacity(updated.count >= 8 ? 1 : 0.45)
+                explanation
+                currentField
+                newField
+                hint
+                errorLabel
+                submitButton
             }
         }
+    }
+
+    private var explanation: some View {
+        Text(hasPassword
+             ? "Введите текущий пароль и новый"
+             : "Задайте пароль, чтобы входить по почте без Google")
+            .font(LaxifyTypography.footnote)
+            .foregroundStyle(LaxifyPalette.textSecondary)
+            .multilineTextAlignment(.center)
+    }
+
+    @ViewBuilder
+    private var currentField: some View {
+        if hasPassword {
+            SecureField("Текущий пароль", text: $current)
+                .textContentType(.password)
+                .fieldStyle()
+        }
+    }
+
+    private var newField: some View {
+        SecureField("Новый пароль", text: $updated)
+            .textContentType(.newPassword)
+            .fieldStyle()
+    }
+
+    private var hint: some View {
+        Text("Не короче 8 символов, с буквой и цифрой")
+            .font(.system(size: 12))
+            .foregroundStyle(LaxifyPalette.textTertiary)
+    }
+
+    @ViewBuilder
+    private var errorLabel: some View {
+        if let errorMessage {
+            Text(errorMessage)
+                .font(LaxifyTypography.footnote)
+                .foregroundStyle(.red)
+                .multilineTextAlignment(.center)
+        }
+    }
+
+    private var submitButton: some View {
+        Button(action: submit) {
+            HStack(spacing: 8) {
+                if isBusy {
+                    ProgressView().tint(LaxifyPalette.background)
+                }
+                Text(hasPassword ? "Сменить пароль" : "Задать пароль")
+                    .font(.system(size: 17, weight: .semibold))
+            }
+            .foregroundStyle(LaxifyPalette.background)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+            .background(LaxifyPalette.textPrimary, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(isBusy || updated.count < 8)
+        .opacity(updated.count >= 8 ? 1 : 0.45)
     }
 
     private func submit() {

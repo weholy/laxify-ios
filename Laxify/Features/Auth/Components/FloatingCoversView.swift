@@ -90,13 +90,16 @@ struct PlaceholderCoversView: View {
     private let spacing: CGFloat = 12
     private let pointsPerSecond: CGFloat = 20
 
+    /// Placeholder tiles, kept within the mark's own range of pink through
+    /// violet to blue so the wall reads as Laxify before any real artwork
+    /// has arrived.
     private let palette: [[Color]] = [
-        [Color(hex: 0x0A84FF), Color(hex: 0x5E5CE6)],
-        [Color(hex: 0xFF375F), Color(hex: 0xFF9F0A)],
-        [Color(hex: 0x30D158), Color(hex: 0x0A84FF)],
-        [Color(hex: 0xBF5AF2), Color(hex: 0xFF375F)],
-        [Color(hex: 0x64D2FF), Color(hex: 0x5E5CE6)],
-        [Color(hex: 0xFF9F0A), Color(hex: 0xFF375F)]
+        [Color(hex: 0xFF5FA2), Color(hex: 0xA855F7)],
+        [Color(hex: 0xA855F7), Color(hex: 0x5B7CFA)],
+        [Color(hex: 0xFF7AB8), Color(hex: 0xC44BF0)],
+        [Color(hex: 0x7C5CFF), Color(hex: 0xFF5FA2)],
+        [Color(hex: 0x5B7CFA), Color(hex: 0x8B3FE0)],
+        [Color(hex: 0xE04BC4), Color(hex: 0x7C5CFF)]
     ]
 
     var body: some View {
