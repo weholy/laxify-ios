@@ -5,6 +5,7 @@ app, so the client speaks one shape regardless of where a track came from —
 which is what lets a second source be added later without touching the app.
 """
 
+import asyncio
 from typing import Any
 
 import httpx
@@ -46,6 +47,10 @@ class CatalogPlaylist(BaseModel):
     artwork_url: str | None
     track_count: int
     owner_name: str | None
+    year: int | None = None
+    # "album", "ep", "single" or null for an ordinary playlist. The artist
+    # screen shows releases separately from playlists someone assembled.
+    kind: str | None = None
 
 
 class SearchResponse(BaseModel):
@@ -102,13 +107,28 @@ def normalise_artist(raw: dict[str, Any]) -> CatalogArtist | None:
 def normalise_playlist(raw: dict[str, Any]) -> CatalogPlaylist | None:
     if not raw or not raw.get("id"):
         return None
+
     user = raw.get("user") or {}
+    stamp = raw.get("release_date") or raw.get("display_date") or raw.get("created_at") or ""
+    year = int(stamp[:4]) if stamp[:4].isdigit() else None
+
+    # A release usually has no artwork of its own until it does; falling back
+    # to the first track's cover beats an empty tile.
+    artwork = raw.get("artwork_url")
+    if not artwork:
+        for track in raw.get("tracks") or []:
+            if track.get("artwork_url"):
+                artwork = track["artwork_url"]
+                break
+
     return CatalogPlaylist(
         id=str(raw["id"]),
         title=raw.get("title") or "Плейлист",
-        artwork_url=_upsize(raw.get("artwork_url")),
+        artwork_url=_upsize(artwork),
         track_count=raw.get("track_count") or 0,
         owner_name=user.get("username"),
+        year=year,
+        kind=raw.get("set_type") or None,
     )
 
 
@@ -258,6 +278,51 @@ async def artist_tracks(
         return _tracks(await soundcloud.user_tracks(artist_id, limit=limit, offset=offset))
     except SoundCloudError as exc:
         raise _guard(exc) from exc
+
+
+class ArtistDetailResponse(BaseModel):
+    artist: CatalogArtist
+    top_tracks: list[CatalogTrack]
+    releases: list[CatalogPlaylist]
+    similar_artists: list[CatalogArtist]
+
+
+@router.get("/artists/{artist_id}/detail", response_model=ArtistDetailResponse)
+async def artist_detail(artist_id: str, user: CurrentUser) -> ArtistDetailResponse:
+    """Everything the artist screen needs, in one request.
+
+    Four separate calls from the app meant four round trips before anything
+    could be drawn; fanning them out here makes the screen appear at once.
+    """
+    async def safe(coro, default):
+        try:
+            return await coro
+        except SoundCloudError:
+            return default
+
+    profile, tracks, playlists = await asyncio.gather(
+        safe(soundcloud.user(artist_id), {}),
+        safe(soundcloud.user_tracks(artist_id, limit=50), []),
+        safe(soundcloud.user_playlists(artist_id, limit=20), []),
+    )
+
+    normalised = normalise_artist(profile)
+    if normalised is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Исполнитель не найден")
+
+    releases = [p for p in (normalise_playlist(item) for item in playlists) if p]
+    # Newest first, and anything undated last — a release list that opens on
+    # something from years ago reads as stale.
+    releases.sort(key=lambda item: item.year or 0, reverse=True)
+
+    similar = await safe(soundcloud.related_artists(artist_id, limit=12), [])
+
+    return ArtistDetailResponse(
+        artist=normalised,
+        top_tracks=_tracks(tracks),
+        releases=releases,
+        similar_artists=[a for a in (normalise_artist(item) for item in similar) if a],
+    )
 
 
 @router.get("/playlists/{playlist_id}/tracks", response_model=list[CatalogTrack])

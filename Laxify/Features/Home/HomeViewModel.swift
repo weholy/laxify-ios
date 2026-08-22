@@ -19,6 +19,19 @@ final class HomeViewModel {
 
     private let service: any MusicService
 
+    /// When the feed last came from the network.
+    ///
+    /// The view's `.task` runs again every time Home reappears — switching
+    /// tabs, closing the player, coming back from an artist. Reloading on
+    /// each of those replaced the tracks under the listener's finger, which
+    /// is why the feed seemed to shuffle itself.
+    private var loadedAt: Date?
+    private var waveLoadedAt: Date?
+
+    /// Long enough that returning to Home shows what was there, short enough
+    /// that the feed is not yesterday's when the app is left open.
+    private static let freshness: TimeInterval = 15 * 60
+
     init(service: any MusicService = CatalogService.shared) {
         self.service = service
 
@@ -32,13 +45,21 @@ final class HomeViewModel {
 
     func loadIfNeeded() async {
         guard !isLoading else { return }
-        // Refresh even when cached content is on screen — it is a starting
-        // point, not a reason to skip loading.
+
+        if let loadedAt, Date().timeIntervalSince(loadedAt) < Self.freshness, content != nil {
+            return
+        }
+
         await load()
     }
 
+    /// Pull to refresh, which is the one case where replacing what is on
+    /// screen is exactly what was asked for.
     func reload() async {
+        loadedAt = nil
+        waveLoadedAt = nil
         await load()
+        await loadWave(force: true)
     }
 
     /// Loads the personal radio station.
@@ -49,6 +70,13 @@ final class HomeViewModel {
     func loadWave(force: Bool = false) async {
         guard !isLoadingWave else { return }
 
+        if !force,
+           let waveLoadedAt,
+           Date().timeIntervalSince(waveLoadedAt) < Self.freshness,
+           !waveTracks.isEmpty {
+            return
+        }
+
         isLoadingWave = true
         waveError = nil
 
@@ -58,6 +86,7 @@ final class HomeViewModel {
             let batch = try await CatalogService.shared.waveBatch()
             waveTracks = batch.songs
             waveBatchId = batch.batchId
+            waveLoadedAt = Date()
             HomeCache.save(
                 recommended: content?.recommendedTracks ?? [],
                 wave: batch.songs
@@ -141,6 +170,7 @@ final class HomeViewModel {
         do {
             let fresh = try await service.homeContent()
             content = fresh
+            loadedAt = Date()
             HomeCache.save(recommended: fresh.recommendedTracks, wave: waveTracks)
         } catch MusicServiceError.missingAccessKey {
             errorMessage = "Добавьте ключ доступа в Профиле"

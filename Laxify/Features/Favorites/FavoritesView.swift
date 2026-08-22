@@ -165,12 +165,20 @@ struct FavoritesView: View {
     private var trackList: some View {
         VStack(spacing: 12) {
             ForEach(sortedFavorites) { favorite in
-                Button {
-                    AudioPlayerController.shared.play(favorite.song, queue: sortedFavorites.map(\.song))
-                } label: {
-                    SongRowView(song: favorite.song, isFavorite: true)
-                }
-                .buttonStyle(.plain)
+                // The row is tappable as a whole, but the download control
+                // inside it is its own button — so it is layered on top
+                // rather than nested, which would swallow its taps.
+                SongRowView(song: favorite.song, isFavorite: true, showsDownload: true)
+                    .background {
+                        Button {
+                            AudioPlayerController.shared.play(
+                                favorite.song, queue: sortedFavorites.map(\.song)
+                            )
+                        } label: {
+                            Color.clear.contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
             }
         }
         .padding(.horizontal, LaxifyMetrics.screenPadding)

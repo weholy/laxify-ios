@@ -139,13 +139,19 @@ struct CatalogService: MusicService {
     // MARK: - Artists
 
     func artistDetail(artistId: String) async throws -> ArtistDetail {
-        async let artistTask = api.catalogArtist(id: artistId)
-        async let tracksTask = api.catalogArtistTracks(id: artistId, limit: 50)
+        do {
+            let detail = try await api.catalogArtistDetail(id: artistId)
 
-        let artist = try await artistTask.artist
-        let tracks = try await tracksTask.map(\.song)
-
-        return ArtistDetail(artist: artist, topTracks: tracks, releases: [], similarArtists: [])
+            return ArtistDetail(
+                artist: detail.artist.artist,
+                topTracks: detail.topTracks.map(\.song),
+                // Releases first, then anything the artist merely collected.
+                releases: detail.releases.map(\.album),
+                similarArtists: detail.similarArtists.map(\.artist)
+            )
+        } catch let error as APIError {
+            throw Self.translate(error)
+        }
     }
 
     func artistTracks(artistId: String, page: Int) async throws -> [Song] {

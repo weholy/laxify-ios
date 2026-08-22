@@ -3,6 +3,9 @@ import SwiftUI
 struct SongRowView: View {
     let song: Song
     var isFavorite: Bool = false
+    /// Shown in the library, where saving for offline is the point;
+    /// hidden in search results, where it would be noise.
+    var showsDownload: Bool = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -33,6 +36,10 @@ struct SongRowView: View {
             Text(formattedDuration)
                 .font(LaxifyTypography.footnote)
                 .foregroundStyle(LaxifyPalette.textTertiary)
+
+            if showsDownload {
+                DownloadIndicator(song: song)
+            }
         }
         .contentShape(Rectangle())
     }

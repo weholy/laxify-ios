@@ -10,11 +10,8 @@ enum LaxifyPalette {
     static let textSecondary = Color(light: Color(hex: 0x6C6C70), dark: Color(hex: 0x98989F))
     static let textTertiary = Color(light: Color(hex: 0xA0A0A5), dark: Color(hex: 0x6C6C70))
 
-    /// Taken from the app mark rather than the system blue, which belonged to
-    /// iOS and not to Laxify. Slightly deeper in light mode, where the same
-    /// violet on white reads as washed out.
-    static let accent = Color(light: Color(hex: 0x8B3FE0), dark: Color(hex: 0xA855F7))
-    static let accentMuted = Color(light: Color(hex: 0x8B3FE0, opacity: 0.12), dark: Color(hex: 0xA855F7, opacity: 0.18))
+    static let accent = Color(hex: 0x0A84FF)
+    static let accentMuted = Color(light: Color(hex: 0x0A84FF, opacity: 0.12), dark: Color(hex: 0x0A84FF, opacity: 0.18))
 
     /// The mark's own gradient, for the few places that carry the brand
     /// rather than merely use its colour.

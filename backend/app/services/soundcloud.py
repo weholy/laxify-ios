@@ -203,6 +203,14 @@ class SoundCloudClient:
         data = await self.request(f"users/{user_id}/playlists", {"limit": limit})
         return data.get("collection", [])
 
+    async def related_artists(self, user_id: str, limit: int = 12) -> list[dict]:
+        """Artists the source associates with this one."""
+        try:
+            data = await self.request(f"users/{user_id}/relatedartists", {"limit": limit})
+        except SoundCloudError:
+            return []
+        return data.get("collection", [])
+
     async def playlist(self, playlist_id: str) -> dict:
         return await self.request(f"playlists/{playlist_id}")
 

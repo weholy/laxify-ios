@@ -150,7 +150,7 @@ async def _discovery_tracks(limit: int) -> list[dict]:
     return collected[:limit]
 
 
-def _apply_mood(items: list[dict], mood: str) -> list[dict]:
+def _apply_mood(items: list[dict], mood: str, rng: random.Random) -> list[dict]:
     """Biases the run towards the genres a mood implies.
 
     Filtering outright would often empty the list, so matching tracks are
@@ -170,12 +170,12 @@ def _apply_mood(items: list[dict], mood: str) -> list[dict]:
 
     leading = [raw for raw in items if matches(raw)]
     trailing = [raw for raw in items if not matches(raw)]
-    random.shuffle(leading)
-    random.shuffle(trailing)
+    rng.shuffle(leading)
+    rng.shuffle(trailing)
     return leading + trailing
 
 
-def _apply_diversity(items: list[dict], diversity: str) -> list[dict]:
+def _apply_diversity(items: list[dict], diversity: str, rng: random.Random) -> list[dict]:
     """How adventurous the run should be."""
     plays = lambda raw: raw.get("playback_count") or 0
 
@@ -192,7 +192,7 @@ def _apply_diversity(items: list[dict], diversity: str) -> list[dict]:
         # which is ranked by similarity, instead of shuffling it away.
         return items
 
-    random.shuffle(items)
+    rng.shuffle(items)
     return items
 
 
@@ -245,8 +245,12 @@ async def personal_wave(
             detail="Не удалось собрать волну, попробуйте позже",
         )
 
-    collected = _apply_mood(collected, mood)
-    collected = _apply_diversity(collected, diversity)
+    # Seeded per listener per window, so asking again inside that window
+    # gives the same run back rather than reshuffling what they were part
+    # way through.
+    window = int(time.time() // 900)
+    collected = _apply_mood(collected, mood, random.Random(f"{user.id}:{window}:mood"))
+    collected = _apply_diversity(collected, diversity, random.Random(f"{user.id}:{window}"))
     collected = await filter_playable(collected, limit)
 
     tracks = [t for t in (normalise_track(raw) for raw in collected) if t][:limit]

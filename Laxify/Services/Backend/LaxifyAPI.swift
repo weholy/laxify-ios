@@ -521,6 +521,10 @@ actor LaxifyAPI {
         try await send("/catalog/artists/\(escaped(id))", method: "GET")
     }
 
+    func catalogArtistDetail(id: String) async throws -> ArtistDetailResponse {
+        try await send("/catalog/artists/\(escaped(id))/detail", method: "GET")
+    }
+
     func catalogArtistTracks(
         id: String, limit: Int = 50, offset: Int = 0
     ) async throws -> [CatalogTrackDTO] {

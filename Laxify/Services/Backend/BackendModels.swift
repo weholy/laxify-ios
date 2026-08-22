@@ -165,6 +165,26 @@ struct CatalogPlaylistDTO: Codable, Sendable {
     let artworkUrl: String?
     let trackCount: Int
     let ownerName: String?
+    var year: Int?
+    /// "album", "ep", "single", or nil for a plain playlist.
+    var kind: String?
+
+    var album: MusicAlbum {
+        MusicAlbum(
+            id: id,
+            title: title,
+            artistName: ownerName ?? "",
+            coverURL: artworkUrl.flatMap(URL.init(string:)),
+            year: year
+        )
+    }
+}
+
+struct ArtistDetailResponse: Codable, Sendable {
+    let artist: CatalogArtistDTO
+    let topTracks: [CatalogTrackDTO]
+    let releases: [CatalogPlaylistDTO]
+    let similarArtists: [CatalogArtistDTO]
 }
 
 struct CatalogSearchResponse: Codable, Sendable {
