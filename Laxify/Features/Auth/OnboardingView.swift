@@ -8,8 +8,6 @@ struct OnboardingView: View {
 
     @State private var name: String
     @State private var username: String
-    @State private var includesBirthdate = false
-    @State private var birthdate: Date
     @State private var avatarItem: PhotosPickerItem?
     @State private var avatarData: Data?
 
@@ -33,9 +31,6 @@ struct OnboardingView: View {
         self.googleAvatarURL = googleAvatarURL
         _name = State(initialValue: suggestedName)
         _username = State(initialValue: suggestedUsername)
-        _birthdate = State(
-            initialValue: Calendar.current.date(byAdding: .year, value: -18, to: .now) ?? .now
-        )
     }
 
     private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -62,7 +57,6 @@ struct OnboardingView: View {
                 header
                 avatarPicker
                 fields
-                birthdateSection
 
                 if let errorMessage {
                     Text(errorMessage)
@@ -241,31 +235,6 @@ struct OnboardingView: View {
         }
     }
 
-    private var birthdateSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Toggle(isOn: $includesBirthdate.animation(.easeInOut(duration: 0.2))) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Дата рождения")
-                        .font(LaxifyTypography.body)
-                        .foregroundStyle(LaxifyPalette.textPrimary)
-                    Text("По желанию")
-                        .font(LaxifyTypography.caption)
-                        .foregroundStyle(LaxifyPalette.textTertiary)
-                }
-            }
-            .tint(LaxifyPalette.accent)
-
-            if includesBirthdate {
-                DatePicker("", selection: $birthdate, displayedComponents: .date)
-                    .datePickerStyle(.wheel)
-                    .labelsHidden()
-                    .frame(maxWidth: .infinity)
-            }
-        }
-        .padding(16)
-        .laxGlassCard()
-    }
-
     private var continueButton: some View {
         Button {
             Task { await save() }
@@ -322,7 +291,6 @@ struct OnboardingView: View {
         let failure = await session.completeOnboarding(
             displayName: trimmedName,
             username: trimmedUsername,
-            birthdate: includesBirthdate ? birthdate : nil,
             avatarURL: googleAvatarURL?.absoluteString
         )
 

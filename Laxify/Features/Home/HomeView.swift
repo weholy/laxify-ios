@@ -104,8 +104,8 @@ struct HomeView: View {
 
             songCarousel(title: "Для вас", songs: recommendedTracks)
 
-            if recommendedTracks.count > 6 {
-                trackListSection(title: "Ещё треки", songs: Array(recommendedTracks.dropFirst(6)))
+            if recommendedTracks.count > 8 {
+                trackListSection(title: "Ещё треки", songs: Array(recommendedTracks.dropFirst(8)))
             }
         }
     }
@@ -195,7 +195,7 @@ struct HomeView: View {
             sectionTitle(title)
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: LaxifyMetrics.itemSpacing) {
+                LazyHStack(spacing: LaxifyMetrics.itemSpacing) {
                     ForEach(songs) { song in
                         Button {
                             AudioPlayerController.shared.play(song, queue: songs)
@@ -204,6 +204,13 @@ struct HomeView: View {
                         }
                         .buttonStyle(.plain)
                     }
+
+                    // Reaching the end asks for more, so the row keeps going.
+                    Color.clear
+                        .frame(width: 1)
+                        .onAppear {
+                            Task { await viewModel.extendRecommendations() }
+                        }
                 }
                 .padding(.horizontal, LaxifyMetrics.screenPadding)
             }
@@ -223,6 +230,18 @@ struct HomeView: View {
                         SongRowView(song: song)
                     }
                     .buttonStyle(.plain)
+                }
+
+                if viewModel.isLoadingMore {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                } else {
+                    Color.clear
+                        .frame(height: 1)
+                        .onAppear {
+                            Task { await viewModel.extendRecommendations() }
+                        }
                 }
             }
             .padding(.horizontal, LaxifyMetrics.screenPadding)

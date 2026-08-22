@@ -8,8 +8,6 @@ struct EditProfileView: View {
 
     @State private var name: String
     @State private var username: String
-    @State private var includesBirthdate: Bool
-    @State private var birthdate: Date
     @State private var errorMessage: String?
     @State private var isSaving = false
 
@@ -18,16 +16,6 @@ struct EditProfileView: View {
         let user = SessionStore.shared.user
         _name = State(initialValue: user?.displayName ?? "")
         _username = State(initialValue: user?.username ?? "")
-
-        let parsed = user?.birthdate.flatMap { raw -> Date? in
-            let formatter = DateFormatter()
-            formatter.dateFormat = "yyyy-MM-dd"
-            return formatter.date(from: raw)
-        }
-        _includesBirthdate = State(initialValue: parsed != nil)
-        _birthdate = State(
-            initialValue: parsed ?? Calendar.current.date(byAdding: .year, value: -18, to: .now) ?? .now
-        )
     }
 
     private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -46,7 +34,6 @@ struct EditProfileView: View {
                 VStack(spacing: 20) {
                     avatarSection
                     fields
-                    birthdateSection
 
                     if let errorMessage {
                         Text(errorMessage)
@@ -155,26 +142,6 @@ struct EditProfileView: View {
         }
     }
 
-    private var birthdateSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Toggle(isOn: $includesBirthdate.animation(.easeInOut(duration: 0.2))) {
-                Text("Дата рождения")
-                    .font(LaxifyTypography.body)
-                    .foregroundStyle(LaxifyPalette.textPrimary)
-            }
-            .tint(LaxifyPalette.accent)
-
-            if includesBirthdate {
-                DatePicker("", selection: $birthdate, displayedComponents: .date)
-                    .datePickerStyle(.wheel)
-                    .labelsHidden()
-                    .frame(maxWidth: .infinity)
-            }
-        }
-        .padding(16)
-        .laxGlassCard()
-    }
-
     private var saveButton: some View {
         Button {
             Task { await save() }
@@ -244,7 +211,6 @@ struct EditProfileView: View {
         let failure = await session.updateProfile(
             displayName: trimmedName,
             username: trimmedUsername,
-            birthdate: includesBirthdate ? birthdate : nil
         )
 
         if let failure {

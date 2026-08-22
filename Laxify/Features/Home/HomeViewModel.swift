@@ -13,6 +13,10 @@ final class HomeViewModel {
     private(set) var waveBatchId: String?
     var waveSettings: WaveSettings = .load()
 
+    private(set) var isLoadingMore = false
+    private var recommendationPage = 0
+    private var exhaustedRecommendations = false
+
     private let service: any MusicService
 
     init(service: any MusicService = YandexMusicService.shared) {
@@ -78,6 +82,50 @@ final class HomeViewModel {
         }
         isLoadingWave = false
     }
+
+    /// Appends another run of recommendations.
+    ///
+    /// The source has no "recommendations page 2", so this widens the net
+    /// instead: each call pulls a different term, which keeps the feed
+    /// growing without repeating what is already on screen.
+    func extendRecommendations() async {
+        guard !isLoadingMore, !exhaustedRecommendations else { return }
+        isLoadingMore = true
+        defer { isLoadingMore = false }
+
+        let terms = Self.discoveryTerms.shuffled().prefix(2)
+        var existing = Set((content?.recommendedTracks ?? []).map(\.id))
+        var added: [Song] = []
+
+        for term in terms {
+            guard let results = try? await service.search(query: term) else { continue }
+            for song in results.tracks where !existing.contains(song.id) {
+                existing.insert(song.id)
+                added.append(song)
+            }
+        }
+
+        guard !added.isEmpty else {
+            // Nothing new came back twice in a row; stop asking rather than
+            // hammering the source on every scroll.
+            recommendationPage += 1
+            exhaustedRecommendations = recommendationPage > 6
+            return
+        }
+
+        recommendationPage += 1
+        content = HomeContent(
+            collections: content?.collections ?? [],
+            recommendedTracks: (content?.recommendedTracks ?? []) + added.shuffled()
+        )
+    }
+
+    private static let discoveryTerms = [
+        "хиты", "новинки", "русский рэп", "поп музыка", "рок", "инди",
+        "электронная музыка", "хип-хоп", "лирика", "танцевальная",
+        "Travis Scott", "Drake", "The Weeknd", "Kendrick Lamar",
+        "Playboi Carti", "Tyler The Creator", "джаз", "чилл"
+    ]
 
     func applyWaveSettings(_ settings: WaveSettings) async {
         waveSettings = settings
