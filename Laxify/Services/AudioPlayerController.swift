@@ -269,6 +269,7 @@ final class AudioPlayerController {
                 AppLogger.log("play: created AVPlayerItem")
                 let newPlayer = AVPlayer(playerItem: item)
                 AppLogger.log("play: created AVPlayer")
+                newPlayer.automaticallyWaitsToMinimizeStalling = false
                 player = newPlayer
                 attachObservers(to: item)
                 AppLogger.log("play: observers attached")
@@ -350,7 +351,20 @@ final class AudioPlayerController {
             url: proxy.url,
             options: ["AVURLAssetHTTPHeaderFieldsKey": proxy.headers]
         )
-        return AVPlayerItem(asset: asset)
+
+        // On the route that reaches the server by address, the certificate
+        // names a host rather than the address dialled, so the player needs
+        // the same trust evaluation the rest of the app uses.
+        if await LaxifyAPI.shared.routeNeedsPinnedTrust {
+            PlayerTrust.shared.attach(to: asset)
+        }
+
+        let item = AVPlayerItem(asset: asset)
+        // Start on what has arrived rather than waiting for a comfortable
+        // buffer: the wait before the first sound was the complaint, and a
+        // brief stall later is the better trade.
+        item.preferredForwardBufferDuration = 2
+        return item
     }
 
     /// Warms the next track on the server while this one plays.

@@ -10,6 +10,11 @@ struct LaxifyApp: App {
         CrashReporter.install()
         CrashReporter.breadcrumb("app launched")
 
+        // Find a way to the server before anything asks for one. On a network
+        // that filters some of them this is the difference between an app
+        // that works and one that looks broken.
+        Task { await LaxifyAPI.shared.prepare() }
+
         do {
             container = try ModelContainer(
                 for: FavoriteTrack.self, SearchHistoryEntry.self, DislikedTrack.self

@@ -32,36 +32,16 @@ private struct ErrorBody: Decodable {
 actor LaxifyAPI {
     static let shared = LaxifyAPI()
 
-    /// Where the server can be reached, best first.
+    /// Which route is in use, and the session that can talk to it.
     ///
-    /// More than one, because a host being resolvable is not something the
-    /// app can assume: the wildcard-DNS hostname is not answered by every
-    /// resolver, which looked exactly like "music only works on a VPN". The
-    /// first entry shares a domain that listeners can already reach.
-    private static let hosts = [
-        "https://jutsovpn.online/laxify/api/v1",
-        "https://laxify.31-76-27-182.sslip.io/api/v1"
-    ]
+    /// Both come from `APIRouter`, which finds a route that works on this
+    /// network rather than assuming one. Reaching the server by address needs
+    /// a session that verifies the certificate by the name it carries, so the
+    /// session is chosen alongside the route.
+    private var route: APIRoute = APIRoute.candidates[0]
 
-    /// Which host answered last. Kept so a working one is not re-discovered
-    /// on every request, and persisted so a fresh launch starts where the
-    /// last one left off.
-    private var hostIndex = UserDefaults.standard.integer(forKey: "laxify.api.host")
+    private var baseURL: URL { route.url }
 
-    private var baseURL: URL {
-        URL(string: Self.hosts[min(hostIndex, Self.hosts.count - 1)])!
-    }
-
-    /// Moves to the next host after a transport failure.
-    ///
-    /// Returns false once every host has been tried, so a genuine outage
-    /// surfaces as an error instead of cycling forever.
-    private func rotateHost() -> Bool {
-        guard hostIndex + 1 < Self.hosts.count else { return false }
-        hostIndex += 1
-        UserDefaults.standard.set(hostIndex, forKey: "laxify.api.host")
-        return true
-    }
     private let session: URLSession
 
     /// Guards against a burst of 401s each kicking off its own refresh — the
@@ -556,6 +536,17 @@ actor LaxifyAPI {
         return (url, ["Authorization": "Bearer \(token)"])
     }
 
+    /// Whether the current route needs the pinned trust evaluation.
+    ///
+    /// AVPlayer does its own connecting, so it has to be told when the
+    /// certificate will not name the host it is dialling.
+    var routeNeedsPinnedTrust: Bool { route.skipsHostnameCheck }
+
+    /// What the probe found, for the diagnostics report.
+    func routeReport() async -> [String: Bool] {
+        await APIRouter.shared.lastProbeResults
+    }
+
     /// Asks the server to resolve a stream before it is needed.
     ///
     /// Fire and forget: a failure here only means the track starts as slowly
@@ -637,15 +628,21 @@ actor LaxifyAPI {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await session.data(for: request)
+            (data, response) = try await activeSession.data(for: request)
         } catch {
-            // A host that cannot be reached at all is worth retrying
-            // elsewhere; one that answered with an error is not.
-            if !isRetry, rotateHost() {
-                return try await perform(
-                    path, method: method, bodyData: bodyData,
-                    authenticated: authenticated, isRetry: true
-                )
+            // Not reaching the server at all is worth trying elsewhere; an
+            // error the server itself returned is not.
+            if !isRetry {
+                await APIRouter.shared.routeFailed(route)
+                let rediscovered = await APIRouter.shared.route
+
+                if rediscovered != route {
+                    route = rediscovered
+                    return try await perform(
+                        path, method: method, bodyData: bodyData,
+                        authenticated: authenticated, isRetry: true
+                    )
+                }
             }
             throw APIError.transport(error)
         }
