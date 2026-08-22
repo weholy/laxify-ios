@@ -12,14 +12,14 @@ import Foundation
 final class SyncOutbox {
     static let shared = SyncOutbox()
 
-    enum Operation: Codable, Equatable {
+    enum Operation: Codable {
         case addFavorite(track: BackendTrack, addedAt: Date)
         case removeFavorite(trackId: String)
         case addDislike(trackId: String)
         case playback(events: [PlaybackEvent])
     }
 
-    private struct Item: Codable, Equatable {
+    private struct Item: Codable {
         let id: UUID
         let operation: Operation
         var attempts: Int
