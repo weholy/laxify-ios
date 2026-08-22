@@ -194,6 +194,12 @@ actor LaxifyAPI {
     }
 
     func addFavorite(_ song: Song) async throws {
+        try await addFavorite(track: BackendTrack(song: song), addedAt: Date())
+    }
+
+    /// Replays a queued like with its original timestamp, so an item that sat
+    /// in the outbox for a day does not land as if it were liked just now.
+    func addFavorite(track: BackendTrack, addedAt: Date) async throws {
         struct Body: Encodable {
             let track: BackendTrack
             let addedAt: Date
@@ -201,7 +207,7 @@ actor LaxifyAPI {
         _ = try await send(
             "/me/favorites",
             method: "PUT",
-            body: Body(track: BackendTrack(song: song), addedAt: Date())
+            body: Body(track: track, addedAt: addedAt)
         ) as BackendFavorite
     }
 

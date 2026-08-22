@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import MediaPlayer
+import UIKit
 
 @MainActor
 @Observable
@@ -28,13 +29,63 @@ final class AudioPlayerController {
     private var didLogFirstTick = false
     private var sleepTimerTask: Task<Void, Never>?
     private var waveBatchId: String?
+    private var artworkTrackId: String?
+    private var artworkTask: Task<Void, Never>?
     private var reportedStartForTrackId: String?
     private let service: any MusicService
 
     private init(service: any MusicService = YandexMusicService.shared) {
         self.service = service
         configureAudioSession()
+        configureRemoteCommands()
         AppLogger.log("app: AudioPlayerController initialized")
+    }
+
+    private func configureRemoteCommands() {
+        let centre = MPRemoteCommandCenter.shared()
+
+        centre.playCommand.addTarget { [weak self] _ in
+            guard let self, !self.isPlaying else { return .commandFailed }
+            self.togglePlayPause()
+            return .success
+        }
+
+        centre.pauseCommand.addTarget { [weak self] _ in
+            guard let self, self.isPlaying else { return .commandFailed }
+            self.togglePlayPause()
+            return .success
+        }
+
+        centre.togglePlayPauseCommand.addTarget { [weak self] _ in
+            self?.togglePlayPause()
+            return .success
+        }
+
+        centre.nextTrackCommand.addTarget { [weak self] _ in
+            guard let self, self.hasNext else { return .noSuchContent }
+            self.next()
+            return .success
+        }
+
+        centre.previousTrackCommand.addTarget { [weak self] _ in
+            guard let self, self.hasPrevious else { return .noSuchContent }
+            self.previous()
+            return .success
+        }
+
+        centre.changePlaybackPositionCommand.addTarget { [weak self] event in
+            guard let self,
+                  let event = event as? MPChangePlaybackPositionCommandEvent else {
+                return .commandFailed
+            }
+            self.seek(to: event.positionTime)
+            return .success
+        }
+
+        // Explicitly off rather than left at their defaults, so the Lock
+        // Screen shows skip-track arrows instead of seek-by-15s buttons.
+        centre.skipForwardCommand.isEnabled = false
+        centre.skipBackwardCommand.isEnabled = false
     }
 
     /// - Parameter waveBatchId: set when the queue came from the personal
@@ -57,7 +108,6 @@ final class AudioPlayerController {
         }
         isPlaying.toggle()
         updateNowPlayingInfo()
-        NowPlayingActivityController.shared.refresh()
     }
 
     func next() {
@@ -171,7 +221,6 @@ final class AudioPlayerController {
                 isPlaying = true
                 isLoading = false
                 updateNowPlayingInfo()
-                NowPlayingActivityController.shared.refresh()
                 reportWaveStart(for: song)
                 AppLogger.log("play: done")
             } catch {
@@ -199,9 +248,6 @@ final class AudioPlayerController {
                     ListeningStatsService.shared.recordPlayback(seconds: delta)
                 }
                 self.currentTime = time.seconds
-                // The controller throttles this internally; the system drops
-                // activity updates pushed at the tick rate.
-                NowPlayingActivityController.shared.refresh()
             }
         }
 
@@ -241,7 +287,6 @@ final class AudioPlayerController {
         } else {
             isPlaying = false
             updateNowPlayingInfo()
-            NowPlayingActivityController.shared.end()
         }
     }
 
@@ -308,7 +353,37 @@ final class AudioPlayerController {
         if let albumTitle = song.albumTitle {
             info[MPMediaItemPropertyAlbumTitle] = albumTitle
         }
+        // Keep any artwork already attached for this track so a metadata
+        // refresh (play/pause, seek) does not blank the cover for a moment.
+        if let existing = MPNowPlayingInfoCenter.default().nowPlayingInfo?[
+            MPMediaItemPropertyArtwork
+        ] as? MPMediaItemArtwork, artworkTrackId == song.id {
+            info[MPMediaItemPropertyArtwork] = existing
+        }
+
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
-        AppLogger.log("now-playing: metadata updated (title only, no artwork/remote-commands)")
+        loadArtworkIfNeeded(for: song)
+    }
+
+    /// Downloads the cover once per track and hands it to the system.
+    private func loadArtworkIfNeeded(for song: Song) {
+        guard artworkTrackId != song.id, let url = song.coverURL else { return }
+        artworkTrackId = song.id
+
+        artworkTask?.cancel()
+        artworkTask = Task { [weak self] in
+            guard let (data, _) = try? await URLSession.shared.data(from: url),
+                  let image = UIImage(data: data) else { return }
+
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard let self, self.currentSong?.id == song.id else { return }
+
+                let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+                var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
+                info[MPMediaItemPropertyArtwork] = artwork
+                MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+            }
+        }
     }
 }

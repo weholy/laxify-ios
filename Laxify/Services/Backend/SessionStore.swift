@@ -68,6 +68,7 @@ final class SessionStore {
             self.user = user
             cache(user)
             state = user.hasCompletedOnboarding ? .signedIn : .needsOnboarding
+            await SyncOutbox.shared.flush()
         } catch APIError.notAuthenticated {
             state = .signedOut
         } catch {
@@ -89,6 +90,7 @@ final class SessionStore {
             self.user = user
             cache(user)
             state = session.needsOnboarding ? .needsOnboarding : .signedIn
+            await SyncOutbox.shared.flush()
             return true
         } catch {
             lastError = (error as? LocalizedError)?.errorDescription ?? "Не удалось войти"

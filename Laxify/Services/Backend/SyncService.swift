@@ -24,15 +24,15 @@ final class SyncService {
     // MARK: - Favourites
 
     func favoriteAdded(_ song: Song) {
-        Task { try? await LaxifyAPI.shared.addFavorite(song) }
+        SyncOutbox.shared.addFavorite(song)
     }
 
     func favoriteRemoved(trackId: String) {
-        Task { try? await LaxifyAPI.shared.removeFavorite(trackId: trackId) }
+        SyncOutbox.shared.removeFavorite(trackId: trackId)
     }
 
     func dislikeAdded(trackId: String) {
-        Task { try? await LaxifyAPI.shared.addDislike(trackId: trackId) }
+        SyncOutbox.shared.addDislike(trackId: trackId)
     }
 
     /// Pulls the server's library into the local store.
@@ -105,12 +105,7 @@ final class SyncService {
         let batch = pendingPlayback
         pendingPlayback = []
 
-        do {
-            try await LaxifyAPI.shared.reportPlayback(batch)
-        } catch {
-            // Keep the events for the next attempt rather than losing them,
-            // but cap the backlog so a long outage cannot grow without bound.
-            pendingPlayback = Array((batch + pendingPlayback).suffix(400))
-        }
+        // The outbox owns retries and persistence from here.
+        SyncOutbox.shared.playback(batch)
     }
 }
