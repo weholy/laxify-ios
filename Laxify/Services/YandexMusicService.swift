@@ -162,26 +162,6 @@ actor YandexMusicService: MusicService {
         return result.tracks.map(song(from:))
     }
 
-    func waveTracks(seedArtistIds: [String]) async throws -> [Song] {
-        try await ensureReady()
-
-        guard !seedArtistIds.isEmpty else { return [] }
-
-        var collected: [Song] = []
-        var seenIds: Set<String> = []
-
-        for artistId in seedArtistIds.prefix(6) {
-            guard let tracks = try? await artistTracks(artistId: artistId, page: 0) else { continue }
-            for track in tracks.prefix(6) where !seenIds.contains(track.id) {
-                seenIds.insert(track.id)
-                collected.append(track)
-            }
-            if collected.count >= 30 { break }
-        }
-
-        return collected.shuffled()
-    }
-
     func playlistTracks(collectionId: String) async throws -> (title: String, songs: [Song]) {
         try await ensureReady()
 

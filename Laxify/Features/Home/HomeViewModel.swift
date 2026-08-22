@@ -9,7 +9,9 @@ final class HomeViewModel {
 
     private(set) var waveTracks: [Song] = []
     private(set) var isLoadingWave = false
-    private var waveSeed: [String] = []
+    private(set) var waveError: String?
+    private(set) var waveBatchId: String?
+    var waveSettings: WaveSettings = .load()
 
     private let service: any MusicService
 
@@ -26,22 +28,47 @@ final class HomeViewModel {
         await load()
     }
 
-    /// Rebuilds the personalised feed whenever the set of favourite artists
-    /// changes, so "your wave" reflects new likes instead of staying frozen
-    /// on whatever was fetched at launch.
-    func refreshWave(seedArtistIds: [String]) async {
-        let seed = Array(seedArtistIds.sorted().prefix(6))
-        guard seed != waveSeed else { return }
-        waveSeed = seed
-
-        guard !seed.isEmpty else {
-            waveTracks = []
-            return
-        }
+    /// Loads the personal radio station.
+    ///
+    /// This is the source's own station engine, which selects by genre, mood
+    /// and tempo rather than just by artist, and adapts to the skip/finish
+    /// feedback the player reports back.
+    func loadWave(force: Bool = false) async {
+        guard force || waveTracks.isEmpty, !isLoadingWave else { return }
 
         isLoadingWave = true
-        waveTracks = (try? await service.waveTracks(seedArtistIds: seed)) ?? []
+        waveError = nil
+
+        await YandexMusicService.shared.startWaveSession()
+
+        do {
+            let batch = try await YandexMusicService.shared.waveBatch()
+            waveTracks = batch.songs
+            waveBatchId = batch.batchId
+        } catch {
+            waveError = "Волна пока недоступна"
+        }
+
         isLoadingWave = false
+    }
+
+    /// Pulls the next run so the station never visibly runs dry.
+    func extendWave() async {
+        guard !isLoadingWave, let last = waveTracks.last else { return }
+        isLoadingWave = true
+        if let batch = try? await YandexMusicService.shared.waveBatch(lastTrackId: last.id) {
+            let existing = Set(waveTracks.map(\.id))
+            waveTracks.append(contentsOf: batch.songs.filter { !existing.contains($0.id) })
+            waveBatchId = batch.batchId
+        }
+        isLoadingWave = false
+    }
+
+    func applyWaveSettings(_ settings: WaveSettings) async {
+        waveSettings = settings
+        settings.save()
+        try? await YandexMusicService.shared.applyWaveSettings(settings)
+        await loadWave(force: true)
     }
 
 

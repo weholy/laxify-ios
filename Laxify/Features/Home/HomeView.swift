@@ -7,23 +7,23 @@ struct HomeView: View {
     @State private var searchResults: SearchResults?
     @State private var isSearching = false
     @State private var selectedArtistId: String?
+    @State private var isWaveSettingsPresented = false
     @Query(sort: \FavoriteTrack.addedAt, order: .reverse) private var favorites: [FavoriteTrack]
     @Query private var dislikedTracks: [DislikedTrack]
-
-    private var favoriteArtistIds: Set<String> {
-        Set(favorites.compactMap(\.artistId))
-    }
 
     private var recommendedTracks: [Song] {
         guard let content = viewModel.content else { return [] }
         let dislikedIds = Set(dislikedTracks.map(\.id))
-        let filtered = content.recommendedTracks.filter { !dislikedIds.contains($0.id) }
-        return WaveRanking.reorder(filtered, favoriteArtistIds: favoriteArtistIds)
+        return content.recommendedTracks.filter { !dislikedIds.contains($0.id) }
     }
 
     private var waveTracks: [Song] {
         let dislikedIds = Set(dislikedTracks.map(\.id))
         return viewModel.waveTracks.filter { !dislikedIds.contains($0.id) }
+    }
+
+    private var isWaveSettingsPresentedBinding: Binding<Bool> {
+        Binding(get: { isWaveSettingsPresented }, set: { isWaveSettingsPresented = $0 })
     }
 
     private var trimmedQuery: String {
@@ -48,8 +48,8 @@ struct HomeView: View {
         .task {
             await viewModel.loadIfNeeded()
         }
-        .task(id: favoriteArtistIds) {
-            await viewModel.refreshWave(seedArtistIds: Array(favoriteArtistIds))
+        .task {
+            await viewModel.loadWave()
         }
         .task(id: trimmedQuery) {
             guard !trimmedQuery.isEmpty else {
@@ -69,6 +69,15 @@ struct HomeView: View {
             if let artistId = selectedArtistId {
                 ArtistView(artistId: artistId) { selectedArtistId = nil }
             }
+        }
+        .sheet(isPresented: $isWaveSettingsPresented) {
+            WaveSettingsView(
+                settings: viewModel.waveSettings,
+                onApply: { updated in
+                    Task { await viewModel.applyWaveSettings(updated) }
+                },
+                onClose: { isWaveSettingsPresented = false }
+            )
         }
     }
 
@@ -91,16 +100,7 @@ struct HomeView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.top, 60)
         } else if viewModel.content != nil {
-            if !waveTracks.isEmpty {
-                songCarousel(title: "Ваша волна", songs: waveTracks)
-            } else if viewModel.isLoadingWave {
-                VStack(alignment: .leading, spacing: 14) {
-                    sectionTitle("Ваша волна")
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 30)
-                }
-            }
+            waveSection
 
             songCarousel(title: "Для вас", songs: recommendedTracks)
 
@@ -108,6 +108,86 @@ struct HomeView: View {
                 trackListSection(title: "Ещё треки", songs: Array(recommendedTracks.dropFirst(6)))
             }
         }
+    }
+
+    @ViewBuilder
+    private var waveSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Text("Ваша волна")
+                    .font(LaxifyTypography.title)
+                    .foregroundStyle(LaxifyPalette.textPrimary)
+
+                Spacer()
+
+                if !waveTracks.isEmpty {
+                    Button {
+                        playWave()
+                    } label: {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 34, height: 34)
+                            .background(Circle().fill(LaxifyPalette.accent))
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Button {
+                    isWaveSettingsPresented = true
+                } label: {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(LaxifyPalette.textPrimary)
+                        .frame(width: 34, height: 34)
+                        .background(Circle().fill(LaxifyPalette.surface))
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, LaxifyMetrics.screenPadding)
+
+            if !waveTracks.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: LaxifyMetrics.itemSpacing) {
+                        ForEach(waveTracks) { song in
+                            Button {
+                                playWave(startingAt: song)
+                            } label: {
+                                SongCardView(song: song)
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        // Reaching the end pulls the next run, so the station
+                        // keeps going instead of stopping at one batch.
+                        Color.clear
+                            .frame(width: 1)
+                            .onAppear {
+                                Task { await viewModel.extendWave() }
+                            }
+                    }
+                    .padding(.horizontal, LaxifyMetrics.screenPadding)
+                }
+                .scrollClipDisabled()
+            } else if viewModel.isLoadingWave {
+                ProgressView()
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 30)
+            } else if let waveError = viewModel.waveError {
+                Text(waveError)
+                    .font(LaxifyTypography.footnote)
+                    .foregroundStyle(LaxifyPalette.textSecondary)
+                    .padding(.horizontal, LaxifyMetrics.screenPadding)
+            }
+        }
+    }
+
+    private func playWave(startingAt song: Song? = nil) {
+        let queue = waveTracks
+        guard let first = song ?? queue.first else { return }
+        AudioPlayerController.shared.play(first, queue: queue, waveBatchId: viewModel.waveBatchId)
     }
 
     private func songCarousel(title: String, songs: [Song]) -> some View {

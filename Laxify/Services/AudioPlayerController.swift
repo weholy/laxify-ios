@@ -27,6 +27,8 @@ final class AudioPlayerController {
     private var statusObservation: NSKeyValueObservation?
     private var didLogFirstTick = false
     private var sleepTimerTask: Task<Void, Never>?
+    private var waveBatchId: String?
+    private var reportedStartForTrackId: String?
     private let service: any MusicService
 
     private init(service: any MusicService = YandexMusicService.shared) {
@@ -35,7 +37,12 @@ final class AudioPlayerController {
         AppLogger.log("app: AudioPlayerController initialized")
     }
 
-    func play(_ song: Song, queue newQueue: [Song] = []) {
+    /// - Parameter waveBatchId: set when the queue came from the personal
+    ///   station; playback feedback is only meaningful with a batch to
+    ///   attribute it to, and the station learns from that feedback.
+    func play(_ song: Song, queue newQueue: [Song] = [], waveBatchId: String? = nil) {
+        reportSkipIfNeeded()
+        self.waveBatchId = waveBatchId
         queue = newQueue.isEmpty ? [song] : newQueue
         currentIndex = queue.firstIndex(where: { $0.id == song.id }) ?? 0
         loadAndPlayCurrent()
@@ -54,14 +61,26 @@ final class AudioPlayerController {
 
     func next() {
         guard hasNext else { return }
+        reportSkipIfNeeded()
         currentIndex += 1
         loadAndPlayCurrent()
     }
 
     func previous() {
         guard hasPrevious else { return }
+        reportSkipIfNeeded()
         currentIndex -= 1
         loadAndPlayCurrent()
+    }
+
+    private func reportSkipIfNeeded() {
+        guard waveBatchId != nil, let song = currentSong, currentTime > 0 else { return }
+        // Only a genuine skip counts: a track left to finish on its own is
+        // reported separately as completed.
+        guard currentTime < duration - 5 else { return }
+        let trackId = song.id
+        let played = currentTime
+        Task { await YandexMusicService.shared.reportWaveTrackSkipped(trackId: trackId, playedSeconds: played) }
     }
 
     func playIndex(_ index: Int) {
@@ -141,6 +160,7 @@ final class AudioPlayerController {
                 isPlaying = true
                 isLoading = false
                 updateNowPlayingInfo()
+                reportWaveStart(for: song)
                 AppLogger.log("play: done")
             } catch {
                 AppLogger.log("play: ERROR \(error)")
@@ -195,11 +215,34 @@ final class AudioPlayerController {
     }
 
     private func handleDidFinishPlaying() {
+        reportWaveFinished()
+
         if hasNext {
-            next()
+            // Deliberately not via next(): that would log a skip for a track
+            // the listener actually played all the way through.
+            currentIndex += 1
+            loadAndPlayCurrent()
         } else {
             isPlaying = false
             updateNowPlayingInfo()
+        }
+    }
+
+    private func reportWaveStart(for song: Song) {
+        guard let batchId = waveBatchId, reportedStartForTrackId != song.id else { return }
+        reportedStartForTrackId = song.id
+        let trackId = song.id
+        Task { await YandexMusicService.shared.reportWaveTrackStarted(trackId: trackId, batchId: batchId) }
+    }
+
+    private func reportWaveFinished() {
+        guard let batchId = waveBatchId, let song = currentSong else { return }
+        let trackId = song.id
+        let played = max(currentTime, duration)
+        Task {
+            await YandexMusicService.shared.reportWaveTrackFinished(
+                trackId: trackId, batchId: batchId, playedSeconds: played
+            )
         }
     }
 
