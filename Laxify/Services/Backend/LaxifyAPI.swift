@@ -330,6 +330,90 @@ actor LaxifyAPI {
         KeychainStore.save(tokens.refreshToken, for: .refreshToken)
     }
 
+    // MARK: - Catalogue
+
+    /// Percent-encodes one query value.
+    ///
+    /// Search terms routinely contain spaces, `&` and `+`; the default allowed
+    /// set leaves those intact, which silently truncates the query server-side.
+    private func escaped(_ value: String) -> String {
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
+    }
+
+    func catalogSearch(query: String, limit: Int = 30) async throws -> CatalogSearchResponse {
+        try await send("/catalog/search?q=\(escaped(query))&limit=\(limit)", method: "GET")
+    }
+
+    func catalogSearchTracks(
+        query: String, limit: Int = 30, offset: Int = 0
+    ) async throws -> [CatalogTrackDTO] {
+        try await send(
+            "/catalog/search/tracks?q=\(escaped(query))&limit=\(limit)&offset=\(offset)",
+            method: "GET"
+        )
+    }
+
+    func catalogTrack(id: String) async throws -> CatalogTrackDTO {
+        try await send("/catalog/tracks/\(escaped(id))", method: "GET")
+    }
+
+    func catalogStreamURL(trackId: String) async throws -> URL {
+        let response: CatalogStreamResponse = try await send(
+            "/catalog/tracks/\(escaped(trackId))/stream", method: "GET"
+        )
+        guard let url = URL(string: response.url) else {
+            throw APIError.server(status: 0, detail: "Не удалось получить ссылку на трек")
+        }
+        return url
+    }
+
+    func catalogArtist(id: String) async throws -> CatalogArtistDTO {
+        try await send("/catalog/artists/\(escaped(id))", method: "GET")
+    }
+
+    func catalogArtistTracks(
+        id: String, limit: Int = 50, offset: Int = 0
+    ) async throws -> [CatalogTrackDTO] {
+        try await send(
+            "/catalog/artists/\(escaped(id))/tracks?limit=\(limit)&offset=\(offset)",
+            method: "GET"
+        )
+    }
+
+    func catalogPlaylistTracks(id: String) async throws -> [CatalogTrackDTO] {
+        try await send("/catalog/playlists/\(escaped(id))/tracks", method: "GET")
+    }
+
+    func catalogCharts(limit: Int = 30) async throws -> [CatalogTrackDTO] {
+        try await send("/catalog/charts?limit=\(limit)", method: "GET")
+    }
+
+    // MARK: - Wave
+
+    func wave(
+        limit: Int = 40,
+        mood: String = "all",
+        diversity: String = "default",
+        seed: String? = nil
+    ) async throws -> WaveResponse {
+        var path = "/wave?limit=\(limit)&mood=\(mood)&diversity=\(diversity)"
+        if let seed {
+            path += "&seed=\(escaped(seed))"
+        }
+        return try await send(path, method: "GET")
+    }
+
+    func waveSimilar(trackId: String, limit: Int = 30) async throws -> [CatalogTrackDTO] {
+        try await send("/wave/similar/\(escaped(trackId))?limit=\(limit)", method: "GET")
+    }
+
+    func homeFeed(limit: Int = 30) async throws -> HomeFeedResponse {
+        try await send("/wave/home?limit=\(limit)", method: "GET")
+    }
+
+    // MARK: - Transport
+
     private func send<Response: Decodable>(
         _ path: String,
         method: String,

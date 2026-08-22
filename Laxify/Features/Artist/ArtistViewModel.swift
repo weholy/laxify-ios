@@ -10,7 +10,7 @@ final class ArtistViewModel {
     private let artistId: String
     private let service: any MusicService
 
-    init(artistId: String, service: any MusicService = YandexMusicService.shared) {
+    init(artistId: String, service: any MusicService = CatalogService.shared) {
         self.artistId = artistId
         self.service = service
     }

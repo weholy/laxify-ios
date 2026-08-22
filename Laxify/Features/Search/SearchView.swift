@@ -302,7 +302,7 @@ struct SearchView: View {
     private func playFromHistory(_ entry: SearchHistoryEntry) {
         entry.searchedAt = .now
         Task {
-            guard let song = try? await YandexMusicService.shared.song(id: entry.id) else { return }
+            guard let song = try? await CatalogService.shared.song(id: entry.id) else { return }
             AudioPlayerController.shared.play(song, queue: [song])
         }
     }

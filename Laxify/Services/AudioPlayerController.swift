@@ -34,7 +34,7 @@ final class AudioPlayerController {
     private var reportedStartForTrackId: String?
     private let service: any MusicService
 
-    private init(service: any MusicService = YandexMusicService.shared) {
+    private init(service: any MusicService = CatalogService.shared) {
         self.service = service
         configureAudioSession()
         configureRemoteCommands()
@@ -150,7 +150,7 @@ final class AudioPlayerController {
         guard currentTime < duration - 5 else { return }
         let trackId = song.id
         let played = currentTime
-        Task { await YandexMusicService.shared.reportWaveTrackSkipped(trackId: trackId, playedSeconds: played) }
+        Task { await CatalogService.shared.reportWaveTrackSkipped(trackId: trackId, playedSeconds: played) }
     }
 
     func playIndex(_ index: Int) {
@@ -318,7 +318,7 @@ final class AudioPlayerController {
         guard let batchId = waveBatchId, reportedStartForTrackId != song.id else { return }
         reportedStartForTrackId = song.id
         let trackId = song.id
-        Task { await YandexMusicService.shared.reportWaveTrackStarted(trackId: trackId, batchId: batchId) }
+        Task { await CatalogService.shared.reportWaveTrackStarted(trackId: trackId, batchId: batchId) }
     }
 
     /// Reports the finished track to the account so stats and
@@ -338,7 +338,7 @@ final class AudioPlayerController {
         let trackId = song.id
         let played = max(currentTime, duration)
         Task {
-            await YandexMusicService.shared.reportWaveTrackFinished(
+            await CatalogService.shared.reportWaveTrackFinished(
                 trackId: trackId, batchId: batchId, playedSeconds: played
             )
         }

@@ -68,7 +68,7 @@ final class DownloadManager {
             defer { self.tasks[song.id] = nil }
 
             do {
-                let remote = try await YandexMusicService.shared.streamURL(for: song.id)
+                let remote = try await CatalogService.shared.streamURL(for: song.id)
                 let (temporary, _) = try await URLSession.shared.download(from: remote)
 
                 let destination = self.fileURL(for: song.id)

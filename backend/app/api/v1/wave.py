@@ -28,6 +28,16 @@ SEED_LIMIT = 6
 RECENT_EXCLUSION_DAYS = 3
 DISCOVERY_GENRES = ["hiphoprap", "pop", "electronic", "rnb", "rock", "dance"]
 
+# What each mood actually maps onto in the source. The source has no mood of
+# its own, so this is a genre bias — honest about what it can do rather than a
+# control that quietly does nothing.
+MOOD_GENRES = {
+    "fun": ["dance", "pop", "danceedm", "house"],
+    "active": ["electronic", "dubstep", "drumbass", "trap"],
+    "calm": ["ambient", "chill", "classical", "jazzblues"],
+    "sad": ["indie", "alternativerock", "rnb", "folksingersongwriter"],
+}
+
 
 class WaveResponse(BaseModel):
     tracks: list[CatalogTrack]
@@ -124,14 +134,65 @@ async def _discovery_tracks(limit: int) -> list[dict]:
     return collected[:limit]
 
 
+def _apply_mood(items: list[dict], mood: str) -> list[dict]:
+    """Biases the run towards the genres a mood implies.
+
+    Filtering outright would often empty the list, so matching tracks are
+    moved to the front instead — the wave leans that way without ever
+    running out.
+    """
+    if mood == "all":
+        return items
+
+    wanted = MOOD_GENRES.get(mood, [])
+    if not wanted:
+        return items
+
+    def matches(raw: dict) -> bool:
+        text = f"{raw.get('genre') or ''} {' '.join(raw.get('tag_list', '').split())}".lower()
+        return any(genre.replace("-", "") in text.replace(" ", "").replace("-", "") for genre in wanted)
+
+    leading = [raw for raw in items if matches(raw)]
+    trailing = [raw for raw in items if not matches(raw)]
+    random.shuffle(leading)
+    random.shuffle(trailing)
+    return leading + trailing
+
+
+def _apply_diversity(items: list[dict], diversity: str) -> list[dict]:
+    """How adventurous the run should be."""
+    plays = lambda raw: raw.get("playback_count") or 0
+
+    if diversity == "popular":
+        return sorted(items, key=plays, reverse=True)
+
+    if diversity == "discover":
+        # Least-played first, so the run leads with things the listener is
+        # unlikely to have already heard.
+        return sorted(items, key=plays)
+
+    if diversity == "favorite":
+        # Closest to the seeds: keep the station order the source returned,
+        # which is ranked by similarity, instead of shuffling it away.
+        return items
+
+    random.shuffle(items)
+    return items
+
+
 @router.get("", response_model=WaveResponse)
 async def personal_wave(
     user: CurrentUser,
     session: SessionDep,
     limit: int = Query(40, ge=5, le=80),
     exclude_recent: bool = Query(True),
+    mood: str = Query("all", pattern="^(all|fun|active|calm|sad)$"),
+    diversity: str = Query("default", pattern="^(default|favorite|popular|discover)$"),
+    seed: str | None = Query(None, max_length=64),
 ) -> WaveResponse:
-    seeds = await _seed_track_ids(session, user.id)
+    # An explicit seed continues the run the listener is already in: the next
+    # batch should follow the track they just heard, not restart the station.
+    seeds = [seed] if seed else await _seed_track_ids(session, user.id)
     excluded = await _excluded_track_ids(session, user.id) if exclude_recent else set()
 
     collected: list[dict] = []
@@ -168,7 +229,9 @@ async def personal_wave(
             detail="Не удалось собрать волну, попробуйте позже",
         )
 
-    random.shuffle(collected)
+    collected = _apply_mood(collected, mood)
+    collected = _apply_diversity(collected, diversity)
+
     tracks = [t for t in (normalise_track(raw) for raw in collected) if t][:limit]
 
     return WaveResponse(
@@ -207,7 +270,15 @@ async def home(
     Three separate calls from a cold launch is what made the screen feel slow;
     the server can fan these out in parallel instead.
     """
-    wave = await personal_wave(user=user, session=session, limit=limit, exclude_recent=True)
+    wave = await personal_wave(
+        user=user,
+        session=session,
+        limit=limit,
+        exclude_recent=True,
+        mood="all",
+        diversity="default",
+        seed=None,
+    )
 
     genre = random.choice(DISCOVERY_GENRES)
     for_you = [

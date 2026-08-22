@@ -158,7 +158,7 @@ struct SignInView: View {
             guard !Task.isCancelled else { return }
 
             do {
-                let results = try await YandexMusicService.shared.search(query: term)
+                let results = try await CatalogService.shared.search(query: term)
                 for song in results.tracks where song.coverURL != nil && !seen.contains(song.id) {
                     seen.insert(song.id)
                     collected.append(song)

@@ -28,7 +28,7 @@ final class DeepLinkRouter {
     }
 
     private func playTrack(id: String) async {
-        guard let song = try? await YandexMusicService.shared.song(id: id) else { return }
+        guard let song = try? await CatalogService.shared.song(id: id) else { return }
         AudioPlayerController.shared.play(song, queue: [song])
     }
 }

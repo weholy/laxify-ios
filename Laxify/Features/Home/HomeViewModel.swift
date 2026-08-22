@@ -19,7 +19,7 @@ final class HomeViewModel {
 
     private let service: any MusicService
 
-    init(service: any MusicService = YandexMusicService.shared) {
+    init(service: any MusicService = CatalogService.shared) {
         self.service = service
 
         // Render last session's feed immediately; the network refresh below
@@ -52,10 +52,10 @@ final class HomeViewModel {
         isLoadingWave = true
         waveError = nil
 
-        await YandexMusicService.shared.startWaveSession()
+        await CatalogService.shared.startWaveSession()
 
         do {
-            let batch = try await YandexMusicService.shared.waveBatch()
+            let batch = try await CatalogService.shared.waveBatch()
             waveTracks = batch.songs
             waveBatchId = batch.batchId
             HomeCache.save(
@@ -75,7 +75,7 @@ final class HomeViewModel {
     func extendWave() async {
         guard !isLoadingWave, let last = waveTracks.last else { return }
         isLoadingWave = true
-        if let batch = try? await YandexMusicService.shared.waveBatch(lastTrackId: last.id) {
+        if let batch = try? await CatalogService.shared.waveBatch(lastTrackId: last.id) {
             let existing = Set(waveTracks.map(\.id))
             waveTracks.append(contentsOf: batch.songs.filter { !existing.contains($0.id) })
             waveBatchId = batch.batchId
@@ -130,7 +130,7 @@ final class HomeViewModel {
     func applyWaveSettings(_ settings: WaveSettings) async {
         waveSettings = settings
         settings.save()
-        try? await YandexMusicService.shared.applyWaveSettings(settings)
+        try? await CatalogService.shared.applyWaveSettings(settings)
         await loadWave(force: true)
     }
 

@@ -11,7 +11,7 @@ final class PlaylistDetailViewModel {
     private let collectionId: String
     private let service: any MusicService
 
-    init(collection: MusicCollection, service: any MusicService = YandexMusicService.shared) {
+    init(collection: MusicCollection, service: any MusicService = CatalogService.shared) {
         self.title = collection.title
         self.collectionId = collection.id
         self.service = service

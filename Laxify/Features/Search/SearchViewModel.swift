@@ -9,7 +9,7 @@ final class SearchViewModel {
 
     private let service: any MusicService
 
-    init(service: any MusicService = YandexMusicService.shared) {
+    init(service: any MusicService = CatalogService.shared) {
         self.service = service
     }
 

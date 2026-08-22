@@ -105,3 +105,83 @@ struct PlaybackEvent: Codable, Sendable {
 struct MessageResponse: Codable, Sendable {
     let detail: String
 }
+
+// MARK: - Catalogue
+
+/// One track as the server describes it.
+///
+/// The server normalises whatever source it used into this single shape, so
+/// the app never learns which one answered.
+struct CatalogTrackDTO: Codable, Sendable {
+    let id: String
+    let title: String
+    let artistId: String?
+    let artistName: String
+    let artworkUrl: String?
+    let durationSeconds: Double
+    let permalink: String?
+    let genre: String?
+    let playbackCount: Int?
+
+    var song: Song {
+        Song(
+            id: id,
+            title: title,
+            artistName: artistName,
+            artistId: artistId,
+            albumTitle: nil,
+            coverURL: artworkUrl.flatMap(URL.init(string:)),
+            duration: durationSeconds
+        )
+    }
+}
+
+struct CatalogArtistDTO: Codable, Sendable {
+    let id: String
+    let name: String
+    let avatarUrl: String?
+    let followers: Int?
+    let description: String?
+    let trackCount: Int?
+
+    var artist: MusicArtist {
+        MusicArtist(
+            id: id,
+            name: name,
+            imageURL: avatarUrl.flatMap(URL.init(string:)),
+            bio: description,
+            trackCount: trackCount,
+            albumCount: nil
+        )
+    }
+}
+
+struct CatalogPlaylistDTO: Codable, Sendable {
+    let id: String
+    let title: String
+    let artworkUrl: String?
+    let trackCount: Int
+    let ownerName: String?
+}
+
+struct CatalogSearchResponse: Codable, Sendable {
+    let tracks: [CatalogTrackDTO]
+    let artists: [CatalogArtistDTO]
+    let playlists: [CatalogPlaylistDTO]
+}
+
+struct CatalogStreamResponse: Codable, Sendable {
+    let url: String
+}
+
+struct WaveResponse: Codable, Sendable {
+    let tracks: [CatalogTrackDTO]
+    let seedTrackIds: [String]
+    let isPersonalised: Bool
+}
+
+struct HomeFeedResponse: Codable, Sendable {
+    let wave: [CatalogTrackDTO]
+    let forYou: [CatalogTrackDTO]
+    let charts: [CatalogTrackDTO]
+}

@@ -83,7 +83,7 @@ struct ArtistAllTracksView: View {
         isLoading = true
         hasError = false
         do {
-            let batch = try await YandexMusicService.shared.artistTracks(artistId: artistId, page: page)
+            let batch = try await CatalogService.shared.artistTracks(artistId: artistId, page: page)
             let existing = Set(songs.map(\.id))
             let fresh = batch.filter { !existing.contains($0.id) }
             songs.append(contentsOf: fresh)

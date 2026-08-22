@@ -179,7 +179,7 @@ struct AlbumDetailView: View {
         isLoading = true
         hasError = false
         do {
-            let detail = try await YandexMusicService.shared.albumDetail(albumId: album.id)
+            let detail = try await CatalogService.shared.albumDetail(albumId: album.id)
             loadedAlbum = detail.album
             songs = detail.songs
         } catch {

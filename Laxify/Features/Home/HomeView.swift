@@ -59,7 +59,7 @@ struct HomeView: View {
             try? await Task.sleep(for: .milliseconds(400))
             guard !Task.isCancelled else { return }
             isSearching = true
-            searchResults = try? await YandexMusicService.shared.search(query: trimmedQuery)
+            searchResults = try? await CatalogService.shared.search(query: trimmedQuery)
             isSearching = false
         }
         .fullScreenCover(isPresented: Binding(
