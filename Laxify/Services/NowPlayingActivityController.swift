@@ -11,7 +11,7 @@ import Foundation
 final class NowPlayingActivityController {
     static let shared = NowPlayingActivityController()
 
-    nonisolated(unsafe) private var activity: Activity<NowPlayingAttributes>?
+    private var activity: Activity<NowPlayingAttributes>?
     private var lastPushedAt: Date = .distantPast
     private var lastTrackId: String?
 
@@ -59,9 +59,9 @@ final class NowPlayingActivityController {
         lastTrackId = song.id
         lastPushedAt = Date()
 
-        let current = activity
+        let handle = ActivityHandle(activity: activity)
         Task.detached {
-            await current?.update(ActivityContent(state: state, staleDate: nil))
+            await handle.activity?.update(ActivityContent(state: state, staleDate: nil))
         }
     }
 
@@ -85,11 +85,21 @@ final class NowPlayingActivityController {
         guard activity != nil else { return }
         lastTrackId = nil
 
-        let current = activity
+        let handle = ActivityHandle(activity: activity)
         activity = nil
 
         Task.detached {
-            await current?.end(nil, dismissalPolicy: .immediate)
+            await handle.activity?.end(nil, dismissalPolicy: .immediate)
         }
     }
+}
+
+/// Carries an `Activity` across an isolation boundary.
+///
+/// ActivityKit is documented as safe to use from any context, but `Activity`
+/// declares no Sendable conformance, so Swift 6 refuses to let one cross.
+/// Asserting it here keeps the exception to this one hop instead of declaring
+/// a retroactive conformance for the whole type.
+private struct ActivityHandle: @unchecked Sendable {
+    let activity: Activity<NowPlayingAttributes>?
 }
