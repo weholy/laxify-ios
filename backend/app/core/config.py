@@ -1,0 +1,63 @@
+from functools import lru_cache
+from typing import Literal
+
+from pydantic import Field, PostgresDsn, RedisDsn
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    environment: Literal["dev", "prod"] = "dev"
+    debug: bool = False
+    api_prefix: str = "/api/v1"
+    project_name: str = "Laxify API"
+
+    database_url: PostgresDsn
+    redis_url: RedisDsn
+
+    jwt_secret: str = Field(min_length=32)
+    jwt_algorithm: str = "HS256"
+    access_token_ttl_minutes: int = 30
+    # Long-lived by design: the client keeps the refresh token in the Keychain
+    # and silently renews, so a signed-in user stays signed in until they
+    # explicitly log out or the device is revoked.
+    refresh_token_ttl_days: int = 365
+
+    google_client_ids: list[str] = Field(default_factory=list)
+
+    # Yandex access is pooled server-side. One token today, more later —
+    # rotation logic keys off this table rather than a single env value.
+    yandex_tokens: list[str] = Field(default_factory=list)
+
+    # The proxy layer is written but stays off until a Russian-IP host exists.
+    # With it disabled the app talks to Yandex directly, exactly as before.
+    music_proxy_enabled: bool = False
+    music_proxy_upstream: str | None = None
+
+    cors_origins: list[str] = Field(default_factory=list)
+    rate_limit_per_minute: int = 120
+
+    admin_google_subs: list[str] = Field(default_factory=list)
+
+    apns_key_id: str | None = None
+    apns_team_id: str | None = None
+    apns_bundle_id: str = "com.laxify.app"
+    apns_private_key: str | None = None
+    apns_use_sandbox: bool = True
+
+    @property
+    def is_prod(self) -> bool:
+        return self.environment == "prod"
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+
+
+settings = get_settings()

@@ -1,0 +1,60 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: laxify
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: laxify
+    volumes:
+      - laxify_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U laxify"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # Not published to the host: the API reaches it over the compose network,
+    # and the other services on this box have no business touching it.
+    expose:
+      - "5432"
+
+  cache:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    volumes:
+      - laxify_cache:/data
+    expose:
+      - "6379"
+
+  api:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_started
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000
+             --proxy-headers --forwarded-allow-ips '*'"
+    ports:
+      # Bound to localhost only — Caddy terminates TLS and proxies in.
+      - "127.0.0.1:8080:8000"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - laxify_caddy_data:/data
+      - laxify_caddy_config:/config
+
+volumes:
+  laxify_db:
+  laxify_cache:
+  laxify_caddy_data:
+  laxify_caddy_config:

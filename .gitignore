@@ -9,3 +9,8 @@ build/
 Config/Secrets.xcconfig
 *.ipa
 *.xcarchive
+
+# Backend
+backend/.venv/
+backend/.env
+backend/__pycache__/

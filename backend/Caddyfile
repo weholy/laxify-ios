@@ -1,0 +1,18 @@
+# Замените на свой поддомен и направьте на него A-запись.
+# Caddy сам получит и продлит сертификат Let's Encrypt — iOS требует HTTPS,
+# без него запросы будут заблокированы системой.
+api.laxify.rusksmm.ru {
+	encode gzip
+
+	reverse_proxy 127.0.0.1:8080 {
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Real-IP {remote_host}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		-Server
+	}
+}
