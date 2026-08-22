@@ -508,6 +508,44 @@ actor LaxifyAPI {
         )
     }
 
+    /// Sends a batch of log lines.
+    ///
+    /// Unauthenticated, because the moments most worth seeing are the ones
+    /// before anyone has managed to sign in.
+    func sendLogs(
+        sessionId: String,
+        appVersion: String?,
+        osVersion: String,
+        deviceModel: String,
+        entries: [RemoteLog.Entry]
+    ) async -> Bool {
+        struct Body: Encodable {
+            let sessionId: String
+            let appVersion: String?
+            let osVersion: String
+            let deviceModel: String
+            let entries: [RemoteLog.Entry]
+        }
+
+        do {
+            let _: MessageResponse = try await send(
+                "/telemetry/logs",
+                method: "POST",
+                body: Body(
+                    sessionId: sessionId,
+                    appVersion: appVersion,
+                    osVersion: osVersion,
+                    deviceModel: deviceModel,
+                    entries: entries
+                ),
+                authenticated: false
+            )
+            return true
+        } catch {
+            return false
+        }
+    }
+
     // MARK: - Listening statistics
 
     func replayPeriods() async throws -> [ReplayPeriod] {

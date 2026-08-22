@@ -5,9 +5,9 @@ enum LaxifyMetrics {
     static let sectionSpacing: CGFloat = 28
     static let itemSpacing: CGFloat = 12
 
-    static let cardCornerRadius: CGFloat = 22
-    static let smallCornerRadius: CGFloat = 14
-    static let artworkCornerRadius: CGFloat = 18
+    static let cardCornerRadius: CGFloat = 30
+    static let smallCornerRadius: CGFloat = 20
+    static let artworkCornerRadius: CGFloat = 24
 
     static let tabBarHeight: CGFloat = 58
     static let tabBarBottomInset: CGFloat = 12

@@ -225,7 +225,7 @@ struct ReplayView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 16)
-        .glassEffect(.regular, in: .rect(cornerRadius: 20))
+        .glassEffect(.regular, in: .rect(cornerRadius: 26))
     }
 
     private func artistsSection(_ artists: [ReplayArtist]) -> some View {
@@ -245,7 +245,7 @@ struct ReplayView: View {
 
     private func artistCard(_ artist: ReplayArtist, rank: Int) -> some View {
         ZStack(alignment: .bottomLeading) {
-            AsyncCoverImage(url: artist.artworkURL, cornerRadius: 22, displaySize: 180)
+            AsyncCoverImage(url: artist.artworkURL, cornerRadius: 30, displaySize: 180)
                 .frame(width: 168, height: 210)
 
             // A gradient rather than a flat scrim: the name has to stay
@@ -276,7 +276,7 @@ struct ReplayView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .frame(width: 168, height: 210)
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
     }
 
     private func tracksSection(_ tracks: [ReplayTrack]) -> some View {
@@ -291,7 +291,7 @@ struct ReplayView: View {
                             .foregroundStyle(LaxifyPalette.textTertiary)
                             .frame(width: 22)
 
-                        AsyncCoverImage(url: track.artworkURL, cornerRadius: 10, displaySize: 52)
+                        AsyncCoverImage(url: track.artworkURL, cornerRadius: 14, displaySize: 52)
                             .frame(width: 46, height: 46)
 
                         VStack(alignment: .leading, spacing: 2) {
@@ -316,7 +316,7 @@ struct ReplayView: View {
                             .foregroundStyle(LaxifyPalette.textSecondary)
                     }
                     .padding(12)
-                    .glassEffect(.regular, in: .rect(cornerRadius: 18))
+                    .glassEffect(.regular, in: .rect(cornerRadius: 24))
                 }
             }
             .padding(.horizontal, LaxifyMetrics.screenPadding)

@@ -65,7 +65,7 @@ struct AlbumDetailView: View {
 
     private var header: some View {
         VStack(spacing: 16) {
-            AsyncCoverImage(url: displayed.coverURL, cornerRadius: 24, displaySize: 220)
+            AsyncCoverImage(url: displayed.coverURL, cornerRadius: 30, displaySize: 220)
                 .frame(width: 210, height: 210)
                 .shadow(color: .black.opacity(0.3), radius: 24, y: 12)
 

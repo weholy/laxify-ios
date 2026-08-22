@@ -68,7 +68,7 @@ struct FloatingCoversView: View {
 
     private func card(_ song: Song, width: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            AsyncCoverImage(url: song.coverURL, cornerRadius: 18, displaySize: 110)
+            AsyncCoverImage(url: song.coverURL, cornerRadius: 24, displaySize: 110)
                 .frame(width: width, height: width)
                 .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
 
@@ -133,7 +133,7 @@ struct PlaceholderCoversView: View {
 
     private func card(index: Int, width: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .fill(
                     LinearGradient(
                         colors: palette[index % palette.count],

@@ -5,7 +5,7 @@ struct ArtistRowView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            AsyncCoverImage(url: artist.imageURL, cornerRadius: 24, displaySize: 56)
+            AsyncCoverImage(url: artist.imageURL, cornerRadius: 30, displaySize: 56)
                 .frame(width: 48, height: 48)
                 .clipShape(Circle())
 

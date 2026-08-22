@@ -143,3 +143,37 @@ class ClientReport(Base, UUIDMixin, TimestampMixin):
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     context: Mapped[dict] = mapped_column(JSONB, default=dict)
     ip: Mapped[str | None] = mapped_column(String(64), default=None)
+
+
+class ClientLog(Base, UUIDMixin):
+    """A line the app wrote, kept so slow steps can be measured rather than
+    described.
+
+    Deliberately append-only and unindexed on message: these are written far
+    more often than they are read, and reading is something one person does
+    occasionally with a filter.
+    """
+
+    __tablename__ = "client_logs"
+    __table_args__ = (
+        Index("ix_client_logs_session_time", "session_id", "happened_at"),
+        Index("ix_client_logs_category_time", "category", "happened_at"),
+    )
+
+    user_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), default=None
+    )
+    session_id: Mapped[str] = mapped_column(String(64))
+    app_version: Mapped[str | None] = mapped_column(String(32), default=None)
+    os_version: Mapped[str | None] = mapped_column(String(32), default=None)
+    device_model: Mapped[str | None] = mapped_column(String(64), default=None)
+
+    level: Mapped[str] = mapped_column(String(16), default="info")
+    category: Mapped[str] = mapped_column(String(32), default="app")
+    message: Mapped[str] = mapped_column(Text)
+    # Set when the line describes something that took time.
+    duration_ms: Mapped[int | None] = mapped_column(Integer, default=None)
+    context: Mapped[dict] = mapped_column(JSONB, default=dict)
+
+    happened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

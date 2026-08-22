@@ -1,5 +1,6 @@
 from app.models.activity import (
     AuditLog,
+    ClientLog,
     ClientReport,
     Download,
     ListeningEvent,
@@ -19,6 +20,7 @@ from app.models.library import (
 from app.models.user import Device, EmailVerification, Follow, PushToken, User
 
 __all__ = [
+    "ClientLog",
     "AuditLog",
     "ClientReport",
     "Device",

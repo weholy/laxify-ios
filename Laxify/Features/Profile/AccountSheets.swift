@@ -347,10 +347,10 @@ struct CodeEntryField: View {
             .frame(width: 62, height: 72)
             .background(
                 LaxifyPalette.surface,
-                in: RoundedRectangle(cornerRadius: 20, style: .continuous)
+                in: RoundedRectangle(cornerRadius: 26, style: .continuous)
             )
             .overlay {
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                RoundedRectangle(cornerRadius: 26, style: .continuous)
                     .stroke(LaxifyPalette.accent, lineWidth: isNext ? 2 : 0)
             }
             .animation(.snappy(duration: 0.18), value: isFilled)

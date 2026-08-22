@@ -248,6 +248,8 @@ final class AudioPlayerController {
         teardownPlayer()
 
         Task {
+            var trace = Trace("запуск трека", context: ["track": song.id])
+
             do {
                 // Nothing is fetched before playback starts. A saved copy
                 // plays from disk; anything else streams from our own server,
@@ -261,6 +263,7 @@ final class AudioPlayerController {
                 } else {
                     item = try await Self.streamingItem(for: song.id)
                 }
+                trace.mark("ассет создан")
 
                 guard currentSong?.id == song.id else {
                     AppLogger.log("play: song changed while loading, aborting")
@@ -275,14 +278,27 @@ final class AudioPlayerController {
                 AppLogger.log("play: observers attached")
                 newPlayer.rate = Float(playbackRate)
                 AppLogger.log("play: rate set to \(playbackRate)")
+                trace.mark("плеер запущен")
                 isPlaying = true
                 isLoading = false
                 updateNowPlayingInfo()
                 reportWaveStart(for: song)
                 prefetchNext()
+
+                // The moment that actually matters: not when the player was
+                // handed an item, but when sound could come out of it.
+                Task { [weak self] in
+                    await self?.awaitPlayback(of: item, trace: trace)
+                }
                 AppLogger.log("play: done")
             } catch {
                 AppLogger.log("play: ERROR \(error)")
+                trace.finish("ошибка")
+                RemoteLog.shared.error(
+                    "не удалось запустить трек",
+                    category: "playback",
+                    context: ["track": song.id, "error": "\(error)"]
+                )
                 isLoading = false
                 isPlaying = false
 
@@ -379,6 +395,36 @@ final class AudioPlayerController {
         Task.detached(priority: .background) {
             await LaxifyAPI.shared.warmStream(trackId: nextId)
         }
+    }
+
+    /// Waits for the item to be playable, and reports how long that took.
+    ///
+    /// Everything up to this point is bookkeeping; this is the part a
+    /// listener experiences as the wait.
+    private func awaitPlayback(of item: AVPlayerItem, trace: Trace) async {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(30))
+
+        while ContinuousClock.now < deadline {
+            if item.status == .failed {
+                trace.finish("ассет не открылся")
+                RemoteLog.shared.error(
+                    "ассет не открылся",
+                    category: "playback",
+                    context: ["error": item.error.map { "\($0)" } ?? "неизвестно"]
+                )
+                return
+            }
+
+            if item.status == .readyToPlay, item.isPlaybackLikelyToKeepUp {
+                trace.finish("звук пошёл")
+                return
+            }
+
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+
+        trace.finish("не дождались")
+        RemoteLog.shared.warn("трек не начал играть за 30 с", category: "playback")
     }
 
     private func attachObservers(to item: AVPlayerItem) {

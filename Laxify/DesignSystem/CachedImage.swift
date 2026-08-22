@@ -14,16 +14,26 @@ struct CachedImage<Placeholder: View>: View {
     @State private var image: UIImage?
 
     var body: some View {
-        Group {
-            if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: contentMode)
-            } else {
-                placeholder()
+        // The image is drawn as an overlay on a shape that takes whatever
+        // space it is given, and is clipped to it.
+        //
+        // Drawn directly, a resizable image reports the pixel size of what it
+        // loaded — a 500-point square for artwork — and a ZStack sized to fit
+        // that grows past the screen. That is what made screens look
+        // stretched, and it is fixed here rather than at each call site so it
+        // cannot come back somewhere else.
+        Color.clear
+            .overlay {
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: contentMode)
+                } else {
+                    placeholder()
+                }
             }
-        }
-        .task(id: url) { await load() }
+            .clipped()
+            .task(id: url) { await load() }
     }
 
     private func load() async {
@@ -67,5 +77,8 @@ struct BlurredBackdrop: View {
         CachedImage(url: url, displaySize: 120)
             .blur(radius: blur)
             .opacity(opacity)
+            // Blur draws outside the bounds it was given; without clipping
+            // that spill is what a parent measures.
+            .clipped()
     }
 }

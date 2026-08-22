@@ -133,7 +133,7 @@ struct FavoritesView: View {
                 }
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 34, style: .continuous))
     }
 
     private var sortRow: some View {
