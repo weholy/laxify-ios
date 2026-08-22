@@ -13,6 +13,10 @@ struct LaxifySlider: View {
     var trackHeight: CGFloat = 4
     var knobSize: CGFloat = 0
     var tint: Color = .white
+    /// Draws the track as glass rather than as a flat capsule. Used in the
+    /// player, where the bar sits over artwork and a solid track reads as a
+    /// sticker laid on top of it.
+    var isGlass: Bool = false
     var onEditingChanged: ((Bool) -> Void)?
 
     @State private var isDragging = false
@@ -34,9 +38,18 @@ struct LaxifySlider: View {
             let knobX = width * progress
 
             ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(tint.opacity(0.25))
-                    .frame(height: trackHeight)
+                Group {
+                    if isGlass {
+                        Capsule()
+                            .fill(.clear)
+                            .frame(height: trackHeight)
+                            .glassEffect(.regular, in: .capsule)
+                    } else {
+                        Capsule()
+                            .fill(tint.opacity(0.25))
+                            .frame(height: trackHeight)
+                    }
+                }
 
                 Capsule()
                     .fill(tint)

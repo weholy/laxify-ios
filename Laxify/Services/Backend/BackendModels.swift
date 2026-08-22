@@ -286,3 +286,9 @@ struct LyricsResponse: Codable, Sendable {
     let synced: [Line]
     let plain: String?
 }
+
+struct ReplayBundle: Codable, Sendable {
+    let periods: [ReplayPeriod]
+    let current: ReplaySummary?
+    let previous: ReplaySummary?
+}

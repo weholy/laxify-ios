@@ -382,16 +382,13 @@ struct ReplayView: View {
         errorMessage = nil
 
         do {
-            let available = try await LaxifyAPI.shared.replayPeriods()
-            periods = available
+            // One request rather than three in sequence: the months, this
+            // month's figures and the month before all arrive together.
+            let bundle = try await LaxifyAPI.shared.replayBundle()
+            periods = bundle.periods
+            selected = bundle.current?.period ?? bundle.periods.first
 
-            // Open on the current month when there is one; otherwise on
-            // whatever is most recent.
-            let opening = available.first(where: \.isCurrent) ?? available.first
-            selected = opening
-
-            if let opening {
-                let fresh = try await LaxifyAPI.shared.replay(period: opening.id)
+            if let fresh = bundle.current {
                 summary = fresh
                 await refreshPalette(for: fresh)
             }

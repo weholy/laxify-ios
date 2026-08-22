@@ -11,7 +11,6 @@ struct FullPlayerView: View {
     var player = AudioPlayerController.shared
 
     @State private var isLyricsPresented = false
-    @State private var isQueuePresented = false
     @State private var artworkDragOffset: CGFloat = 0
     @State private var selectedArtistId: String?
 
@@ -61,9 +60,6 @@ struct FullPlayerView: View {
         }
         .sheet(isPresented: $isLyricsPresented) {
             LyricsView()
-        }
-        .sheet(isPresented: $isQueuePresented) {
-            QueueView { isQueuePresented = false }
         }
         .fullScreenCover(isPresented: Binding(
             get: { selectedArtistId != nil },
@@ -184,8 +180,8 @@ struct FullPlayerView: View {
             Button {
                 isLyricsPresented = true
             } label: {
-                Image(systemName: "quote.bubble")
-                    .font(.system(size: 16, weight: .medium))
+                Image(systemName: "text.alignleft")
+                    .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.75))
                     .frame(width: 36, height: 36)
             }
@@ -199,15 +195,7 @@ struct FullPlayerView: View {
 
             Spacer()
 
-            Button {
-                isQueuePresented = true
-            } label: {
-                Image(systemName: "list.bullet")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.75))
-                    .frame(width: 36, height: 36)
-            }
-            .buttonStyle(.plain)
+            RepeatButton()
         }
         .padding(.horizontal, 12)
     }
@@ -225,19 +213,9 @@ struct FullPlayerView: View {
 
             Spacer()
 
-            Button {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.5)) {
-                    toggleFavorite()
-                }
-            } label: {
-                Image(systemName: isFavorite ? "star.fill" : "star")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(isFavorite ? LaxifyPalette.accent : .white)
-                    .scaleEffect(isFavorite ? 1.15 : 1)
-                    .symbolEffect(.bounce, value: isFavorite)
-                    .contentTransition(.symbolEffect(.replace))
+            FavouriteStar(isOn: isFavorite) {
+                toggleFavorite()
             }
-            .buttonStyle(.plain)
         }
     }
 

@@ -562,6 +562,11 @@ actor LaxifyAPI {
         try await send("/replay/periods", method: "GET")
     }
 
+    /// Everything the statistics screen opens with, in one round trip.
+    func replayBundle() async throws -> ReplayBundle {
+        try await send("/replay/bundle", method: "GET")
+    }
+
     func replay(period: String) async throws -> ReplaySummary {
         try await send("/replay?period=\(escaped(period))&limit=10", method: "GET")
     }

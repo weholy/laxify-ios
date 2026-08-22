@@ -320,3 +320,47 @@ async def _longest_streak(session, where) -> int:
             run = 1
 
     return longest
+
+
+class ReplayBundle(BaseModel):
+    """Everything the statistics screen opens with, in one answer."""
+
+    periods: list[Period]
+    current: ReplaySummary | None
+    previous: ReplaySummary | None
+
+
+@router.get("/bundle", response_model=ReplayBundle)
+async def bundle(
+    user: CurrentUser,
+    session: SessionDep,
+    limit: int = Query(10, ge=3, le=25),
+) -> ReplayBundle:
+    """Opens the screen in one round trip rather than three.
+
+    The screen needs the months, this month's figures, and last month's to
+    compare against. Asking for those in sequence meant three waits stacked
+    end to end before anything could be drawn.
+    """
+    available = await periods(user=user, session=session)
+
+    months = [period for period in available if period.id != "all"]
+    opening = next((p for p in months if p.is_current), months[0] if months else None)
+
+    if opening is None:
+        return ReplayBundle(periods=available, current=None, previous=None)
+
+    earlier = next((p for p in months if p.id != opening.id), None)
+
+    current_summary = await summary(
+        user=user, session=session, period=opening.id, limit=limit
+    )
+    previous_summary = (
+        await summary(user=user, session=session, period=earlier.id, limit=limit)
+        if earlier
+        else None
+    )
+
+    return ReplayBundle(
+        periods=available, current=current_summary, previous=previous_summary
+    )

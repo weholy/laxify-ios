@@ -91,18 +91,12 @@ struct ReplayEntryCard: View {
     private func load() async {
         defer { isLoading = false }
 
-        guard let periods = try? await LaxifyAPI.shared.replayPeriods(),
-              let opening = periods.first(where: \.isCurrent) ?? periods.first(where: { $0.id != "all" }) ?? periods.first
+        guard let bundle = try? await LaxifyAPI.shared.replayBundle(),
+              let fresh = bundle.current
         else { return }
 
-        guard let fresh = try? await LaxifyAPI.shared.replay(period: opening.id) else { return }
         summary = fresh
-
-        // The month before, only so the story can say whether listening went
-        // up or down. Absent for the very first month, which is fine.
-        if let earlier = periods.first(where: { $0.id != opening.id && $0.id != "all" }) {
-            previous = try? await LaxifyAPI.shared.replay(period: earlier.id)
-        }
+        previous = bundle.previous
 
         let artwork = fresh.topArtists.first?.artworkURL ?? fresh.topTracks.first?.artworkURL
         let found = await PaletteExtractor.shared.palette(for: artwork)

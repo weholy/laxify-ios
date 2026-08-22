@@ -199,6 +199,36 @@ final class AudioPlayerController {
 
     /// Tracks the source refused within the current queue, so a skip chain
     /// terminates instead of cycling through the same dead entries.
+    /// What happens when the queue reaches its end.
+    enum RepeatMode: String, CaseIterable {
+        /// Play through and stop.
+        case off
+        /// Start the queue again from the top.
+        case all
+        /// Play the current track over and over.
+        case one
+
+        var next: RepeatMode {
+            switch self {
+            case .off: .all
+            case .all: .one
+            case .one: .off
+            }
+        }
+    }
+
+    /// Persisted, because it is a preference rather than a property of one
+    /// listening session.
+    var repeatMode: RepeatMode = RepeatMode(
+        rawValue: UserDefaults.standard.string(forKey: "laxify.player.repeat") ?? ""
+    ) ?? .all {
+        didSet { UserDefaults.standard.set(repeatMode.rawValue, forKey: "laxify.player.repeat") }
+    }
+
+    func cycleRepeatMode() {
+        repeatMode = repeatMode.next
+    }
+
     private var unplayableTrackIds: Set<String> = []
 
     /// Feeds the current item. Kept alive for as long as it is playing.
@@ -477,15 +507,32 @@ final class AudioPlayerController {
         reportPlaybackToAccount(completed: true)
         reportWaveFinished()
 
+        if repeatMode == .one {
+            // Same track again, from the top. Reported as finished first, so
+            // a track on repeat counts every time it plays.
+            seek(to: 0)
+            player?.play()
+            isPlaying = true
+            updateNowPlayingInfo()
+            return
+        }
+
         if hasNext {
             // Deliberately not via next(): that would log a skip for a track
             // the listener actually played all the way through.
             currentIndex += 1
             loadAndPlayCurrent()
-        } else {
-            isPlaying = false
-            updateNowPlayingInfo()
+            return
         }
+
+        if repeatMode == .all, !queue.isEmpty {
+            currentIndex = 0
+            loadAndPlayCurrent()
+            return
+        }
+
+        isPlaying = false
+        updateNowPlayingInfo()
     }
 
     private func reportWaveStart(for song: Song) {

@@ -30,7 +30,10 @@ struct PlayerScrubber: View {
                     }
                 ),
                 range: 0...max(player.duration, 1),
-                trackHeight: 4,
+                // Slim on purpose: the bar sits under the artwork and only
+                // has to be readable, not prominent.
+                trackHeight: 3,
+                isGlass: true,
                 onEditingChanged: { editing in
                     isScrubbing = editing
                     if !editing {
