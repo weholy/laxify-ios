@@ -113,8 +113,7 @@ actor LaxifyAPI {
         let summary = results
             .map { "\($0.key): \($0.value ? "доступен" : "нет")" }
             .sorted()
-            .joined(separator: "
-")
+            .joined(separator: "\n")
 
         _ = await submitDiagnostic(
             Report(
