@@ -3,14 +3,19 @@ import Foundation
 /// Collects artists from Yandex Music into a file.
 ///
 /// This runs on the phone rather than on the server for one reason: the
-/// server cannot reach that API at all — it answers 451 from where the
-/// server is. A phone in Russia can, so the device is the only place this
-/// work can happen.
+/// server cannot reach that API at all — it answers 451 from where the server
+/// is. A phone in Russia can, so the device is the only place this can happen.
 ///
-/// The catalogue has no "list every artist" call, so it is walked instead:
-/// a wide set of search terms, paged through, deduplicated by id. That
-/// reaches a large share of what anyone would actually look for, and each
-/// artist arrives with the numbers needed to tell a real one from a name.
+/// There is no call that lists every artist, so the catalogue is walked. The
+/// obvious way — searching each letter of the alphabet — turns out to return
+/// mostly classical composers, whose enormous catalogues outrank everyone on
+/// a bare prefix; a first attempt collected Beethoven and Handel while
+/// missing every rapper anyone actually searches for.
+///
+/// So it walks the similar-artist graph instead. Starting from the charts and
+/// following "listeners also like" reaches the artists people care about,
+/// because that is exactly what the relation encodes. The letter search runs
+/// afterwards as a supplement, to catch anyone the graph does not connect.
 @MainActor
 @Observable
 final class YandexCatalogExport {
@@ -19,7 +24,8 @@ final class YandexCatalogExport {
     struct Artist: Codable, Sendable {
         let id: String
         let name: String
-        /// How many people follow them, where the catalogue reports it.
+        /// How many people follow them. Only present on full artist records,
+        /// which is one reason the graph walk beats searching.
         let likes: Int?
         let tracks: Int?
         let albums: Int?
@@ -28,11 +34,13 @@ final class YandexCatalogExport {
         /// which are not people and should not be matched against accounts.
         let isVarious: Bool
         let coverURL: String?
+        /// Which pass found them, so the file says how it was assembled.
+        let via: String
     }
 
     enum Phase: Equatable {
         case idle
-        case running(done: Int, total: Int, found: Int)
+        case running(stage: String, done: Int, total: Int, found: Int)
         case finished(count: Int, file: URL)
         case failed(String)
     }
@@ -41,29 +49,20 @@ final class YandexCatalogExport {
 
     private var task: Task<Void, Never>?
 
-    /// What gets searched for.
-    ///
-    /// Single letters find the most, since the catalogue matches on prefix;
-    /// the syllables and common words reach names a bare letter ranks too
-    /// low to return.
-    private static let terms: [String] = {
-        let cyrillic = "абвгдежзийклмнопрстуфхцчшщэюя".map(String.init)
-        let latin = "abcdefghijklmnopqrstuvwxyz".map(String.init)
-        let syllables = [
-            "ка", "ро", "ли", "ма", "не", "по", "са", "то", "ша", "юр",
-            "ba", "co", "da", "el", "gr", "jo", "ki", "lo", "mi", "ni",
-            "pa", "ra", "se", "ta", "va", "yo", "zi"
-        ]
-        let words = [
-            "рэп", "хип хоп", "поп", "рок", "джаз", "электро", "шансон",
-            "lil", "young", "dj", "mc", "the", "big", "king", "boy", "girl"
-        ]
-        return cyrillic + latin + syllables + words
-    }()
+    /// How far the graph walk goes. Reached in practice long before the
+    /// request budget, and enough to cover anything with an audience.
+    private static let artistCap = 20_000
+    private static let requestCap = 2_500
 
-    /// Pages per term. Beyond this the results are mostly names that only
-    /// coincidentally contain the term.
-    private static let pagesPerTerm = 4
+    private static let searchTerms: [String] = {
+        let cyrillic = "абвгдежзиклмнопрстуфхцчшэюя".map(String.init)
+        let latin = "abcdefghijklmnopqrstuvwxyz".map(String.init)
+        let words = [
+            "рэп", "хип хоп", "поп", "рок", "шансон", "лсп", "гуф",
+            "lil", "young", "dj", "mc", "big", "king", "boy", "girl", "trap"
+        ]
+        return cyrillic + latin + words
+    }()
 
     var isRunning: Bool {
         if case .running = phase { return true }
@@ -86,46 +85,108 @@ final class YandexCatalogExport {
         phase = .idle
     }
 
+    // MARK: - The walk
+
     private func run(token: String) async {
+        let client = YandexClient(token: token)
+
         var collected: [String: Artist] = [:]
-        let terms = Self.terms
-        let total = terms.count * Self.pagesPerTerm
-        var done = 0
+        var requests = 0
 
-        phase = .running(done: 0, total: total, found: 0)
+        // MARK: Seeds — who is being listened to right now.
 
-        let client = YandexSearchClient(token: token)
+        phase = .running(stage: "Ищем популярных", done: 0, total: 1, found: 0)
 
-        for term in terms {
-            for page in 0..<Self.pagesPerTerm {
-                if Task.isCancelled { return }
+        var frontier = await client.chartArtists()
+        requests += 1
 
-                let artists = await client.artists(matching: term, page: page)
-                done += 1
+        for genre in YandexClient.seedGenres {
+            if Task.isCancelled { return }
+            frontier += await client.genreArtists(genre)
+            requests += 1
+            phase = .running(stage: "Ищем популярных", done: requests, total: 1 + YandexClient.seedGenres.count, found: 0)
+        }
 
-                for artist in artists where collected[artist.id] == nil {
+        var queue = Array(Set(frontier))
+        var visited = Set<String>()
+
+        guard !queue.isEmpty else {
+            phase = .failed("Каталог не ответил — проверьте, что ключ ещё действует")
+            return
+        }
+
+        // MARK: The graph — everyone those artists lead to.
+
+        while let id = queue.first, collected.count < Self.artistCap, requests < Self.requestCap {
+            queue.removeFirst()
+
+            if Task.isCancelled { return }
+            guard visited.insert(id).inserted else { continue }
+
+            let (artist, similar) = await client.artistAndSimilar(id)
+            requests += 1
+
+            if let artist, collected[artist.id] == nil {
+                collected[artist.id] = artist
+            }
+
+            for neighbour in similar {
+                if collected[neighbour.id] == nil {
+                    collected[neighbour.id] = neighbour
+                }
+                if !visited.contains(neighbour.id) {
+                    queue.append(neighbour.id)
+                }
+            }
+
+            phase = .running(
+                stage: "Обходим похожих",
+                done: requests,
+                total: Self.requestCap,
+                found: collected.count
+            )
+
+            // Gentle on purpose: this is somebody else's service and the
+            // export is not in a hurry.
+            try? await Task.sleep(for: .milliseconds(90))
+        }
+
+        // MARK: Supplement — anyone the graph never connected to.
+
+        let terms = Self.searchTerms
+        for (index, term) in terms.enumerated() {
+            if Task.isCancelled { return }
+
+            for page in 0..<3 {
+                let found = await client.searchArtists(term, page: page)
+                if found.isEmpty { break }
+
+                for artist in found where collected[artist.id] == nil {
                     collected[artist.id] = artist
                 }
 
-                phase = .running(done: done, total: total, found: collected.count)
-
-                // Nothing on this page means nothing on the next either.
-                if artists.isEmpty { break }
-
-                // Gentle on purpose: this is somebody else's service and the
-                // export is not in a hurry.
-                try? await Task.sleep(for: .milliseconds(120))
+                try? await Task.sleep(for: .milliseconds(90))
             }
+
+            phase = .running(
+                stage: "Дочищаем по алфавиту",
+                done: index + 1,
+                total: terms.count,
+                found: collected.count
+            )
         }
 
         guard !collected.isEmpty else {
-            phase = .failed("Ничего не найдено — проверьте, что ключ ещё действует")
+            phase = .failed("Ничего не собралось")
             return
         }
 
         do {
-            let file = try write(Array(collected.values).sorted { ($0.likes ?? 0) > ($1.likes ?? 0) })
-            phase = .finished(count: collected.count, file: file)
+            let sorted = Array(collected.values).sorted {
+                ($0.likes ?? 0, $0.tracks ?? 0) > ($1.likes ?? 0, $1.tracks ?? 0)
+            }
+            let file = try write(sorted)
+            phase = .finished(count: sorted.count, file: file)
         } catch {
             phase = .failed("Не удалось сохранить файл")
         }
@@ -134,6 +195,7 @@ final class YandexCatalogExport {
     private func write(_ artists: [Artist]) throws -> URL {
         struct Export: Encodable {
             let source = "yandex"
+            let method = "chart seeds, similar-artist graph, alphabet supplement"
             let exportedAt: Date
             let count: Int
             let artists: [Artist]
@@ -155,15 +217,22 @@ final class YandexCatalogExport {
     }
 }
 
-/// The one call this export needs, without the wrapper package.
+// MARK: - The API
+
+/// The handful of calls this export needs, written directly.
 ///
-/// Written directly because the export walks a single endpoint many times and
-/// wants to see exactly what comes back, including the pages that return
-/// nothing.
-private struct YandexSearchClient: Sendable {
+/// Direct rather than through the wrapper package because the walk cares
+/// about exactly what comes back, including the responses that are empty.
+private struct YandexClient: Sendable {
     let token: String
 
     private static let base = "https://api.music.yandex.net"
+
+    /// Genres broad enough to seed the graph from every corner of it.
+    static let seedGenres = [
+        "rap", "pop", "rusrap", "ruspop", "rock", "electronic",
+        "dance", "indie", "alternative", "rnb", "shanson", "local-indie"
+    ]
 
     private var session: URLSession {
         let configuration = URLSessionConfiguration.ephemeral
@@ -172,16 +241,10 @@ private struct YandexSearchClient: Sendable {
         return URLSession(configuration: configuration)
     }
 
-    func artists(matching term: String, page: Int) async -> [YandexCatalogExport.Artist] {
-        var components = URLComponents(string: "\(Self.base)/search")
-        components?.queryItems = [
-            URLQueryItem(name: "text", value: term),
-            URLQueryItem(name: "type", value: "artist"),
-            URLQueryItem(name: "page", value: "\(page)"),
-            URLQueryItem(name: "nocorrect", value: "true")
-        ]
-
-        guard let url = components?.url else { return [] }
+    private func get<T: Decodable>(_ path: String, query: [URLQueryItem] = []) async -> T? {
+        var components = URLComponents(string: Self.base + path)
+        if !query.isEmpty { components?.queryItems = query }
+        guard let url = components?.url else { return nil }
 
         var request = URLRequest(url: url)
         request.setValue("OAuth \(token)", forHTTPHeaderField: "Authorization")
@@ -189,44 +252,103 @@ private struct YandexSearchClient: Sendable {
         request.setValue("YandexMusicAndroid/24023621", forHTTPHeaderField: "X-Yandex-Music-Client")
 
         guard let (data, response) = try? await session.data(for: request),
-              let http = response as? HTTPURLResponse, http.statusCode == 200,
-              let payload = try? JSONDecoder().decode(SearchResponse.self, from: data)
-        else { return [] }
+              let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            return nil
+        }
 
-        return (payload.result.artists?.results ?? []).map { entry in
-            YandexCatalogExport.Artist(
-                id: String(entry.id),
-                name: entry.name,
-                likes: entry.likesCount,
-                tracks: entry.counts?.tracks,
-                albums: entry.counts?.directAlbums,
-                genres: entry.genres ?? [],
-                isVarious: entry.various ?? false,
-                coverURL: entry.cover?.uri
-            )
+        return try? JSONDecoder().decode(T.self, from: data)
+    }
+
+    /// Artist ids from the chart — the seeds everything else grows from.
+    func chartArtists() async -> [String] {
+        guard let payload: ChartResponse = await get("/landing3/chart") else { return [] }
+
+        let tracks = payload.result.chart?.tracks ?? []
+        return tracks.flatMap { entry in (entry.artists ?? []).map { String($0.id) } }
+    }
+
+    func genreArtists(_ genre: String) async -> [String] {
+        guard let payload: ChartResponse = await get(
+            "/landing3/chart", query: [URLQueryItem(name: "genre", value: genre)]
+        ) else { return [] }
+
+        let tracks = payload.result.chart?.tracks ?? []
+        return tracks.flatMap { entry in (entry.artists ?? []).map { String($0.id) } }
+    }
+
+    /// One artist and everyone the catalogue says they sound like.
+    func artistAndSimilar(
+        _ id: String
+    ) async -> (YandexCatalogExport.Artist?, [YandexCatalogExport.Artist]) {
+        guard let payload: BriefInfoResponse = await get("/artists/\(id)/brief-info") else {
+            return (nil, [])
+        }
+
+        let artist = payload.result.artist.map { convert($0, via: "graph") }
+        let similar = (payload.result.similarArtists ?? []).map { convert($0, via: "graph") }
+        return (artist, similar)
+    }
+
+    func searchArtists(_ term: String, page: Int) async -> [YandexCatalogExport.Artist] {
+        guard let payload: SearchResponse = await get(
+            "/search",
+            query: [
+                URLQueryItem(name: "text", value: term),
+                URLQueryItem(name: "type", value: "artist"),
+                URLQueryItem(name: "page", value: "\(page)"),
+                URLQueryItem(name: "nocorrect", value: "true")
+            ]
+        ) else { return [] }
+
+        return (payload.result.artists?.results ?? []).map { convert($0, via: "search") }
+    }
+
+    private func convert(_ entry: ArtistEntry, via: String) -> YandexCatalogExport.Artist {
+        YandexCatalogExport.Artist(
+            id: String(entry.id),
+            name: entry.name,
+            likes: entry.likesCount,
+            tracks: entry.counts?.tracks,
+            albums: entry.counts?.directAlbums,
+            genres: entry.genres ?? [],
+            isVarious: entry.various ?? false,
+            coverURL: entry.cover?.uri,
+            via: via
+        )
+    }
+
+    // MARK: Shapes
+
+    private struct ChartResponse: Decodable {
+        let result: Result
+        struct Result: Decodable { let chart: Chart? }
+        struct Chart: Decodable { let tracks: [Track]? }
+        struct Track: Decodable { let artists: [Reference]? }
+        struct Reference: Decodable { let id: Int }
+    }
+
+    private struct BriefInfoResponse: Decodable {
+        let result: Result
+        struct Result: Decodable {
+            let artist: ArtistEntry?
+            let similarArtists: [ArtistEntry]?
         }
     }
 
     private struct SearchResponse: Decodable {
         let result: Result
+        struct Result: Decodable { let artists: Artists? }
+        struct Artists: Decodable { let results: [ArtistEntry] }
+    }
 
-        struct Result: Decodable {
-            let artists: Artists?
-        }
-
-        struct Artists: Decodable {
-            let results: [Entry]
-        }
-
-        struct Entry: Decodable {
-            let id: Int
-            let name: String
-            let likesCount: Int?
-            let various: Bool?
-            let genres: [String]?
-            let counts: Counts?
-            let cover: Cover?
-        }
+    struct ArtistEntry: Decodable {
+        let id: Int
+        let name: String
+        let likesCount: Int?
+        let various: Bool?
+        let genres: [String]?
+        let counts: Counts?
+        let cover: Cover?
 
         struct Counts: Decodable {
             let tracks: Int?

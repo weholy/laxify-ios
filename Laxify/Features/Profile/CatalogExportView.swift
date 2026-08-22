@@ -31,8 +31,8 @@ struct CatalogExportView: View {
             case .idle:
                 startButton
 
-            case .running(let done, let total, let found):
-                progress(done: done, total: total, found: found)
+            case .running(let stage, let done, let total, let found):
+                progress(stage: stage, done: done, total: total, found: found)
                 cancelButton
 
             case .finished(let count, let file):
@@ -58,7 +58,7 @@ struct CatalogExportView: View {
         .buttonStyle(.plain)
     }
 
-    private func progress(done: Int, total: Int, found: Int) -> some View {
+    private func progress(stage: String, done: Int, total: Int, found: Int) -> some View {
         SettingsCard {
             VStack(spacing: 14) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -75,10 +75,11 @@ struct CatalogExportView: View {
                 ProgressView(value: Double(done), total: Double(max(total, 1)))
                     .tint(LaxifyPalette.accent)
 
-                Text("Шаг \(done) из \(total)")
+                Text("\(stage) · \(done) из \(total)")
                     .font(.system(size: 12))
                     .foregroundStyle(LaxifyPalette.textTertiary)
                     .monospacedDigit()
+                    .contentTransition(.opacity)
             }
             .padding(18)
             .animation(.easeOut(duration: 0.3), value: found)

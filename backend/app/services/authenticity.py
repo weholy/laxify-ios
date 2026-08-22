@@ -37,6 +37,13 @@ MIN_FOLLOWERS = 5_000
 # usually itself a re-upload or a mistake in their catalogue.
 MIN_REFERENCE_FANS = 1_000
 
+# Accounts that are always let through, whatever the rules say. Kept short
+# and by id, so it stays a list of decisions rather than a second rulebook.
+ALWAYS_GENUINE = {
+    "257920946",  # FACE
+    "922199617",  # FACE
+}
+
 _cache: dict[str, tuple[bool, float]] = {}
 _CACHE_TTL = 24 * 60 * 60
 _lock = asyncio.Lock()
@@ -116,6 +123,9 @@ async def is_genuine(user: dict) -> bool:
     """
     if not user:
         return False
+
+    if str(user.get("id")) in ALWAYS_GENUINE:
+        return True
 
     if user.get("verified"):
         return True
