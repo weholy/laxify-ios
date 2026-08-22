@@ -86,27 +86,12 @@ struct WaveSettingsView: View {
 
             LaxifyChipFlow(spacing: 10) {
                 ForEach(options, id: \.self) { option in
-                    let isSelected = option == selection
-                    Button {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
-                            onSelect(option)
-                        }
-                    } label: {
-                        Text(option[keyPath: titleFor])
-                            .font(LaxifyTypography.subheadline)
-                            .foregroundStyle(isSelected ? .white : LaxifyPalette.textPrimary)
-                            .padding(.horizontal, 18)
-                            .padding(.vertical, 11)
-                            .background {
-                                if isSelected {
-                                    Capsule().fill(LaxifyPalette.accent)
-                                } else {
-                                    Capsule().fill(LaxifyPalette.surface)
-                                }
-                            }
-                            .contentShape(Capsule())
+                    WaveChip(
+                        title: option[keyPath: titleFor],
+                        isSelected: option == selection
+                    ) {
+                        onSelect(option)
                     }
-                    .buttonStyle(.plain)
                 }
             }
         }
@@ -123,6 +108,48 @@ struct WaveSettingsView: View {
         .buttonStyle(.laxifyPrimary)
         .padding(.horizontal, LaxifyMetrics.screenPadding)
         .padding(.bottom, 20)
+    }
+}
+
+/// Selectable option chip.
+///
+/// Glass in both states — the selected one is simply tinted — so switching
+/// between them animates as a colour change rather than swapping one material
+/// for another, which reads as a flicker.
+private struct WaveChip: View {
+    let title: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                action()
+            }
+        } label: {
+            Text(title)
+                .font(LaxifyTypography.subheadline)
+                .foregroundStyle(isSelected ? .white : LaxifyPalette.textPrimary)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 12)
+                .glassEffect(
+                    isSelected
+                        ? .regular.tint(LaxifyPalette.accent).interactive()
+                        : .regular.interactive(),
+                    in: Capsule()
+                )
+                .contentShape(Capsule())
+        }
+        .buttonStyle(ChipPressStyle())
+        .animation(.spring(response: 0.35, dampingFraction: 0.7), value: isSelected)
+    }
+}
+
+private struct ChipPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.93 : 1)
+            .animation(.spring(response: 0.25, dampingFraction: 0.6), value: configuration.isPressed)
     }
 }
 

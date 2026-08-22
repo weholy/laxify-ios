@@ -60,9 +60,11 @@ struct AppRootView: View {
         ZStack {
             LaxifyPalette.background.ignoresSafeArea()
 
-            Image(systemName: "waveform")
-                .font(.system(size: 34, weight: .bold))
-                .foregroundStyle(LaxifyPalette.accent)
+            Image("LaxifyLogo")
+                .resizable()
+                .scaledToFill()
+                .frame(width: 76, height: 76)
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
         .transition(.opacity)
     }

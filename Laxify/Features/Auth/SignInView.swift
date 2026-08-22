@@ -11,13 +11,15 @@ struct SignInView: View {
     @State private var coverSongs: [Song] = []
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            LaxifyPalette.background.ignoresSafeArea()
-
-            driftingArtwork
-
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
             bottomPanel
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(alignment: .top) {
+            driftingArtwork
+        }
+        .background(LaxifyPalette.background.ignoresSafeArea())
         .task {
             await loadCovers()
         }
@@ -46,7 +48,8 @@ struct SignInView: View {
                     .transition(.opacity)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .center)
+        .frame(maxWidth: .infinity, alignment: .top)
+        .clipped()
         .mask {
             LinearGradient(
                 stops: [
@@ -104,23 +107,18 @@ struct SignInView: View {
     }
 
     private var logo: some View {
-        ZStack {
-            Circle()
-                .fill(LaxifyPalette.textPrimary)
-                .frame(width: 62, height: 62)
-
-            Image(systemName: "waveform")
-                .font(.system(size: 27, weight: .bold))
-                .foregroundStyle(LaxifyPalette.background)
-        }
-        .overlay(alignment: .topTrailing) {
-            Circle()
-                .fill(LaxifyPalette.accent)
-                .frame(width: 13, height: 13)
-                .offset(x: 3, y: -1)
-        }
-        .scaleEffect(logoAppear ? 1 : 0.7)
-        .rotationEffect(.degrees(logoAppear ? 0 : -12))
+        Image("LaxifyLogo")
+            .resizable()
+            .scaledToFill()
+            .frame(width: 74, height: 74)
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(.white.opacity(0.12), lineWidth: 1)
+            }
+            .shadow(color: .black.opacity(0.3), radius: 16, y: 8)
+            .scaleEffect(logoAppear ? 1 : 0.7)
+            .rotationEffect(.degrees(logoAppear ? 0 : -12))
     }
 
     private var googleButton: some View {
@@ -169,14 +167,35 @@ struct SignInView: View {
         }
     }
 
+    /// Fills the backdrop with real artwork.
+    ///
+    /// Several terms are tried in turn because a single query can come back
+    /// empty for reasons that have nothing to do with the app — a regional
+    /// block, a slow first call while the session is established, or a term
+    /// that simply matched nothing. The gradient wall stays up meanwhile, so
+    /// a failure here is invisible rather than an empty screen.
     private func loadCovers() async {
         guard coverSongs.isEmpty else { return }
-        let results = try? await YandexMusicService.shared.search(query: "хиты")
-        let tracks = (results?.tracks ?? []).filter { $0.coverURL != nil }
-        guard !tracks.isEmpty else { return }
-        withAnimation(.easeInOut(duration: 0.6)) {
-            coverSongs = Array(tracks.prefix(12))
+
+        for term in ["хиты", "популярное", "новинки", "рэп"] {
+            guard !Task.isCancelled else { return }
+
+            do {
+                let results = try await YandexMusicService.shared.search(query: term)
+                let tracks = results.tracks.filter { $0.coverURL != nil }
+
+                if tracks.count >= 4 {
+                    withAnimation(.easeInOut(duration: 0.7)) {
+                        coverSongs = Array(tracks.prefix(12))
+                    }
+                    return
+                }
+            } catch {
+                AppLogger.log("signin: covers failed for \(term) — \(error)")
+            }
         }
+
+        AppLogger.log("signin: no covers loaded, keeping placeholders")
     }
 }
 
