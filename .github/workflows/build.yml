@@ -28,7 +28,11 @@ jobs:
           curl -fsSL -o xcodegen.zip \
             "https://github.com/yonaskolb/XcodeGen/releases/download/$VERSION/xcodegen.zip"
           unzip -q xcodegen.zip
-          sudo make -C xcodegen install PREFIX=/usr/local
+          # The bundled installer only writes itself; copying the two things
+          # the release actually contains is both faster and predictable.
+          sudo mkdir -p /usr/local/bin /usr/local/share
+          sudo cp -R xcodegen/share/xcodegen /usr/local/share/
+          sudo cp xcodegen/bin/xcodegen /usr/local/bin/xcodegen
           xcodegen --version
 
       - name: Prepare secrets
