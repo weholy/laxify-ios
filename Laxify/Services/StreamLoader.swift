@@ -1,24 +1,23 @@
 import AVFoundation
 import Foundation
 
-/// Feeds AVPlayer from a single download.
+/// Feeds AVPlayer from a single download that is served as it arrives.
 ///
 /// Left to itself the player fetches a track in pieces: a few kilobytes to
-/// read the headers, then another range, then another — six to eight
-/// requests before any sound comes out. Each is a round trip, and on a slow
-/// link those round trips were the entire wait. Measured on a real device:
-/// the app's own work took sixteen milliseconds and the first sound arrived
-/// six seconds later.
+/// read the headers, then another range, then another — six to eight requests
+/// before any sound. Each is a round trip, and on a slow link those round
+/// trips were the whole wait.
 ///
-/// So the app downloads the track once, into memory, and answers the
-/// player's range requests itself. One round trip instead of eight, and
-/// seeking within a track becomes instant because the bytes are already
-/// here.
+/// So the app opens one connection and answers the player's ranges from what
+/// has arrived so far. It does not wait for the file to finish: a track plays
+/// at about sixteen kilobytes a second, so a connection managing even a
+/// fraction of a megabit is delivering faster than playback consumes. Waiting
+/// for the last byte before the first sound was six seconds of nothing.
 ///
 /// AVPlayer only consults a resource loader for schemes it does not know, so
-/// the url handed to it carries a scheme of ours and is swapped back before
+/// the url handed to it carries a scheme of ours, swapped back before
 /// anything is fetched.
-final class StreamLoader: NSObject, AVAssetResourceLoaderDelegate, @unchecked Sendable {
+final class StreamLoader: NSObject, @unchecked Sendable {
     static let scheme = "laxify-stream"
 
     private let source: URL
@@ -27,29 +26,28 @@ final class StreamLoader: NSObject, AVAssetResourceLoaderDelegate, @unchecked Se
 
     private let queue = DispatchQueue(label: "laxify.stream.loader")
 
-    /// What has arrived so far, and how big the whole thing is.
+    /// What has arrived, and how much is expected in total.
     private var buffer = Data()
-    private var totalLength: Int?
-    private var contentType = "audio/mpeg"
+    private var expectedLength: Int?
     private var isComplete = false
     private var failure: Error?
 
-    /// Requests waiting for bytes that have not arrived yet.
+    /// Requests waiting on bytes that have not arrived yet.
     private var waiting: [AVAssetResourceLoadingRequest] = []
 
     private var task: URLSessionDataTask?
+    private var startedAt = Date()
+    private var reportedFirstBytes = false
+
     private lazy var session: URLSession = {
         let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = 30
-        // The whole point is one connection carrying the whole file.
+        configuration.timeoutIntervalForRequest = 40
+        // One connection carrying the whole file is the entire point.
         configuration.httpMaximumConnectionsPerHost = 1
         configuration.waitsForConnectivity = false
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
 
-        return URLSession(
-            configuration: configuration,
-            delegate: usesPinnedTrust ? APITrust.shared : nil,
-            delegateQueue: nil
-        )
+        return URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
     }()
 
     init(source: URL, headers: [String: String], usesPinnedTrust: Bool) {
@@ -66,12 +64,16 @@ final class StreamLoader: NSObject, AVAssetResourceLoaderDelegate, @unchecked Se
         return components?.url ?? source
     }
 
-    /// Builds an asset that plays through this loader.
     func makeAsset() -> AVURLAsset {
         let asset = AVURLAsset(url: playbackURL)
         asset.resourceLoader.setDelegate(self, queue: queue)
         start()
         return asset
+    }
+
+    func cancel() {
+        task?.cancel()
+        queue.async { self.waiting.removeAll() }
     }
 
     // MARK: - Downloading
@@ -84,53 +86,117 @@ final class StreamLoader: NSObject, AVAssetResourceLoaderDelegate, @unchecked Se
             request.setValue(value, forHTTPHeaderField: name)
         }
 
-        let started = Date()
-
-        task = session.dataTask(with: request) { [weak self] data, response, error in
-            guard let self else { return }
-
-            self.queue.async {
-                if let error {
-                    self.failure = error
-                    self.failAllWaiting(error)
-                    RemoteLog.shared.error(
-                        "поток не загрузился",
-                        category: "playback",
-                        context: ["error": "\(error)"]
-                    )
-                    return
-                }
-
-                if let http = response as? HTTPURLResponse,
-                   let type = http.value(forHTTPHeaderField: "Content-Type") {
-                    self.contentType = type
-                }
-
-                self.buffer = data ?? Data()
-                self.totalLength = self.buffer.count
-                self.isComplete = true
-
-                RemoteLog.shared.timing(
-                    "поток загружен целиком",
-                    milliseconds: Int(Date().timeIntervalSince(started) * 1000),
-                    category: "playback",
-                    context: ["bytes": "\(self.buffer.count)"]
-                )
-
-                self.serveWaiting()
-            }
-        }
-
+        startedAt = Date()
+        task = session.dataTask(with: request)
         task?.resume()
     }
 
-    func cancel() {
-        task?.cancel()
-        queue.async { self.waiting.removeAll() }
+    private func finished(with error: Error?) {
+        if let error {
+            failure = error
+            let pending = waiting
+            waiting.removeAll()
+            for request in pending where !request.isFinished {
+                request.finishLoading(with: error)
+            }
+
+            RemoteLog.shared.error(
+                "поток оборвался",
+                category: "playback",
+                context: ["error": "\(error)", "bytes": "\(buffer.count)"]
+            )
+            return
+        }
+
+        isComplete = true
+        expectedLength = buffer.count
+
+        RemoteLog.shared.timing(
+            "поток загружен целиком",
+            milliseconds: Int(Date().timeIntervalSince(startedAt) * 1000),
+            category: "playback",
+            context: ["bytes": "\(buffer.count)"]
+        )
+
+        serveWaiting()
     }
 
     // MARK: - Answering the player
 
+    /// Answers one request with whatever of it is here.
+    ///
+    /// Returns false when nothing useful can be sent yet, in which case the
+    /// request is held until more arrives.
+    private func serve(_ request: AVAssetResourceLoadingRequest) -> Bool {
+        if let information = request.contentInformationRequest {
+            // The player will not start without knowing the length, so this
+            // has to wait for the response headers — but only those, not the
+            // body.
+            guard let expectedLength else { return false }
+
+            information.contentType = AVFileType.mp3.rawValue
+            information.contentLength = Int64(expectedLength)
+            // The whole file arrives in order, so a seek forward may have to
+            // wait — but declaring ranges unsupported would stop the player
+            // seeking at all.
+            information.isByteRangeAccessSupported = true
+        }
+
+        guard let dataRequest = request.dataRequest else {
+            request.finishLoading()
+            return true
+        }
+
+        let start = Int(dataRequest.requestedOffset) + Int(dataRequest.currentOffset - dataRequest.requestedOffset)
+        let available = buffer.count - start
+
+        guard available > 0 else {
+            // Nothing at this offset yet. If the download is done, this is
+            // the end of the file rather than a wait.
+            if isComplete {
+                request.finishLoading()
+                return true
+            }
+            return false
+        }
+
+        let wanted = dataRequest.requestsAllDataToEndOfResource
+            ? available
+            : min(Int(dataRequest.requestedLength) - Int(dataRequest.currentOffset - dataRequest.requestedOffset), available)
+
+        guard wanted > 0 else { return false }
+
+        dataRequest.respond(with: buffer.subdata(in: start..<(start + wanted)))
+
+        let delivered = Int(dataRequest.currentOffset - dataRequest.requestedOffset)
+        let complete = dataRequest.requestsAllDataToEndOfResource
+            ? isComplete
+            : delivered >= dataRequest.requestedLength
+
+        if complete {
+            request.finishLoading()
+            return true
+        }
+
+        // Partly answered: keep it and top it up as more arrives.
+        return false
+    }
+
+    private func serveWaiting() {
+        let pending = waiting
+        waiting.removeAll()
+
+        for request in pending where !request.isFinished {
+            if !serve(request) {
+                waiting.append(request)
+            }
+        }
+    }
+}
+
+// MARK: - Resource loading
+
+extension StreamLoader: AVAssetResourceLoaderDelegate {
     func resourceLoader(
         _ resourceLoader: AVAssetResourceLoader,
         shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest
@@ -140,12 +206,9 @@ final class StreamLoader: NSObject, AVAssetResourceLoaderDelegate, @unchecked Se
             return true
         }
 
-        if serve(loadingRequest) {
-            return true
+        if !serve(loadingRequest) {
+            waiting.append(loadingRequest)
         }
-
-        // Nothing to answer with yet; hold it until the download lands.
-        waiting.append(loadingRequest)
         return true
     }
 
@@ -155,54 +218,62 @@ final class StreamLoader: NSObject, AVAssetResourceLoaderDelegate, @unchecked Se
     ) {
         waiting.removeAll { $0 == loadingRequest }
     }
+}
 
-    /// Answers one request if the bytes it wants are here.
-    private func serve(_ request: AVAssetResourceLoadingRequest) -> Bool {
-        guard isComplete, let totalLength else { return false }
+// MARK: - Receiving the download
 
-        if let information = request.contentInformationRequest {
-            information.contentType = AVFileType.mp3.rawValue
-            information.contentLength = Int64(totalLength)
-            // Byte ranges are supported because the whole file is here; this
-            // is what lets scrubbing land immediately.
-            information.isByteRangeAccessSupported = true
+extension StreamLoader: URLSessionDataDelegate {
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        queue.async {
+            if response.expectedContentLength > 0 {
+                self.expectedLength = Int(response.expectedContentLength)
+            }
+            // The player has been waiting on the length; it can now be told.
+            self.serveWaiting()
         }
-
-        guard let dataRequest = request.dataRequest else {
-            request.finishLoading()
-            return true
-        }
-
-        let start = Int(dataRequest.requestedOffset)
-        guard start < totalLength else {
-            request.finishLoading()
-            return true
-        }
-
-        let wanted = dataRequest.requestsAllDataToEndOfResource
-            ? totalLength - start
-            : min(dataRequest.requestedLength, totalLength - start)
-
-        dataRequest.respond(with: buffer.subdata(in: start..<(start + wanted)))
-        request.finishLoading()
-        return true
+        completionHandler(.allow)
     }
 
-    private func serveWaiting() {
-        let pending = waiting
-        waiting.removeAll()
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        queue.async {
+            self.buffer.append(data)
 
-        for request in pending where !request.isFinished {
-            _ = serve(request)
+            if !self.reportedFirstBytes {
+                self.reportedFirstBytes = true
+                RemoteLog.shared.timing(
+                    "первые байты потока",
+                    milliseconds: Int(Date().timeIntervalSince(self.startedAt) * 1000),
+                    category: "playback"
+                )
+            }
+
+            self.serveWaiting()
         }
     }
 
-    private func failAllWaiting(_ error: Error) {
-        let pending = waiting
-        waiting.removeAll()
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        queue.async { self.finished(with: error) }
+    }
 
-        for request in pending where !request.isFinished {
-            request.finishLoading(with: error)
+    func urlSession(
+        _ session: URLSession,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        // Reaching the server by address needs the certificate checked
+        // against the name it carries; every other route uses the default.
+        guard usesPinnedTrust else {
+            completionHandler(.performDefaultHandling, nil)
+            return
         }
+
+        APITrust.shared.urlSession(
+            session, didReceive: challenge, completionHandler: completionHandler
+        )
     }
 }
