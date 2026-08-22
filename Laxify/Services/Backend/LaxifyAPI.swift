@@ -88,6 +88,20 @@ actor LaxifyAPI {
         session = URLSession(configuration: configuration)
     }
 
+    /// Picks a route before the first request goes out.
+    func prepare() async {
+        route = await APIRouter.shared.discover()
+    }
+
+    /// The session that can reach the current route.
+    ///
+    /// Reaching the server by address needs the trust evaluation that checks
+    /// the certificate against the name it carries; every other route uses
+    /// the ordinary one.
+    private var activeSession: URLSession {
+        route.skipsHostnameCheck ? APITrust.pinnedSession : session
+    }
+
     var isSignedIn: Bool {
         KeychainStore.read(.accessToken) != nil
     }
