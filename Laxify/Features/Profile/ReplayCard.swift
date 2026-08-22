@@ -60,7 +60,7 @@ struct ReplayEntryCard: View {
 
                 if let artwork = summary.topArtists.first?.artworkURL
                     ?? summary.topTracks.first?.artworkURL {
-                    AsyncCoverImage(url: artwork, cornerRadius: 24, displaySize: 130)
+                    AsyncCoverImage(url: artwork, cornerRadius: 30, displaySize: 130)
                         .frame(width: 104, height: 104)
                         .shadow(color: .black.opacity(0.28), radius: 16, y: 8)
                 }

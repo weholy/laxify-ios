@@ -133,7 +133,7 @@ struct FavoritesView: View {
                 }
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 34, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 40, style: .continuous))
     }
 
     private var sortRow: some View {
@@ -165,19 +165,15 @@ struct FavoritesView: View {
     private var trackList: some View {
         VStack(spacing: 12) {
             ForEach(sortedFavorites) { favorite in
-                // The row is tappable as a whole, but the download control
-                // inside it is its own button — so it is layered on top
-                // rather than nested, which would swallow its taps.
+                // A tap gesture rather than a button around the row: the
+                // download control inside it is its own button, and nesting
+                // one button in another means only the outer one is ever hit.
                 SongRowView(song: favorite.song, isFavorite: true, showsDownload: true)
-                    .background {
-                        Button {
-                            AudioPlayerController.shared.play(
-                                favorite.song, queue: sortedFavorites.map(\.song)
-                            )
-                        } label: {
-                            Color.clear.contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        AudioPlayerController.shared.play(
+                            favorite.song, queue: sortedFavorites.map(\.song)
+                        )
                     }
             }
         }

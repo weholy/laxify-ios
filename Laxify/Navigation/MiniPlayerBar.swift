@@ -7,7 +7,7 @@ struct MiniPlayerBar: View {
     var body: some View {
         if let song = player.currentSong {
             HStack(spacing: 10) {
-                AsyncCoverImage(url: song.coverURL, cornerRadius: 22, displaySize: 44)
+                AsyncCoverImage(url: song.coverURL, cornerRadius: 26, displaySize: 44)
                     .frame(width: 40, height: 40)
 
                 VStack(alignment: .leading, spacing: 1) {

@@ -110,7 +110,7 @@ struct SettingsView: View {
             .padding(16)
             .background(
                 LaxifyPalette.surface,
-                in: RoundedRectangle(cornerRadius: 26, style: .continuous)
+                in: RoundedRectangle(cornerRadius: 32, style: .continuous)
             )
             .contentShape(Rectangle())
         }
@@ -404,13 +404,13 @@ struct AppearanceSettingsView: View {
             .padding(16)
             .background(
                 LaxifyPalette.surface,
-                in: RoundedRectangle(cornerRadius: 26, style: .continuous)
+                in: RoundedRectangle(cornerRadius: 32, style: .continuous)
             )
             .overlay {
                 // The outline alone says which one is chosen. A tick as well
                 // was saying it twice, and in a colour that belonged to
                 // nothing else on the screen.
-                RoundedRectangle(cornerRadius: 26, style: .continuous)
+                RoundedRectangle(cornerRadius: 32, style: .continuous)
                     .stroke(
                         isSelected ? LaxifyPalette.selectionOutline : .clear,
                         lineWidth: isSelected ? 2 : 0
@@ -443,9 +443,9 @@ private struct ThemePreview: View {
             }
         }
         .frame(width: 42, height: 42)
-        .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 15, style: .continuous)
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .stroke(LaxifyPalette.separator, lineWidth: 1)
         }
     }
@@ -546,7 +546,7 @@ struct SettingsCard<Content: View>: View {
         }
         .background(
             LaxifyPalette.surface,
-            in: RoundedRectangle(cornerRadius: 26, style: .continuous)
+            in: RoundedRectangle(cornerRadius: 32, style: .continuous)
         )
     }
 }

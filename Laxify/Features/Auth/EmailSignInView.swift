@@ -308,7 +308,7 @@ extension View {
             .padding(.vertical, 16)
             .background(
                 LaxifyPalette.surface,
-                in: RoundedRectangle(cornerRadius: 24, style: .continuous)
+                in: RoundedRectangle(cornerRadius: 30, style: .continuous)
             )
     }
 }

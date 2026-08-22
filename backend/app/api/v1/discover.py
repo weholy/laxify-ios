@@ -79,6 +79,57 @@ class Shelf(BaseModel):
     artists: list[CatalogArtist] = []
 
 
+class ShowcaseTrack(BaseModel):
+    id: str
+    title: str
+    artist_name: str
+    artwork_url: str
+
+
+@router.get("/showcase", response_model=list[ShowcaseTrack])
+async def showcase(limit: int = Query(30, ge=6, le=60)) -> list[ShowcaseTrack]:
+    """Artwork for the sign-in screen.
+
+    Deliberately unauthenticated: this is what someone sees *before* they
+    have an account, and asking for a token they do not have yet is why the
+    screen showed coloured squares instead of album covers.
+
+    Only tracks with real artwork are returned — a placeholder in a wall of
+    covers is more noticeable than no cover at all.
+    """
+    raw = await soundcloud.charts(limit=limit * 2)
+
+    if len(raw) < limit:
+        raw += await soundcloud.genre_tracks("hiphoprap", limit=limit)
+
+    seen: set[str] = set()
+    result: list[ShowcaseTrack] = []
+
+    for item in raw:
+        track = normalise_track(item)
+        if track is None or not track.artwork_url or track.id in seen:
+            continue
+        # A user avatar standing in for missing artwork is usually a face,
+        # which reads oddly in a grid of album covers.
+        if "avatars" in track.artwork_url:
+            continue
+
+        seen.add(track.id)
+        result.append(
+            ShowcaseTrack(
+                id=track.id,
+                title=track.title,
+                artist_name=track.artist_name,
+                artwork_url=track.artwork_url,
+            )
+        )
+
+        if len(result) >= limit:
+            break
+
+    return result
+
+
 @router.get("/genres", response_model=list[Genre])
 async def genres(user: CurrentUser) -> list[Genre]:
     return [Genre(id=key, title=title) for key, title in GENRES]

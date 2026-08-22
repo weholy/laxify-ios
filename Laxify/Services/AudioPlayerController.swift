@@ -201,6 +201,9 @@ final class AudioPlayerController {
     /// terminates instead of cycling through the same dead entries.
     private var unplayableTrackIds: Set<String> = []
 
+    /// Feeds the current item. Kept alive for as long as it is playing.
+    private var streamLoader: StreamLoader?
+
     /// The playhead, read from the player itself.
     ///
     /// `currentTime` is refreshed by a periodic observer that hops to the
@@ -260,8 +263,14 @@ final class AudioPlayerController {
                 if let local = DownloadManager.shared.localURL(for: song.id) {
                     AppLogger.log("play: using downloaded file")
                     item = AVPlayerItem(url: local)
+                    streamLoader = nil
                 } else {
-                    item = try await Self.streamingItem(for: song.id)
+                    let (streamed, loader) = try await Self.streamingItem(for: song.id)
+                    item = streamed
+                    // Held so the download can be stopped when the track
+                    // changes; a loader with nothing referencing it is
+                    // deallocated mid-flight.
+                    streamLoader = loader
                 }
                 trace.mark("ассет создан")
 
@@ -349,38 +358,32 @@ final class AudioPlayerController {
         return true
     }
 
-    /// An item that streams through our own server.
+    /// An item that streams through our own server, fetched in one go.
     ///
     /// The signed url the source hands out is bound to the region it was
     /// issued in, so a phone elsewhere is refused even though the link looks
-    /// valid. The server holds the matching signature and passes the bytes on
-    /// — which also means the app needs no round trip of its own before it
-    /// can start playing.
-    private static func streamingItem(for trackId: String) async throws -> AVPlayerItem {
+    /// valid. The server holds the matching signature and passes the bytes
+    /// on.
+    ///
+    /// Those bytes arrive as a single download rather than as the six or
+    /// eight ranged requests AVPlayer would make on its own — on a slow link
+    /// those round trips were the whole wait before playback began.
+    private static func streamingItem(for trackId: String) async throws -> (AVPlayerItem, StreamLoader) {
         guard let proxy = await LaxifyAPI.shared.proxyAudioRequest(trackId: trackId) else {
             throw MusicServiceError.missingAccessKey
         }
 
-        // AVPlayer has no public way to attach a header to its own requests,
-        // and the proxy is authenticated like every other endpoint.
-        let asset = AVURLAsset(
-            url: proxy.url,
-            options: ["AVURLAssetHTTPHeaderFieldsKey": proxy.headers]
+        let loader = StreamLoader(
+            source: proxy.url,
+            headers: proxy.headers,
+            usesPinnedTrust: await LaxifyAPI.shared.routeNeedsPinnedTrust
         )
 
-        // On the route that reaches the server by address, the certificate
-        // names a host rather than the address dialled, so the player needs
-        // the same trust evaluation the rest of the app uses.
-        if await LaxifyAPI.shared.routeNeedsPinnedTrust {
-            PlayerTrust.shared.attach(to: asset)
-        }
-
-        let item = AVPlayerItem(asset: asset)
-        // Start on what has arrived rather than waiting for a comfortable
-        // buffer: the wait before the first sound was the complaint, and a
-        // brief stall later is the better trade.
-        item.preferredForwardBufferDuration = 2
-        return item
+        let item = AVPlayerItem(asset: loader.makeAsset())
+        // Everything is local by the time the player asks, so there is
+        // nothing to gain from buffering ahead.
+        item.preferredForwardBufferDuration = 1
+        return (item, loader)
     }
 
     /// Warms the next track on the server while this one plays.
@@ -516,6 +519,9 @@ final class AudioPlayerController {
     }
 
     private func teardownPlayer() {
+        streamLoader?.cancel()
+        streamLoader = nil
+
         if let timeObserverToken {
             player?.removeTimeObserver(timeObserverToken)
         }

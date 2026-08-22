@@ -149,7 +149,7 @@ struct FullPlayerView: View {
     }
 
     private var artwork: some View {
-        AsyncCoverImage(url: player.currentSong?.coverURL, cornerRadius: 30, displaySize: 360)
+        AsyncCoverImage(url: player.currentSong?.coverURL, cornerRadius: 38, displaySize: 360)
             .frame(width: 280, height: 280)
             .overlay(alignment: .bottomTrailing) {
                 if let song = player.currentSong, downloads.isDownloaded(song.id) {
