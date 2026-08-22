@@ -10,8 +10,8 @@ import AppIntents
 /// buttons, but the bodies are compiled out of the extension, which has no
 /// player to talk to.
 struct TogglePlaybackIntent: LiveActivityIntent {
-    static var title: LocalizedStringResource = "Плей/пауза"
-    static var isDiscoverable = false
+    static let title: LocalizedStringResource = "Плей/пауза"
+    static let isDiscoverable = false
 
     func perform() async throws -> some IntentResult {
         #if !WIDGET_EXTENSION
@@ -22,8 +22,8 @@ struct TogglePlaybackIntent: LiveActivityIntent {
 }
 
 struct NextTrackIntent: LiveActivityIntent {
-    static var title: LocalizedStringResource = "Следующий трек"
-    static var isDiscoverable = false
+    static let title: LocalizedStringResource = "Следующий трек"
+    static let isDiscoverable = false
 
     func perform() async throws -> some IntentResult {
         #if !WIDGET_EXTENSION
@@ -34,8 +34,8 @@ struct NextTrackIntent: LiveActivityIntent {
 }
 
 struct PreviousTrackIntent: LiveActivityIntent {
-    static var title: LocalizedStringResource = "Предыдущий трек"
-    static var isDiscoverable = false
+    static let title: LocalizedStringResource = "Предыдущий трек"
+    static let isDiscoverable = false
 
     func perform() async throws -> some IntentResult {
         #if !WIDGET_EXTENSION
@@ -46,8 +46,8 @@ struct PreviousTrackIntent: LiveActivityIntent {
 }
 
 struct ToggleFavoriteIntent: LiveActivityIntent {
-    static var title: LocalizedStringResource = "В избранное"
-    static var isDiscoverable = false
+    static let title: LocalizedStringResource = "В избранное"
+    static let isDiscoverable = false
 
     func perform() async throws -> some IntentResult {
         #if !WIDGET_EXTENSION
