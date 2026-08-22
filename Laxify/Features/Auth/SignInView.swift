@@ -6,6 +6,8 @@ struct SignInView: View {
     @State private var isSigningIn = false
     @State private var errorMessage: String?
     @State private var appear = false
+    @State private var logoAppear = false
+    @State private var buttonAppear = false
     @State private var coverSongs: [Song] = []
 
     var body: some View {
@@ -20,8 +22,14 @@ struct SignInView: View {
             await loadCovers()
         }
         .onAppear {
-            withAnimation(.easeOut(duration: 0.7).delay(0.15)) {
+            withAnimation(.spring(response: 0.7, dampingFraction: 0.7).delay(0.1)) {
+                logoAppear = true
+            }
+            withAnimation(.easeOut(duration: 0.6).delay(0.28)) {
                 appear = true
+            }
+            withAnimation(.spring(response: 0.6, dampingFraction: 0.8).delay(0.45)) {
+                buttonAppear = true
             }
         }
     }
@@ -29,11 +37,13 @@ struct SignInView: View {
     /// The artwork wall is masked so it dissolves into the background at both
     /// ends: sharp in the middle, gone behind the sign-in panel.
     private var driftingArtwork: some View {
-        Group {
-            if coverSongs.isEmpty {
-                PlaceholderCoversView()
-            } else {
+        ZStack {
+            PlaceholderCoversView()
+                .opacity(coverSongs.isEmpty ? 1 : 0)
+
+            if !coverSongs.isEmpty {
                 FloatingCoversView(songs: coverSongs)
+                    .transition(.opacity)
             }
         }
         .frame(maxWidth: .infinity, alignment: .center)
@@ -56,6 +66,7 @@ struct SignInView: View {
         VStack(spacing: 0) {
             logo
                 .padding(.bottom, 18)
+                .opacity(logoAppear ? 1 : 0)
 
             Text("Вся твоя музыка\nв одном месте")
                 .font(.system(size: 30, weight: .bold))
@@ -66,6 +77,9 @@ struct SignInView: View {
 
             googleButton
                 .padding(.horizontal, LaxifyMetrics.screenPadding)
+                .opacity(buttonAppear ? 1 : 0)
+                .offset(y: buttonAppear ? 0 : 24)
+                .scaleEffect(buttonAppear ? 1 : 0.96)
 
             if let errorMessage {
                 Text(errorMessage)
@@ -105,7 +119,8 @@ struct SignInView: View {
                 .frame(width: 13, height: 13)
                 .offset(x: 3, y: -1)
         }
-        .scaleEffect(appear ? 1 : 0.8)
+        .scaleEffect(logoAppear ? 1 : 0.7)
+        .rotationEffect(.degrees(logoAppear ? 0 : -12))
     }
 
     private var googleButton: some View {
@@ -117,8 +132,9 @@ struct SignInView: View {
                     ProgressView()
                         .tint(LaxifyPalette.background)
                 } else {
-                    GoogleGlyph()
-                        .frame(width: 19, height: 19)
+                    GoogleLogoView(size: 19)
+                        .padding(3)
+                        .background(Circle().fill(.white))
                 }
 
                 Text(isSigningIn ? "Входим…" : "Продолжить с Google")
@@ -160,21 +176,6 @@ struct SignInView: View {
         guard !tracks.isEmpty else { return }
         withAnimation(.easeInOut(duration: 0.6)) {
             coverSongs = Array(tracks.prefix(12))
-        }
-    }
-}
-
-/// Google's mark drawn locally — the SDK's own button doesn't match the app's
-/// shape language, and bundling a PNG for one glyph isn't worth it.
-private struct GoogleGlyph: View {
-    var body: some View {
-        ZStack {
-            Circle()
-                .fill(.white)
-
-            Text("G")
-                .font(.system(size: 13, weight: .bold, design: .default))
-                .foregroundStyle(Color(hex: 0x4285F4))
         }
     }
 }

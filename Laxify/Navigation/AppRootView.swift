@@ -30,15 +30,25 @@ struct AppRootView: View {
                 }
             } else {
                 SignInView { user in
-                    handleSignedIn(user)
+                    withAnimation(.easeInOut(duration: 0.4)) {
+                        handleSignedIn(user)
+                    }
                 }
+                .transition(.opacity)
             }
         }
         .task {
             if let user = await AuthService.shared.restorePreviousSignIn() {
                 handleSignedIn(user)
+                // Give SwiftData a beat to surface the inserted profile.
+                // Without this the query is still empty when the flag drops,
+                // so the sign-in screen flashes for a frame before the app
+                // replaces it.
+                try? await Task.sleep(for: .milliseconds(120))
             }
-            isRestoring = false
+            withAnimation(.easeInOut(duration: 0.35)) {
+                isRestoring = false
+            }
         }
         .onOpenURL { url in
             guard !DeepLinkRouter.shared.handle(url) else { return }
@@ -46,11 +56,18 @@ struct AppRootView: View {
         }
     }
 
+    /// Deliberately just the brand mark, no spinner: the check is usually
+    /// instant, and a spinner that appears for two frames reads as a glitch.
     private var launchLoading: some View {
         ZStack {
             LaxifyPalette.background.ignoresSafeArea()
-            ProgressView()
+
+            Image(systemName: "waveform")
+                .font(.system(size: 34, weight: .bold))
+                .foregroundStyle(LaxifyPalette.accent)
+                .opacity(0.9)
         }
+        .transition(.opacity)
     }
 
     private func handleSignedIn(_ user: AuthenticatedGoogleUser) {
