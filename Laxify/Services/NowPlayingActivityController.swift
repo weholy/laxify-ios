@@ -11,7 +11,7 @@ import Foundation
 final class NowPlayingActivityController {
     static let shared = NowPlayingActivityController()
 
-    private var activity: Activity<NowPlayingAttributes>?
+    nonisolated(unsafe) private var activity: Activity<NowPlayingAttributes>?
     private var lastPushedAt: Date = .distantPast
     private var lastTrackId: String?
 
@@ -59,8 +59,9 @@ final class NowPlayingActivityController {
         lastTrackId = song.id
         lastPushedAt = Date()
 
-        Task { @MainActor in
-            await self.activity?.update(ActivityContent(state: state, staleDate: nil))
+        let current = activity
+        Task.detached {
+            await current?.update(ActivityContent(state: state, staleDate: nil))
         }
     }
 
@@ -84,9 +85,11 @@ final class NowPlayingActivityController {
         guard activity != nil else { return }
         lastTrackId = nil
 
-        Task { @MainActor in
-            await self.activity?.end(nil, dismissalPolicy: .immediate)
-            self.activity = nil
+        let current = activity
+        activity = nil
+
+        Task.detached {
+            await current?.end(nil, dismissalPolicy: .immediate)
         }
     }
 }
