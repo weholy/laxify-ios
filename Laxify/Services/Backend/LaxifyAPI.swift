@@ -567,17 +567,28 @@ actor LaxifyAPI {
 
     // MARK: - Listening statistics
 
+    /// Minutes this device is ahead of UTC.
+    ///
+    /// A month has to start at midnight where the listener is; the server
+    /// cannot know that on its own.
+    private var timeZoneOffset: Int {
+        TimeZone.current.secondsFromGMT() / 60
+    }
+
     func replayPeriods() async throws -> [ReplayPeriod] {
-        try await send("/replay/periods", method: "GET")
+        try await send("/replay/periods?tz_offset=\(timeZoneOffset)", method: "GET")
     }
 
     /// Everything the statistics screen opens with, in one round trip.
     func replayBundle() async throws -> ReplayBundle {
-        try await send("/replay/bundle", method: "GET")
+        try await send("/replay/bundle?tz_offset=\(timeZoneOffset)", method: "GET")
     }
 
     func replay(period: String) async throws -> ReplaySummary {
-        try await send("/replay?period=\(escaped(period))&limit=10", method: "GET")
+        try await send(
+            "/replay?period=\(escaped(period))&limit=10&tz_offset=\(timeZoneOffset)",
+            method: "GET"
+        )
     }
 
     // MARK: - Catalogue

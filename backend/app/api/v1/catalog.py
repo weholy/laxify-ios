@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 from app.api.deps import CurrentUser, SessionDep
 from app.schemas.common import MessageOut
-from app.services import audio_cache
+from app.services import audio_cache, authenticity
 from app.services.playability import filter_playable
 from app.services.soundcloud import SoundCloudError, soundcloud
 
@@ -44,6 +44,8 @@ class CatalogArtist(BaseModel):
     followers: int | None = None
     description: str | None = None
     track_count: int | None = None
+    # Whether the source vouches for this account being who it says it is.
+    is_verified: bool = False
 
 
 class CatalogPlaylist(BaseModel):
@@ -106,6 +108,7 @@ def normalise_artist(raw: dict[str, Any]) -> CatalogArtist | None:
         followers=raw.get("followers_count"),
         description=raw.get("description"),
         track_count=raw.get("track_count"),
+        is_verified=bool(raw.get("verified")),
     )
 
 
@@ -156,9 +159,13 @@ async def search(
     except SoundCloudError as exc:
         raise _guard(exc) from exc
 
+    # Anyone can open an account under a famous name, and a search for one
+    # used to return a dozen of them beside the real thing.
+    genuine = await authenticity.filter_artists(results["users"], limit=10)
+
     return SearchResponse(
         tracks=_tracks(results["tracks"]),
-        artists=[a for a in (normalise_artist(u) for u in results["users"]) if a],
+        artists=[a for a in (normalise_artist(u) for u in genuine) if a],
         playlists=[p for p in (normalise_playlist(p) for p in results["playlists"]) if p],
     )
 

@@ -13,6 +13,7 @@ struct SignInView: View {
     @State private var buttonAppear = false
     @State private var coverSongs: [Song] = CoverArtCache.load()
     @State private var showsEmailSignIn = false
+    @State private var showsTerms = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -26,6 +27,9 @@ struct SignInView: View {
         .background(LaxifyPalette.background.ignoresSafeArea())
         .task {
             await loadCovers()
+        }
+        .sheet(isPresented: $showsTerms) {
+            TermsView { showsTerms = false }
         }
         .fullScreenCover(isPresented: $showsEmailSignIn) {
             EmailSignInView(
@@ -104,12 +108,20 @@ struct SignInView: View {
                     .transition(.opacity)
             }
 
-            Text("Продолжая, вы принимаете условия использования")
-                .font(.system(size: 11))
-                .foregroundStyle(LaxifyPalette.textTertiary)
-                .multilineTextAlignment(.center)
-                .padding(.top, 14)
-                .padding(.horizontal, 32)
+            Button {
+                showsTerms = true
+            } label: {
+                Text("Продолжая, вы принимаете ")
+                    .foregroundStyle(LaxifyPalette.textTertiary)
+                + Text("условия использования")
+                    .foregroundStyle(LaxifyPalette.textSecondary)
+                    .underline()
+            }
+            .buttonStyle(.plain)
+            .font(.system(size: 11))
+            .multilineTextAlignment(.center)
+            .padding(.top, 14)
+            .padding(.horizontal, 32)
         }
         .padding(.bottom, 28)
         .opacity(appear ? 1 : 0)

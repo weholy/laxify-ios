@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
-from sqlalchemy import and_, desc, distinct, func, select
+from sqlalchemy import and_, desc, distinct, func, select, text
 
 from app.api.deps import CurrentUser, SessionDep
 from app.models import ListeningEvent, TrackSnapshot
@@ -76,14 +76,22 @@ class ReplaySummary(BaseModel):
     longest_streak_days: int
 
 
-def _bounds(period_id: str) -> tuple[datetime | None, datetime | None]:
-    """Turns a period id into a range. `all` has no bounds."""
+def _bounds(period_id: str, offset_minutes: int = 0) -> tuple[datetime | None, datetime | None]:
+    """Turns a period id into a range, in the listener's own time.
+
+    A month has to start at midnight where the listener is, not where the
+    server is. Computed here as an offset from UTC rather than by storing a
+    timezone: what matters is when their first of the month begins, and the
+    app knows that.
+    """
     if period_id == "all":
         return None, None
 
     year, month = (int(part) for part in period_id.split("-"))
-    start = datetime(year, month, 1, tzinfo=UTC)
-    end = datetime(year + (month // 12), (month % 12) + 1, 1, tzinfo=UTC)
+    shift = timedelta(minutes=offset_minutes)
+
+    start = datetime(year, month, 1, tzinfo=UTC) - shift
+    end = datetime(year + (month // 12), (month % 12) + 1, 1, tzinfo=UTC) - shift
     return start, end
 
 
@@ -99,8 +107,8 @@ def _title(period_id: str) -> tuple[str, str]:
     return name, SHORT_MONTHS[month - 1]
 
 
-def _range_filter(user_id, period_id: str):
-    start, end = _bounds(period_id)
+def _range_filter(user_id, period_id: str, offset_minutes: int = 0):
+    start, end = _bounds(period_id, offset_minutes)
     clauses = [
         ListeningEvent.user_id == user_id,
         ListeningEvent.seconds_played >= MEANINGFUL_SECONDS,
@@ -113,7 +121,11 @@ def _range_filter(user_id, period_id: str):
 
 
 @router.get("/periods", response_model=list[Period])
-async def periods(user: CurrentUser, session: SessionDep) -> list[Period]:
+async def periods(
+    user: CurrentUser,
+    session: SessionDep,
+    tz_offset: int = Query(0, ge=-840, le=840),
+) -> list[Period]:
     """Months this listener actually has something in, newest first.
 
     Offering every month of the year would mean tapping through empty
@@ -122,8 +134,15 @@ async def periods(user: CurrentUser, session: SessionDep) -> list[Period]:
     rows = (
         await session.execute(
             select(
-                func.extract("year", ListeningEvent.played_at).label("y"),
-                func.extract("month", ListeningEvent.played_at).label("m"),
+                # Shifted into the listener's own day before the month is
+                # taken from it, or a play just before midnight lands in the
+                # wrong month for them.
+                func.extract(
+                    "year", ListeningEvent.played_at + text(f"interval '{tz_offset} minutes'")
+                ).label("y"),
+                func.extract(
+                    "month", ListeningEvent.played_at + text(f"interval '{tz_offset} minutes'")
+                ).label("m"),
             )
             .where(
                 ListeningEvent.user_id == user.id,
@@ -135,7 +154,7 @@ async def periods(user: CurrentUser, session: SessionDep) -> list[Period]:
         )
     ).all()
 
-    today = datetime.now(UTC)
+    today = datetime.now(UTC) + timedelta(minutes=tz_offset)
     result: list[Period] = []
 
     for year, month in rows:
@@ -160,8 +179,9 @@ async def summary(
     session: SessionDep,
     period: str = Query("all", pattern=r"^(all|\d{4}-\d{2})$"),
     limit: int = Query(10, ge=3, le=25),
+    tz_offset: int = Query(0, ge=-840, le=840),
 ) -> ReplaySummary:
-    where = _range_filter(user.id, period)
+    where = _range_filter(user.id, period, tz_offset)
     title, short = _title(period)
 
     totals = (
@@ -335,6 +355,7 @@ async def bundle(
     user: CurrentUser,
     session: SessionDep,
     limit: int = Query(10, ge=3, le=25),
+    tz_offset: int = Query(0, ge=-840, le=840),
 ) -> ReplayBundle:
     """Opens the screen in one round trip rather than three.
 
@@ -342,21 +363,30 @@ async def bundle(
     compare against. Asking for those in sequence meant three waits stacked
     end to end before anything could be drawn.
     """
-    available = await periods(user=user, session=session)
+    available = await periods(user=user, session=session, tz_offset=tz_offset)
 
     months = [period for period in available if period.id != "all"]
     opening = next((p for p in months if p.is_current), months[0] if months else None)
 
     if opening is None:
-        return ReplayBundle(periods=available, current=None, previous=None)
+        # Nothing played yet this month. The screen still opens on it, with
+        # zeros, so the card in the profile does not vanish on the first of
+        # every month and reappear after the first track.
+        now = datetime.now(UTC) + timedelta(minutes=tz_offset)
+        identifier = f"{now.year}-{now.month:02d}"
+        title, short = _title(identifier)
+        opening = Period(id=identifier, title=title, short_title=short, is_current=True)
+        available = [opening, *available]
 
     earlier = next((p for p in months if p.id != opening.id), None)
 
     current_summary = await summary(
-        user=user, session=session, period=opening.id, limit=limit
+        user=user, session=session, period=opening.id, limit=limit, tz_offset=tz_offset
     )
     previous_summary = (
-        await summary(user=user, session=session, period=earlier.id, limit=limit)
+        await summary(
+            user=user, session=session, period=earlier.id, limit=limit, tz_offset=tz_offset
+        )
         if earlier
         else None
     )

@@ -22,6 +22,11 @@ struct LaxifySlider: View {
     @State private var isDragging = false
     @State private var dragValue: Double = 0
 
+    /// How far outside the bar a touch still counts. A slim bar is hard to
+    /// hit exactly; more than this and it starts catching taps aimed
+    /// elsewhere.
+    private static let touchPadding: CGFloat = 8
+
     private var displayed: Double {
         isDragging ? dragValue : value
     }
@@ -71,8 +76,12 @@ struct LaxifySlider: View {
             }
             .frame(height: max(knobSize, trackHeight))
             .frame(maxHeight: .infinity, alignment: .center)
-            // A slim track is hard to hit, so the gesture area is the full row.
-            .contentShape(Rectangle())
+            // Only the bar itself takes the gesture. It was the whole row,
+            // which meant a tap in the space beside the bar moved playback —
+            // and that space is where a thumb naturally lands.
+            .contentShape(
+                Rectangle().inset(by: -Self.touchPadding)
+            )
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { gesture in
@@ -91,7 +100,9 @@ struct LaxifySlider: View {
                     }
             )
         }
-        .frame(height: max(knobSize, trackHeight) + 16)
+        // Just enough height to be reachable without swallowing taps meant
+        // for whatever is above or below.
+        .frame(height: max(knobSize, trackHeight) + Self.touchPadding * 2)
     }
 
     private func valueAt(x: CGFloat, width: CGFloat) -> Double {
