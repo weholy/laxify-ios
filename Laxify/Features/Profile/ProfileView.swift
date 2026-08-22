@@ -2,12 +2,11 @@ import SwiftUI
 
 struct ProfileView: View {
     var session = SessionStore.shared
-    var stats = ListeningStatsService.shared
 
     @State private var isEditPresented = false
     @State private var isSettingsPresented = false
     @State private var isReplayPresented = false
-    @State private var serverStats: BackendStats?
+    @State private var avatarPalette: ArtworkPalette = .neutral
 
     private var user: BackendUser? { session.user }
 
@@ -29,7 +28,6 @@ struct ProfileView: View {
                     }
                     .padding(.horizontal, LaxifyMetrics.screenPadding)
 
-                    statsSection
                 }
                 .padding(.top, 12)
                 .padding(.bottom, LaxifyMetrics.tabBarHeight + LaxifyMetrics.miniPlayerHeight + 40)
@@ -38,7 +36,7 @@ struct ProfileView: View {
         .background(profileBackground)
         .task {
             await session.refreshUser()
-            serverStats = try? await LaxifyAPI.shared.stats()
+            avatarPalette = await PaletteExtractor.shared.palette(for: session.user?.avatarURL)
         }
         .fullScreenCover(isPresented: $isEditPresented) {
             EditProfileView { isEditPresented = false }
@@ -77,27 +75,28 @@ struct ProfileView: View {
         .padding(.bottom, 4)
     }
 
+    /// A wash of the avatar's own colour at the top, fading into the page.
+    ///
+    /// A blurred copy of the picture sat as a visibly different image over a
+    /// dark page — brown over black, with an edge where it ended. Taking the
+    /// colour and painting a gradient with it belongs to the page instead of
+    /// sitting on it.
     private var profileBackground: some View {
-        ZStack {
+        ZStack(alignment: .top) {
             LaxifyPalette.background
 
-            Group {
-                if let url = user?.avatarURL {
-                    BlurredBackdrop(url: url, blur: 90, opacity: 0.5)
-                } else {
-                    LaxifyPalette.accent.opacity(0.22).blur(radius: 90)
-                }
-            }
-            .frame(height: 420)
-            .frame(maxHeight: .infinity, alignment: .top)
-
             LinearGradient(
-                colors: [.clear, LaxifyPalette.background.opacity(0.8), LaxifyPalette.background],
+                colors: [
+                    avatarPalette.accent.opacity(0.55),
+                    avatarPalette.dominant.opacity(0.28),
+                    LaxifyPalette.background.opacity(0)
+                ],
                 startPoint: .top,
                 endPoint: .bottom
             )
+            .frame(height: 460)
+            .animation(.easeInOut(duration: 0.6), value: avatarPalette)
         }
-        .clipped()
         .ignoresSafeArea()
     }
 
@@ -143,32 +142,6 @@ struct ProfileView: View {
         }
     }
 
-    private var statsSection: some View {
-        VStack(spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 5) {
-                Text(formattedHours)
-                    .font(.system(size: 54, weight: .bold, design: .rounded))
-                    .foregroundStyle(LaxifyPalette.textPrimary)
-                    .contentTransition(.numericText())
-                    .animation(.spring(response: 0.5, dampingFraction: 0.8), value: formattedHours)
-                Text("ч")
-                    .font(.system(size: 24, weight: .semibold, design: .rounded))
-                    .foregroundStyle(LaxifyPalette.textSecondary)
-            }
-
-            Text("прослушано")
-                .font(LaxifyTypography.footnote)
-                .foregroundStyle(LaxifyPalette.textSecondary)
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    /// Prefers the server total, which spans every device, and falls back to
-    /// the local count when the server has not answered yet.
-    private var formattedHours: String {
-        let seconds = serverStats?.totalSeconds ?? stats.totalSecondsListened
-        return String(format: "%.1f", seconds / 3600)
-    }
 }
 
 #Preview {

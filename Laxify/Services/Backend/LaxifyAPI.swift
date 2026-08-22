@@ -556,6 +556,15 @@ actor LaxifyAPI {
         return try await send(path, method: "GET")
     }
 
+    /// Artwork for the sign-in screen.
+    ///
+    /// Unauthenticated: this is the one screen where nobody has a token yet,
+    /// which is why asking an authenticated endpoint left it showing coloured
+    /// squares.
+    func showcase(limit: Int = 30) async throws -> [ShowcaseTrack] {
+        try await send("/discover/showcase?limit=\(limit)", method: "GET", authenticated: false)
+    }
+
     // MARK: - Listening statistics
 
     func replayPeriods() async throws -> [ReplayPeriod] {

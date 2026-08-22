@@ -181,54 +181,35 @@ struct SignInView: View {
         }
     }
 
-    /// Refreshes the backdrop artwork.
+    /// Fills the wall with real artwork.
     ///
-    /// The term is picked at random and mixed with a second query so the wall
-    /// differs between launches instead of always showing the same chart.
+    /// Searching needs a session, and this is the one screen where nobody has
+    /// one — which is why the wall was coloured squares. The server offers
+    /// what is popular without asking for a token.
+    ///
     /// Cached covers are already on screen, so a failure here changes nothing
     /// visible.
     private func loadCovers() async {
-        var collected: [Song] = []
-        var seen = Set(coverSongs.map(\.id))
-
-        for term in Self.coverSearchTerms.shuffled().prefix(3) {
-            guard !Task.isCancelled else { return }
-
-            do {
-                let results = try await CatalogService.shared.search(query: term)
-                for song in results.tracks where song.coverURL != nil && !seen.contains(song.id) {
-                    seen.insert(song.id)
-                    collected.append(song)
-                }
-            } catch {
-                AppLogger.log("signin: covers failed for \(term) — \(error)")
-            }
-
-            if collected.count >= 16 { break }
-        }
-
-        guard collected.count >= 6 else {
-            AppLogger.log("signin: not enough covers, keeping what is shown")
+        guard let showcase = try? await LaxifyAPI.shared.showcase(limit: 40) else {
+            AppLogger.log("signin: showcase unavailable, keeping what is shown")
             return
         }
 
-        let fresh = collected.shuffled()
-        CoverArtCache.save(fresh)
+        let songs = showcase.map(\.song).filter { $0.coverURL != nil }
+        guard songs.count >= 6 else { return }
 
+        let fresh = songs.shuffled()
+
+        // Fetched before they are shown, so the wall fades in whole rather
+        // than filling in square by square.
+        AsyncCoverImage.prefetchCovers(for: Array(fresh.prefix(20)), width: 110)
+        try? await Task.sleep(for: .milliseconds(400))
+
+        CoverArtCache.save(fresh)
         withAnimation(.easeInOut(duration: 0.8)) {
             coverSongs = fresh
         }
     }
-
-    /// A deliberately wide mix so the backdrop is not always Russian chart
-    /// covers — the reference wall reads as "all music", not one scene.
-    private static let coverSearchTerms = [
-        "хиты", "новинки", "русский рэп", "поп музыка",
-        "Travis Scott", "Kendrick Lamar", "Drake", "Eminem",
-        "Kanye West", "Playboi Carti", "21 Savage", "Metro Boomin",
-        "The Weeknd", "Tyler The Creator", "Future", "Lil Peep",
-        "рок", "электронная музыка", "джаз", "инди"
-    ]
 }
 
 #Preview {

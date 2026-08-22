@@ -292,3 +292,22 @@ struct ReplayBundle: Codable, Sendable {
     let current: ReplaySummary?
     let previous: ReplaySummary?
 }
+
+struct ShowcaseTrack: Codable, Sendable, Identifiable {
+    let id: String
+    let title: String
+    let artistName: String
+    let artworkUrl: String
+
+    var song: Song {
+        Song(
+            id: id,
+            title: title,
+            artistName: artistName,
+            artistId: nil,
+            albumTitle: nil,
+            coverURL: URL(string: artworkUrl),
+            duration: 0
+        )
+    }
+}

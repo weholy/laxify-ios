@@ -16,6 +16,7 @@ struct ReplayView: View {
     @State private var errorMessage: String?
     @State private var appear = false
     @State private var palette: ArtworkPalette = .neutral
+    @State private var lifetime: BackendStats?
 
     var body: some View {
         ZStack {
@@ -165,6 +166,7 @@ struct ReplayView: View {
                     }
 
                     habitSection(summary)
+                    lifetimeSection
                 }
                 .padding(.bottom, 130)
             }
@@ -361,11 +363,34 @@ struct ReplayView: View {
     }
 
     private func habitSection(_ summary: ReplaySummary) -> some View {
-        HStack(spacing: 10) {
-            figure(summary.activeDays, "дней с музыкой")
-            figure(summary.longestStreakDays, "дней подряд")
+        VStack(alignment: .leading, spacing: 12) {
+            sectionTitle("Привычка")
+
+            HStack(spacing: 10) {
+                figure(summary.activeDays, "дней с музыкой")
+                figure(summary.longestStreakDays, "дней подряд")
+                figure(Int((Double(summary.totalMinutes) / Double(max(summary.activeDays, 1))).rounded()), "минут в день")
+            }
+            .padding(.horizontal, LaxifyMetrics.screenPadding)
         }
-        .padding(.horizontal, LaxifyMetrics.screenPadding)
+    }
+
+    /// The all-time total, kept at the bottom where a lifetime figure
+    /// belongs — it changes slowly and is not what anyone opens this for.
+    @ViewBuilder
+    private var lifetimeSection: some View {
+        if let lifetime {
+            VStack(alignment: .leading, spacing: 12) {
+                sectionTitle("За всё время")
+
+                HStack(spacing: 10) {
+                    figure(Int(lifetime.totalSeconds / 3600), "часов")
+                    figure(lifetime.totalTracks, "треков")
+                    figure(lifetime.longestStreakDays, "дней подряд")
+                }
+                .padding(.horizontal, LaxifyMetrics.screenPadding)
+            }
+        }
     }
 
     private func sectionTitle(_ text: String) -> some View {
@@ -384,7 +409,9 @@ struct ReplayView: View {
         do {
             // One request rather than three in sequence: the months, this
             // month's figures and the month before all arrive together.
+            async let lifetimeTask = try? await LaxifyAPI.shared.stats()
             let bundle = try await LaxifyAPI.shared.replayBundle()
+            lifetime = await lifetimeTask
             periods = bundle.periods
             selected = bundle.current?.period ?? bundle.periods.first
 
