@@ -278,19 +278,38 @@ struct DiagnosticsView: View {
         sourceCheck = .pending
         routes = [:]
 
-        // The source first: it is what music depends on, and it answers on
-        // networks the server does not.
-        do {
-            let key = try await SoundCloudDirect.shared.diagnosticKey()
-            sourceCheck = .ok(key: key)
-        } catch {
-            sourceCheck = .failed((error as? LocalizedError)?.errorDescription ?? "\(error)")
-        }
+        // Whatever the log already holds, immediately. The checks below take
+        // seconds, and a screen that shows nothing while it works looks
+        // broken — which on the networks it is meant to diagnose is exactly
+        // the wrong impression.
+        entries = await RemoteLog.shared.recent()
 
-        await APIRouter.shared.discover(force: true)
-        routes = await APIRouter.shared.lastProbeResults
+        // The two checks are independent, so neither waits for the other.
+        async let source: Void = checkSource()
+        async let server: Void = checkRoutes()
+        _ = await (source, server)
 
+        // Re-read at the end: the checks themselves wrote to the log, and
+        // those lines are the interesting ones.
         entries = await RemoteLog.shared.recent()
         exported = try? await RemoteLog.shared.exportFile()
+    }
+
+    private func checkSource() async {
+        do {
+            let key = try await SoundCloudDirect.shared.diagnosticKey()
+            withAnimation(.easeOut(duration: 0.25)) { sourceCheck = .ok(key: key) }
+        } catch {
+            let reason = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            withAnimation(.easeOut(duration: 0.25)) { sourceCheck = .failed(reason) }
+        }
+
+        entries = await RemoteLog.shared.recent()
+    }
+
+    private func checkRoutes() async {
+        await APIRouter.shared.discover(force: true)
+        let found = await APIRouter.shared.lastProbeResults
+        withAnimation(.easeOut(duration: 0.25)) { routes = found }
     }
 }

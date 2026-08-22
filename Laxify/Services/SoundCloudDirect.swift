@@ -29,6 +29,23 @@ actor SoundCloudDirect {
         (KHTML, like Gecko) Chrome/122.0 Safari/537.36
         """
 
+    /// Keys the web player has used, kept in the app.
+    ///
+    /// The official app does not read the website to find one — it ships
+    /// with a key. Scraping the site first was a mistake for the same reason
+    /// asking our server first was: the site is a separate host that can be
+    /// unreachable while the API is fine, and depending on it made music
+    /// depend on something music does not need.
+    ///
+    /// Each is checked against the API itself, so a key that has been retired
+    /// is skipped rather than trusted.
+    private static let knownKeys = [
+        "0dqfiN6c3Y9idZWFzMMulqPjotmYCC7S",
+        "iZIs9mchVcX5lhVRyQGGAYlNPVldzAoX",
+        "a3e059563d7fd3372b49b37f00a00bcf",
+        "2t9loNQH90kzJcsFCODdigxfp325aq4z"
+    ]
+
     private var clientId: String?
     private var clientIdFetchedAt: Date?
     private var clientIdTask: Task<String?, Never>?
@@ -59,15 +76,15 @@ actor SoundCloudDirect {
             return await clientIdTask.value
         }
 
-        // Read from the source itself first. Our server holds one too and
-        // could hand it over in a single request — but asking a server that
-        // cannot be reached costs a full timeout before anything else can
-        // happen, and on the networks this exists for it never can be. The
-        // source is reachable by definition: it is where the music comes
-        // from.
+        // A key we already have, checked against the API, costs one request
+        // and needs nothing but the API itself. Only when none of them still
+        // work is anything else asked.
         let task = Task<String?, Never> { [weak self] in
             guard let self else { return nil }
 
+            if let known = await self.firstWorkingKnownKey() {
+                return known
+            }
             if let scraped = await self.scrapeKey() {
                 return scraped
             }
@@ -88,6 +105,52 @@ actor SoundCloudDirect {
 
     private func keyFromServer() async -> String? {
         try? await LaxifyAPI.shared.sourceKey()
+    }
+
+    /// The first shipped key the API still accepts.
+    private func firstWorkingKnownKey() async -> String? {
+        for candidate in Self.knownKeys {
+            if await accepts(candidate) {
+                RemoteLog.shared.info(
+                    "источник: ключ из приложения подошёл",
+                    category: "source",
+                    context: ["key": String(candidate.prefix(8))]
+                )
+                return candidate
+            }
+        }
+
+        RemoteLog.shared.warn("источник: ни один встроенный ключ не подошёл", category: "source")
+        return nil
+    }
+
+    /// Whether the API answers for this key.
+    ///
+    /// Deliberately the smallest request there is, so checking four of them
+    /// costs less than one page of search results.
+    private func accepts(_ candidate: String) async -> Bool {
+        var components = URLComponents(string: "\(Self.apiBase)/tracks")
+        components?.queryItems = [
+            URLQueryItem(name: "ids", value: "219590176"),
+            URLQueryItem(name: "client_id", value: candidate)
+        ]
+
+        guard let url = components?.url else { return false }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 8
+
+        do {
+            let (_, response) = try await session.data(for: request)
+            return (response as? HTTPURLResponse)?.statusCode == 200
+        } catch {
+            RemoteLog.shared.warn(
+                "источник: проверка ключа не прошла",
+                category: "source",
+                context: ["error": "\(error)"]
+            )
+            return false
+        }
     }
 
     /// Reads the key out of the web player's own scripts.
@@ -211,11 +274,22 @@ actor SoundCloudDirect {
         do {
             (data, response) = try await session.data(from: url)
         } catch {
-            RemoteLog.shared.error(
-                "источник: запрос не прошёл",
-                category: "source",
-                context: ["path": label, "error": "\(error)"]
-            )
+            // A cancelled request means the screen that wanted it went away,
+            // which is ordinary navigation rather than something broken.
+            let cancelled = (error as? URLError)?.code == .cancelled
+            if cancelled {
+                RemoteLog.shared.info(
+                    "источник: запрос отменён",
+                    category: "source",
+                    context: ["path": label]
+                )
+            } else {
+                RemoteLog.shared.error(
+                    "источник: запрос не прошёл",
+                    category: "source",
+                    context: ["path": label, "error": "\(error)"]
+                )
+            }
             throw MusicServiceError.underlying(error)
         }
 

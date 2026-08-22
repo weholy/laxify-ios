@@ -171,7 +171,10 @@ final class HomeViewModel {
         do {
             let fresh = try await service.homeContent()
             content = fresh
-            loadedAt = Date()
+            // Only counted as loaded when it actually finished. A load
+            // cancelled by navigating away used to mark the feed fresh, so
+            // coming back showed nothing and did not try again.
+            loadedAt = Task.isCancelled ? nil : Date()
 
             // Artwork starts loading now, while the rows are still being
             // laid out, rather than when each one scrolls into view.
