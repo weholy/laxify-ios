@@ -412,6 +412,10 @@ struct ReplayView: View {
         }
         isLoading = false
 
+        // Anything the account has that this device does not, before the
+        // server's own figures are asked for.
+        await HistoryMirror.sync(context: modelContext)
+
         do {
             // One request rather than three in sequence: the months, this
             // month's figures and the month before all arrive together.

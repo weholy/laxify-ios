@@ -57,6 +57,10 @@ struct AppRootView: View {
             session.modelContext = modelContext
             AudioPlayerController.shared.modelContext = modelContext
             await restore()
+
+            // Bring the account's listening history down, so the figures the
+            // device works out are the same ones the server would.
+            await HistoryMirror.sync(context: modelContext)
         }
         .onOpenURL { url in
             guard !DeepLinkRouter.shared.handle(url) else { return }

@@ -394,3 +394,68 @@ async def bundle(
     return ReplayBundle(
         periods=available, current=current_summary, previous=previous_summary
     )
+
+class PlayOut(BaseModel):
+    """One play, as the device needs it to rebuild its own record."""
+
+    track_id: str
+    title: str
+    artist_name: str
+    artist_id: str | None
+    cover_url: str | None
+    genre: str | None
+    played_at: datetime
+    seconds_played: float
+    completed: bool
+
+
+@router.get("/history", response_model=list[PlayOut])
+async def history(
+    user: CurrentUser,
+    session: SessionDep,
+    limit: int = Query(1000, ge=1, le=5000),
+    before: datetime | None = Query(None),
+) -> list[PlayOut]:
+    """The listening log, newest first.
+
+    Exists so a device can hold the same history the server does. Statistics
+    computed only here vanish whenever this server cannot be reached, and on
+    some networks it never can — so the figures are worked out on the device,
+    and this is what gives the device something to work them out from.
+
+    Paged by timestamp rather than by offset: the log only grows at one end,
+    and an offset would shift under a page that arrives while more is being
+    written.
+    """
+    clauses = [ListeningEvent.user_id == user.id]
+    if before is not None:
+        clauses.append(ListeningEvent.played_at < before)
+
+    rows = (
+        await session.execute(
+            select(ListeningEvent, TrackSnapshot)
+            .join(
+                TrackSnapshot,
+                TrackSnapshot.track_id == ListeningEvent.track_id,
+                isouter=True,
+            )
+            .where(*clauses)
+            .order_by(desc(ListeningEvent.played_at))
+            .limit(limit)
+        )
+    ).all()
+
+    return [
+        PlayOut(
+            track_id=event.track_id,
+            title=snapshot.title if snapshot else "Трек",
+            artist_name=snapshot.artist_name if snapshot else "",
+            artist_id=event.artist_id or (snapshot.artist_id if snapshot else None),
+            cover_url=snapshot.cover_url if snapshot else None,
+            genre=snapshot.genre if snapshot else None,
+            played_at=event.played_at,
+            seconds_played=event.seconds_played,
+            completed=event.completed,
+        )
+        for event, snapshot in rows
+    ]

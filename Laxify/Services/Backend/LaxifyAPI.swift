@@ -596,6 +596,11 @@ actor LaxifyAPI {
         try await send("/replay/periods?tz_offset=\(timeZoneOffset)", method: "GET")
     }
 
+    /// The account's play log, so the device can hold the same history.
+    func playHistory(limit: Int = 1000) async throws -> [PlayHistoryEntry] {
+        try await send("/replay/history?limit=\(limit)", method: "GET")
+    }
+
     /// Everything the statistics screen opens with, in one round trip.
     func replayBundle() async throws -> ReplayBundle {
         try await send("/replay/bundle?tz_offset=\(timeZoneOffset)", method: "GET")

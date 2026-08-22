@@ -311,3 +311,15 @@ struct ShowcaseTrack: Codable, Sendable, Identifiable {
         )
     }
 }
+
+struct PlayHistoryEntry: Codable, Sendable {
+    let trackId: String
+    let title: String
+    let artistName: String
+    let artistId: String?
+    let coverUrl: String?
+    let genre: String?
+    let playedAt: Date
+    let secondsPlayed: Double
+    let completed: Bool
+}
