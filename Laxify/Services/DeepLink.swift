@@ -24,30 +24,41 @@ enum DeepLink: Equatable, Hashable {
         }
     }
 
-    var url: URL {
+    var url: URL? {
         switch self {
-        case .track(let id): URL(string: "\(Self.scheme)://track/\(id)")!
-        case .artist(let id): URL(string: "\(Self.scheme)://artist/\(id)")!
-        case .album(let id): URL(string: "\(Self.scheme)://album/\(id)")!
-        case .playlist(let id): URL(string: "\(Self.scheme)://playlist/\(id)")!
+        // Escaped and optional: an id is whatever the source gave us, and a
+        // link is not worth crashing over if one of them ever contains
+        // something a url cannot hold.
+        case .track(let id): Self.link("track", id)
+        case .artist(let id): Self.link("artist", id)
+        case .album(let id): Self.link("album", id)
+        case .playlist(let id): Self.link("playlist", id)
         }
+    }
+
+    /// One link, escaped, or nothing.
+    private static func link(_ kind: String, _ identifier: String) -> URL? {
+        let allowed = CharacterSet.urlPathAllowed
+        let escaped = identifier.addingPercentEncoding(withAllowedCharacters: allowed)
+            ?? identifier
+        return URL(string: "\(scheme)://\(kind)/\(escaped)")
     }
 }
 
 enum ShareText {
     static func track(_ song: Song) -> String {
-        "\(song.title) — \(song.artistName)\n\(DeepLink.track(id: song.id).url.absoluteString)"
+        "\(song.title) — \(song.artistName)\n\(DeepLink.track(id: song.id).url?.absoluteString ?? "")"
     }
 
     static func artist(_ artist: MusicArtist) -> String {
-        "\(artist.name)\n\(DeepLink.artist(id: artist.id).url.absoluteString)"
+        "\(artist.name)\n\(DeepLink.artist(id: artist.id).url?.absoluteString ?? "")"
     }
 
     static func album(_ album: MusicAlbum) -> String {
-        "\(album.title) — \(album.artistName)\n\(DeepLink.album(id: album.id).url.absoluteString)"
+        "\(album.title) — \(album.artistName)\n\(DeepLink.album(id: album.id).url?.absoluteString ?? "")"
     }
 
     static func playlist(_ collection: MusicCollection) -> String {
-        "\(collection.title)\n\(DeepLink.playlist(id: collection.id).url.absoluteString)"
+        "\(collection.title)\n\(DeepLink.playlist(id: collection.id).url?.absoluteString ?? "")"
     }
 }

@@ -73,39 +73,10 @@ final class SyncService {
 
     // MARK: - Playback
 
-    func recordPlayback(song: Song, seconds: Double, completed: Bool, source: String?) {
-        guard seconds > 0 else { return }
+    // Plays no longer travel this way. They are written to the device as
+    // they happen and uploaded from there, which is both durable and exactly
+    // once; routing them through here as well is what put the same play on
+    // the server twice. Removed rather than left dormant, because a dormant
+    // second path is one accidental call away from doing it again.
 
-        pendingPlayback.append(
-            PlaybackEvent(
-                track: BackendTrack(song: song),
-                playedAt: Date(),
-                secondsPlayed: seconds,
-                completed: completed,
-                source: source
-            )
-        )
-
-        scheduleFlush()
-    }
-
-    private func scheduleFlush() {
-        guard flushTask == nil else { return }
-
-        flushTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(20))
-            await self?.flushPlayback()
-        }
-    }
-
-    func flushPlayback() async {
-        flushTask = nil
-        guard !pendingPlayback.isEmpty else { return }
-
-        let batch = pendingPlayback
-        pendingPlayback = []
-
-        // The outbox owns retries and persistence from here.
-        SyncOutbox.shared.playback(batch)
-    }
 }

@@ -174,6 +174,11 @@ async def search(
 
     # Anyone can open an account under a famous name, and a search for one
     # used to return a dozen of them beside the real thing.
+    #
+    # Only the artist list is filtered. Tracks are left alone: plenty of good
+    # music is uploaded by people who are not the artist and never claimed to
+    # be, and hiding a song because of who posted it would empty the
+    # catalogue. What is hidden is the impersonation, not the music.
     genuine = await authenticity.filter_artists(results["users"], limit=10, session=session)
 
     return SearchResponse(

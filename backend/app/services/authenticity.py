@@ -40,6 +40,12 @@ MIN_FOLLOWERS = 5_000
 # usually itself a re-upload or a mistake in their catalogue.
 MIN_REFERENCE_FANS = 1_000
 
+# For an account vouched for only by an outside name search — no badge, and
+# not in the catalogue we trust — this is the audience that makes a borrowed
+# name implausible. Someone impersonating an artist does not have fifty
+# thousand listeners.
+STRONG_FOLLOWERS = 50_000
+
 # Accounts that are always let through, whatever the rules say. Kept short
 # and by id, so it stays a list of decisions rather than a second rulebook.
 ALWAYS_GENUINE = {
@@ -167,8 +173,9 @@ async def is_genuine(user: dict, session=None) -> bool:
     if not key:
         return False
 
-    # The reference catalogue first: a local lookup, and a stronger signal
-    # than an outside search, because nothing can put itself in it.
+    # The reference catalogue: a proper music catalogue, containing artists
+    # and nothing else. Nobody can add themselves to it, which makes a match
+    # there the strongest signal available short of the source's own badge.
     if session is not None and await reference_match(session, username):
         return True
 
@@ -177,12 +184,15 @@ async def is_genuine(user: dict, session=None) -> bool:
     if cached is not None and now - cached[1] < _CACHE_TTL:
         return cached[0]
 
+    # An outside search, for artists the reference list has not reached. Held
+    # to a higher bar than the list itself, because a search matches on
+    # spelling alone and anyone can spell anything.
     references = await _reference_names(username)
 
     verdict = any(
         normalise(reference) == key and fans >= MIN_REFERENCE_FANS
         for reference, fans in references
-    )
+    ) and followers >= STRONG_FOLLOWERS
 
     _cache[key] = (verdict, now)
     if len(_cache) > 10_000:

@@ -21,7 +21,8 @@ enum LocalStateReset {
         "laxify.signin.covers",
         "laxify.stats.totalSeconds",
         "laxify.sync.outbox",
-        "laxify.wave.settings"
+        "laxify.wave.settings",
+        "laxify.history.mirroredAt"
     ]
 
     /// Deliberately kept: these describe the device, not the account, and
@@ -61,6 +62,10 @@ enum LocalStateReset {
             try context.delete(model: FavoriteTrack.self)
             try context.delete(model: DislikedTrack.self)
             try context.delete(model: SearchHistoryEntry.self)
+            // Statistics are worked out from these, so leaving them behind
+            // showed the next person to sign in the previous one's listening
+            // — the same leak favourites had, in a newer table.
+            try context.delete(model: PlayRecord.self)
             try context.save()
         } catch {
             AppLogger.log("signout: не удалось очистить локальную библиотеку — \(error)")
