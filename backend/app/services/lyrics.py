@@ -18,6 +18,8 @@ from urllib.parse import quote
 
 import httpx
 
+from app.services import genius
+
 logger = logging.getLogger("laxify.lyrics")
 
 TIMEOUT = 12
@@ -144,8 +146,8 @@ class LyricsFinder:
             # Then anything at all, from whichever source has it.
             attempts = [
                 self._lrclib(client, song, performer, None),
-                self._lyrics_ovh(client, song, performer),
                 self._textyl(client, song, performer),
+                self._lyrics_ovh(client, song, performer),
             ]
 
             for coro in attempts:
@@ -155,6 +157,15 @@ class LyricsFinder:
                     continue
                 if found and found.is_usable:
                     return found
+
+        # Last, and by far the widest: Genius has words for almost anything,
+        # but never timings — so it runs only once the sources that do have
+        # been asked.
+        try:
+            if words := await genius.find(song, performer):
+                return Lyrics(source="genius", plain=words)
+        except Exception:
+            logger.exception("Genius не ответил по «%s»", song)
 
         return None
 

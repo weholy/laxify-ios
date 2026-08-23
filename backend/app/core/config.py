@@ -42,6 +42,12 @@ class Settings(BaseSettings):
     smtp_use_tls: bool = True
     smtp_use_ssl: bool = False
 
+    # Genius, for lyrics the timed sources do not have. Its API returns a
+    # link rather than the words, so the page is read — which is the only way
+    # it is ever done.
+    genius_client_id: str | None = None
+    genius_client_secret: str | None = None
+
     # Yandex access is pooled server-side. One token today, more later —
     # rotation logic keys off this table rather than a single env value.
     yandex_tokens: list[str] = Field(default_factory=list)
