@@ -582,6 +582,26 @@ actor LaxifyAPI {
         try await send("/discover/showcase?limit=\(limit)", method: "GET", authenticated: false)
     }
 
+    /// Sends the artist list the app collected.
+    ///
+    /// It decides which accounts are shown, and it can only be gathered from
+    /// a device — the catalogue it comes from does not answer our server at
+    /// all.
+    @discardableResult
+    func uploadReference(
+        _ artists: [ReferenceArtistUpload], replace: Bool
+    ) async throws -> ReferenceUploadResult {
+        struct Body: Encodable {
+            let artists: [ReferenceArtistUpload]
+            let replace: Bool
+        }
+        return try await send(
+            "/catalog/reference",
+            method: "POST",
+            body: Body(artists: artists, replace: replace)
+        )
+    }
+
     // MARK: - Listening statistics
 
     /// Minutes this device is ahead of UTC.

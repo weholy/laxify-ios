@@ -141,11 +141,17 @@ async def reference_match(session, name: str) -> str | None:
 
 
 async def is_genuine(user: dict, session=None) -> bool:
-    """Whether this account is the artist it appears to be.
+    """Whether this account belongs in the catalogue at all.
 
-    Verified accounts pass immediately. Otherwise the name has to match a
-    real artist elsewhere *and* the account has to have an audience of its
-    own — either alone is too easy to fake.
+    One test: does a proper music catalogue know this name? That catalogue
+    contains artists and nothing else — no accounts, no uploads, nothing
+    anyone can add themselves to — so a match there means the name belongs to
+    a real artist, and an account carrying it is the one worth showing.
+
+    Everything else is hidden rather than deleted. The tracks stay: plenty of
+    good music is posted by people who never claimed to be the artist, and
+    hiding a song because of who uploaded it would empty the catalogue. What
+    disappears is the impersonation.
     """
     if not user:
         return False
@@ -153,53 +159,19 @@ async def is_genuine(user: dict, session=None) -> bool:
     if str(user.get("id")) in ALWAYS_GENUINE:
         return True
 
-    if user.get("verified"):
-        return True
-
     username = user.get("username") or ""
-    followers = user.get("followers_count") or 0
-
     if not username:
-        return False
-
-    # A tiny account claiming a famous name is the exact thing being filtered.
-    if followers < MIN_FOLLOWERS:
         return False
 
     if looks_like_a_reupload(username):
         return False
 
-    key = normalise(username)
-    if not key:
-        return False
+    if session is None:
+        # Nothing to check against. Falling back to the source's own badge is
+        # the closest thing to the same question.
+        return bool(user.get("verified"))
 
-    # The reference catalogue: a proper music catalogue, containing artists
-    # and nothing else. Nobody can add themselves to it, which makes a match
-    # there the strongest signal available short of the source's own badge.
-    if session is not None and await reference_match(session, username):
-        return True
-
-    now = time.monotonic()
-    cached = _cache.get(key)
-    if cached is not None and now - cached[1] < _CACHE_TTL:
-        return cached[0]
-
-    # An outside search, for artists the reference list has not reached. Held
-    # to a higher bar than the list itself, because a search matches on
-    # spelling alone and anyone can spell anything.
-    references = await _reference_names(username)
-
-    verdict = any(
-        normalise(reference) == key and fans >= MIN_REFERENCE_FANS
-        for reference, fans in references
-    ) and followers >= STRONG_FOLLOWERS
-
-    _cache[key] = (verdict, now)
-    if len(_cache) > 10_000:
-        for stale, _ in sorted(_cache.items(), key=lambda item: item[1][1])[:2_000]:
-            _cache.pop(stale, None)
-
-    return verdict
+    return await reference_match(session, username) is not None
 
 
 async def filter_artists(users: list[dict], limit: int, session=None) -> list[dict]:

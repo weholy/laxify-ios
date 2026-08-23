@@ -353,3 +353,16 @@ struct PlayHistoryEntry: Codable, Sendable {
     let secondsPlayed: Double
     let completed: Bool
 }
+
+/// One artist on the way to the server's reference list.
+struct ReferenceArtistUpload: Codable, Sendable {
+    let id: String
+    let name: String
+    let tracks: Int
+    let albums: Int
+}
+
+struct ReferenceUploadResult: Codable, Sendable {
+    let stored: Int
+    let total: Int
+}

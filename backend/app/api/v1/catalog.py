@@ -14,10 +14,14 @@ from typing import Any
 import httpx
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.api.deps import CurrentUser, SessionDep
 from app.schemas.common import MessageOut
+from sqlalchemy import delete, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+from app.models import ReferenceArtist
 from app.services import audio_cache, authenticity
 from app.services.playability import filter_playable
 from app.services.soundcloud import SoundCloudError, soundcloud
@@ -181,9 +185,15 @@ async def search(
     # catalogue. What is hidden is the impersonation, not the music.
     genuine = await authenticity.filter_artists(results["users"], limit=10, session=session)
 
+    # Being in that catalogue is what official means here, so the mark
+    # follows the same rule that decided they are shown at all.
+    artists = [a for a in (normalise_artist(u) for u in genuine) if a]
+    for artist in artists:
+        artist.is_verified = True
+
     return SearchResponse(
         tracks=_tracks(results["tracks"]),
-        artists=[a for a in (normalise_artist(u) for u in genuine) if a],
+        artists=artists,
         playlists=[p for p in (normalise_playlist(p) for p in results["playlists"]) if p],
     )
 
@@ -504,7 +514,9 @@ class ArtistDetailResponse(BaseModel):
 
 
 @router.get("/artists/{artist_id}/detail", response_model=ArtistDetailResponse)
-async def artist_detail(artist_id: str, user: CurrentUser) -> ArtistDetailResponse:
+async def artist_detail(
+    artist_id: str, user: CurrentUser, session: SessionDep
+) -> ArtistDetailResponse:
     """Everything the artist screen needs, in one request.
 
     Four separate calls from the app meant four round trips before anything
@@ -524,6 +536,8 @@ async def artist_detail(artist_id: str, user: CurrentUser) -> ArtistDetailRespon
     normalised = normalise_artist(profile)
     if normalised is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Исполнитель не найден")
+
+    normalised.is_verified = await authenticity.is_genuine(profile, session=session)
 
     # Enough for a shortlist and an honest count; the full catalogue is
     # a separate request, made only when someone asks to see all of it.
@@ -576,6 +590,77 @@ async def playlist_tracks(playlist_id: str, user: CurrentUser) -> list[CatalogTr
 
 class SourceKey(BaseModel):
     client_id: str
+
+
+class ReferenceArtistIn(BaseModel):
+    id: str = Field(max_length=32)
+    name: str = Field(max_length=200)
+    tracks: int = 0
+    albums: int = 0
+
+
+class ReferenceUpload(BaseModel):
+    artists: list[ReferenceArtistIn] = Field(max_length=50_000)
+    # Whether to keep what is already stored. A partial collection should add
+    # to the list rather than shrink it; a full one replaces it.
+    replace: bool = False
+
+
+class ReferenceResult(BaseModel):
+    stored: int
+    total: int
+
+
+@router.post("/reference", response_model=ReferenceResult)
+async def upload_reference(
+    payload: ReferenceUpload, user: CurrentUser, session: SessionDep
+) -> ReferenceResult:
+    """Takes the artist list the app collected.
+
+    That list is what decides which accounts are shown, and it can only be
+    gathered from a device: the catalogue it comes from does not answer this
+    server at all. Sending it here rather than passing a file around means a
+    fresh collection takes effect the moment it finishes.
+    """
+    if payload.replace:
+        await session.execute(delete(ReferenceArtist))
+
+    rows = []
+    seen: set[str] = set()
+
+    for entry in payload.artists:
+        key = authenticity.normalise(entry.name)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        rows.append(
+            {
+                "source_id": entry.id,
+                "name": entry.name,
+                "normalised": key,
+                "tracks": entry.tracks,
+                "albums": entry.albums,
+            }
+        )
+
+    if rows:
+        statement = pg_insert(ReferenceArtist).values(rows)
+        await session.execute(
+            statement.on_conflict_do_update(
+                index_elements=[ReferenceArtist.source_id],
+                set_={
+                    "name": statement.excluded.name,
+                    "normalised": statement.excluded.normalised,
+                    "tracks": statement.excluded.tracks,
+                    "albums": statement.excluded.albums,
+                },
+            )
+        )
+
+    await session.commit()
+
+    total = await session.scalar(select(func.count()).select_from(ReferenceArtist)) or 0
+    return ReferenceResult(stored=len(rows), total=total)
 
 
 @router.get("/source-key", response_model=SourceKey)

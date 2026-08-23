@@ -142,12 +142,6 @@ struct ArtistView: View {
                 )
                 .foregroundStyle(.white)
 
-                VerificationNotice(
-                    isVerified: detail.artist.isVerified,
-                    followers: detail.artist.followers
-                )
-                .padding(.top, 2)
-
                 if let trackCount = detail.artist.trackCount {
                     Text("\(trackCount) треков")
                         .font(LaxifyTypography.footnote)

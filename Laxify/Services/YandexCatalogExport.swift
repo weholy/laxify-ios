@@ -181,14 +181,45 @@ final class YandexCatalogExport {
             return
         }
 
+        let sorted = Array(collected.values).sorted {
+            ($0.likes ?? 0, $0.tracks ?? 0) > ($1.likes ?? 0, $1.tracks ?? 0)
+        }
+
+        // Straight to the server, which is what actually uses this. The file
+        // is still written, but only so it can be looked at — the list takes
+        // effect the moment this finishes rather than after someone passes a
+        // file around.
+        phase = .running(stage: "Отправляем список", done: 1, total: 1, found: sorted.count)
+        await upload(sorted)
+
         do {
-            let sorted = Array(collected.values).sorted {
-                ($0.likes ?? 0, $0.tracks ?? 0) > ($1.likes ?? 0, $1.tracks ?? 0)
-            }
             let file = try write(sorted)
             phase = .finished(count: sorted.count, file: file)
         } catch {
             phase = .failed("Не удалось сохранить файл")
+        }
+    }
+
+    /// Hands the list to the server, replacing what it had.
+    ///
+    /// A full collection replaces rather than adds: an artist who has left
+    /// the catalogue should leave ours too, and merging would keep them
+    /// forever.
+    private func upload(_ artists: [Artist]) async {
+        let payload = artists.map {
+            ReferenceArtistUpload(
+                id: $0.id,
+                name: $0.name,
+                tracks: $0.tracks ?? 0,
+                albums: $0.albums ?? 0
+            )
+        }
+
+        do {
+            let result = try await LaxifyAPI.shared.uploadReference(payload, replace: true)
+            AppLogger.log("export: отправлено \(result.stored), всего \(result.total)")
+        } catch {
+            AppLogger.log("export: не удалось отправить список — \(error)")
         }
     }
 
