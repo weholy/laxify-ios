@@ -23,7 +23,7 @@ import time
 import unicodedata
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.models import ReferenceArtist
 
@@ -211,3 +211,80 @@ def genuine_marks(user: dict) -> dict:
         "is_verified": bool(user.get("verified")),
         "followers": user.get("followers_count") or 0,
     }
+
+
+# MARK: - Hiding what the catalogue does not know
+
+# Below this, the reference list is too thin to filter tracks with — it would
+# hide the catalogue rather than clean it. The graph walk that fills the list
+# produces several times this.
+MIN_REFERENCE_SIZE = 6_000
+
+# And even with a full list, a listing that loses almost everything means the
+# list has gone stale or the match is wrong. Better to show music than to show
+# an empty screen because of a rule.
+MIN_SURVIVING_SHARE = 0.25
+
+_reference_size: tuple[int, float] | None = None
+
+
+async def reference_size(session) -> int:
+    """How many artists the reference list holds, cached briefly."""
+    global _reference_size
+
+    now = time.monotonic()
+    if _reference_size is not None and now - _reference_size[1] < 300:
+        return _reference_size[0]
+
+    count = await session.scalar(select(func.count()).select_from(ReferenceArtist)) or 0
+    _reference_size = (count, now)
+    return count
+
+
+def credited_name(raw: dict) -> str:
+    """Who a track credits, before who uploaded it."""
+    metadata = raw.get("publisher_metadata") or {}
+    name = (metadata.get("artist") or "").strip()
+    if name and len(name) <= 60:
+        return name
+    return (raw.get("user") or {}).get("username") or ""
+
+
+async def filter_tracks(session, tracks: list[dict]) -> list[dict]:
+    """Hides tracks by artists the reference catalogue does not know.
+
+    Two guards, because this rule can do far more harm than good when the
+    list behind it is incomplete: it does nothing until the list is large
+    enough to be trusted, and nothing when applying it would empty the
+    listing. A screen with no music is worse than a screen with an uploader's
+    name on it.
+    """
+    if not tracks or session is None:
+        return tracks
+
+    if await reference_size(session) < MIN_REFERENCE_SIZE:
+        return tracks
+
+    known = set(
+        (
+            await session.scalars(
+                select(ReferenceArtist.normalised).where(
+                    ReferenceArtist.normalised.in_(
+                        {normalise(credited_name(track)) for track in tracks if credited_name(track)}
+                    )
+                )
+            )
+        ).all()
+    )
+
+    kept = [track for track in tracks if normalise(credited_name(track)) in known]
+
+    if len(kept) < len(tracks) * MIN_SURVIVING_SHARE:
+        logger.warning(
+            "Фильтр по справочнику оставил %s из %s — пропускаю",
+            len(kept),
+            len(tracks),
+        )
+        return tracks
+
+    return kept

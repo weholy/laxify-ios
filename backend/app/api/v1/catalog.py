@@ -192,7 +192,7 @@ async def search(
         artist.is_verified = True
 
     return SearchResponse(
-        tracks=_tracks(results["tracks"]),
+        tracks=_tracks(await authenticity.filter_tracks(session, results["tracks"])),
         artists=artists,
         playlists=[p for p in (normalise_playlist(p) for p in results["playlists"]) if p],
     )
