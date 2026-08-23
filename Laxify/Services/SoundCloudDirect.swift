@@ -589,7 +589,9 @@ struct SCItem: Decodable {
             imageURL: Self.upsized(avatarUrl),
             bio: description,
             trackCount: trackCount,
-            albumCount: nil
+            albumCount: nil,
+            isVerified: verified ?? false,
+            followers: followersCount
         )
     }
 }

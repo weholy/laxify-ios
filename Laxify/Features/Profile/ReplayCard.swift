@@ -26,6 +26,14 @@ struct ReplayEntryCard: View {
             // advertising emptiness is worse than the space it takes.
         }
         .task { await load() }
+        .onReceive(NotificationCenter.default.publisher(for: .laxifyPlayRecorded)) { _ in
+            let local = LocalReplay.bundle(context: modelContext)
+            guard let fresh = local.current else { return }
+            withAnimation(.easeOut(duration: 0.4)) {
+                summary = fresh
+                previous = local.previous
+            }
+        }
     }
 
     private func card(_ summary: ReplaySummary) -> some View {

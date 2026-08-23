@@ -1,6 +1,12 @@
 import Foundation
 import SwiftData
 
+/// Announced whenever a play is recorded, so anything showing statistics can
+/// update itself without polling for changes that mostly do not happen.
+extension Notification.Name {
+    static let laxifyPlayRecorded = Notification.Name("laxify.play.recorded")
+}
+
 /// Listening statistics worked out on the device.
 ///
 /// The server computes these too, and better — it sees every device someone
@@ -48,6 +54,8 @@ enum LocalReplay {
         )
 
         try? context.save()
+
+        NotificationCenter.default.post(name: .laxifyPlayRecorded, object: nil)
     }
 
     // MARK: - Reading

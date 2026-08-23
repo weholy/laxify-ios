@@ -134,10 +134,19 @@ struct ArtistView: View {
             .frame(height: 340)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(detail.artist.name)
-                    .font(LaxifyTypography.largeTitle)
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
+                ArtistName(
+                    name: detail.artist.name,
+                    isVerified: detail.artist.isVerified,
+                    font: LaxifyTypography.largeTitle,
+                    badgeSize: 22
+                )
+                .foregroundStyle(.white)
+
+                VerificationNotice(
+                    isVerified: detail.artist.isVerified,
+                    followers: detail.artist.followers
+                )
+                .padding(.top, 2)
 
                 if let trackCount = detail.artist.trackCount {
                     Text("\(trackCount) треков")
@@ -257,7 +266,11 @@ struct ArtistView: View {
                                 .frame(width: 88, height: 88)
                                 .clipShape(Circle())
 
-                            Text(artist.name)
+                            ArtistName(
+                                name: artist.name,
+                                isVerified: artist.isVerified,
+                                badgeSize: 12
+                            )
                                 .font(LaxifyTypography.footnote)
                                 .foregroundStyle(LaxifyPalette.textPrimary)
                                 .lineLimit(1)

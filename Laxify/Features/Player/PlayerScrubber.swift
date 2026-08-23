@@ -75,8 +75,8 @@ struct PlayerVolumeRow: View {
                 ),
                 range: 0...1,
                 trackHeight: 3,
-                isGlass: true,
-                tint: .white.opacity(0.9)
+                tint: .white.opacity(0.9),
+                isGlass: true
             )
 
             Image(systemName: "speaker.wave.3.fill")

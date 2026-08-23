@@ -173,6 +173,7 @@ struct CatalogArtistDTO: Codable, Sendable {
     let followers: Int?
     let description: String?
     let trackCount: Int?
+    var isVerified: Bool = false
 
     var artist: MusicArtist {
         MusicArtist(
@@ -181,7 +182,9 @@ struct CatalogArtistDTO: Codable, Sendable {
             imageURL: avatarUrl.flatMap(URL.init(string:)),
             bio: description,
             trackCount: trackCount,
-            albumCount: nil
+            albumCount: nil,
+            isVerified: isVerified,
+            followers: followers
         )
     }
 }

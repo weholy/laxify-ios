@@ -41,6 +41,14 @@ struct ReplayView: View {
             .blur(radius: appear ? 0 : 8)
         }
         .task { await load() }
+        .onReceive(NotificationCenter.default.publisher(for: .laxifyPlayRecorded)) { _ in
+            // Recomputed from what is already on the device, so the figures
+            // move while the screen is open rather than only on the next
+            // visit. Costs nothing: no request, just a query.
+            guard let period = selected else { return }
+            let fresh = LocalReplay.summary(period: period, context: modelContext)
+            withAnimation(.easeOut(duration: 0.4)) { summary = fresh }
+        }
         .onAppear {
             withAnimation(.spring(response: 0.55, dampingFraction: 0.85)) { appear = true }
         }

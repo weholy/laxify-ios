@@ -9,7 +9,7 @@ struct ArtistRowView: View {
                 .frame(width: 48, height: 48)
                 .clipShape(Circle())
 
-            Text(artist.name)
+            ArtistName(name: artist.name, isVerified: artist.isVerified, badgeSize: 13)
                 .font(LaxifyTypography.body)
                 .foregroundStyle(LaxifyPalette.textPrimary)
                 .lineLimit(1)
