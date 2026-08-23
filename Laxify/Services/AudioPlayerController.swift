@@ -316,7 +316,10 @@ final class AudioPlayerController {
                 AppLogger.log("play: created AVPlayerItem")
                 let newPlayer = AVPlayer(playerItem: item)
                 AppLogger.log("play: created AVPlayer")
-                newPlayer.automaticallyWaitsToMinimizeStalling = false
+                // Left on: the player knows better than a fixed rule when
+                // it has enough to keep going, and turning it off is what
+                // produced stalls a few seconds in.
+                newPlayer.automaticallyWaitsToMinimizeStalling = true
                 player = newPlayer
                 attachObservers(to: item)
                 AppLogger.log("play: observers attached")
@@ -393,40 +396,46 @@ final class AudioPlayerController {
         return true
     }
 
-    /// An item to play, fetched in one request rather than in pieces.
+    /// An item to play.
     ///
     /// The url is resolved by this device, so the signature it carries was
     /// issued for this device — the reason a link obtained by our server was
-    /// refused here. It points straight at the media host, which is reachable
-    /// on networks our server is not.
+    /// refused here. It points straight at the media host, which answers in
+    /// about a tenth of a second.
     ///
-    /// The bytes still arrive through a loader of ours: the player would
-    /// otherwise fetch a track in six to eight ranged requests, and on a slow
-    /// link those round trips were most of the wait before any sound.
-    private static func streamingItem(for trackId: String) async throws -> (AVPlayerItem, StreamLoader) {
-        let source: URL
-        var headers: [String: String] = [:]
-        var pinned = false
-
+    /// Handed to the player as an ordinary url, with no loader of ours in
+    /// between. There was one, from when audio came through our server and
+    /// each of the player's ranged requests cost a slow round trip; feeding
+    /// the player ourselves meant telling it how long the track was, and
+    /// getting that slightly wrong made it stop a third of the way through
+    /// and move on. The media host answers ranges correctly and quickly, so
+    /// the player is better left to do this itself.
+    private static func streamingItem(for trackId: String) async throws -> (AVPlayerItem, StreamLoader?) {
         if let direct = try? await SoundCloudDirect.shared.streamURL(for: trackId) {
-            source = direct
-        } else if let proxy = await LaxifyAPI.shared.proxyAudioRequest(trackId: trackId) {
-            // Only when the source cannot be reached directly. Slower, and
-            // the signature may not be valid here, but better than silence.
-            source = proxy.url
-            headers = proxy.headers
-            pinned = await LaxifyAPI.shared.routeNeedsPinnedTrust
-        } else {
+            let asset = AVURLAsset(
+                url: direct,
+                // Lets the player start on what has arrived instead of
+                // waiting for a comfortable buffer.
+                options: [AVURLAssetPreferPreciseDurationAndTimingKey: false]
+            )
+            return (AVPlayerItem(asset: asset), nil)
+        }
+
+        // Only when the source cannot be reached directly. Slower, and the
+        // signature may not be valid here, but better than silence — and the
+        // loader earns its place on this path, where every ranged request
+        // would otherwise be a round trip to a server that barely answers.
+        guard let proxy = await LaxifyAPI.shared.proxyAudioRequest(trackId: trackId) else {
             throw MusicServiceError.notFound
         }
 
-        let loader = StreamLoader(source: source, headers: headers, usesPinnedTrust: pinned)
+        let loader = StreamLoader(
+            source: proxy.url,
+            headers: proxy.headers,
+            usesPinnedTrust: await LaxifyAPI.shared.routeNeedsPinnedTrust
+        )
 
-        let item = AVPlayerItem(asset: loader.makeAsset())
-        // Everything is local by the time the player asks for it, so there is
-        // nothing to gain from buffering further ahead.
-        item.preferredForwardBufferDuration = 1
-        return (item, loader)
+        return (AVPlayerItem(asset: loader.makeAsset()), loader)
     }
 
     /// Resolves the next track's url while this one plays.
@@ -560,16 +569,15 @@ final class AudioPlayerController {
     private func reportPlaybackToAccount(completed: Bool) {
         guard let song = currentSong, currentTime > 3 else { return }
 
-        SyncService.shared.recordPlayback(
-            song: song,
-            seconds: currentTime,
-            completed: completed,
-            source: waveBatchId == nil ? "library" : "wave"
-        )
-
-        // Kept here too. Statistics computed only on the server show nothing
-        // whenever it cannot be reached, and on some networks it never can.
+        // Written to disk first, and only marked as sent once the server has
+        // it. Plays used to wait twenty seconds in memory before being
+        // persisted anywhere, so closing the app inside that window lost
+        // them — and the queue they joined gave up after eight failures,
+        // which with an unreachable server discarded whole evenings.
         LocalReplay.record(song, seconds: currentTime, completed: completed, context: modelContext)
+
+        let context = modelContext
+        Task { await PlaybackUploader.flush(context: context) }
     }
 
     private func reportWaveFinished() {

@@ -74,7 +74,8 @@ struct PlayerVolumeRow: View {
                     set: { volume.setVolume($0) }
                 ),
                 range: 0...1,
-                trackHeight: 4,
+                trackHeight: 3,
+                isGlass: true,
                 tint: .white.opacity(0.9)
             )
 

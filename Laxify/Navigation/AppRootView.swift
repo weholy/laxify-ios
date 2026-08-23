@@ -4,6 +4,7 @@ import UIKit
 
 struct AppRootView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
     @Query private var favorites: [FavoriteTrack]
     @Query private var dislikedTracks: [DislikedTrack]
 
@@ -58,9 +59,20 @@ struct AppRootView: View {
             AudioPlayerController.shared.modelContext = modelContext
             await restore()
 
+            // Anything played while the server was out of reach goes up
+            // first, so the history that comes down includes it.
+            await PlaybackUploader.flush(context: modelContext)
+
             // Bring the account's listening history down, so the figures the
             // device works out are the same ones the server would.
             await HistoryMirror.sync(context: modelContext)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            // Coming back to the app is the most likely moment for the
+            // network to have changed, and the moment a backlog is worth
+            // trying again.
+            guard phase == .active else { return }
+            Task { await PlaybackUploader.flush(context: modelContext) }
         }
         .onOpenURL { url in
             guard !DeepLinkRouter.shared.handle(url) else { return }

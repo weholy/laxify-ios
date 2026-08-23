@@ -53,6 +53,33 @@ struct BackendTrack: Codable, Sendable {
     let albumId: String?
     let coverUrl: String?
     let durationSeconds: Double
+    /// Sent so listening statistics can be grouped by genre. The app does not
+    /// always know it, and the server keeps whatever it has been told once.
+    var genre: String?
+
+    /// Built from stored fields rather than from a Song, for records read
+    /// back off the device.
+    init(
+        trackId: String,
+        title: String,
+        artistName: String,
+        artistId: String?,
+        albumTitle: String?,
+        albumId: String?,
+        coverUrl: String?,
+        durationSeconds: Double,
+        genre: String?
+    ) {
+        self.trackId = trackId
+        self.title = title
+        self.artistName = artistName
+        self.artistId = artistId
+        self.albumTitle = albumTitle
+        self.albumId = albumId
+        self.coverUrl = coverUrl
+        self.durationSeconds = durationSeconds
+        self.genre = genre
+    }
 
     init(song: Song) {
         trackId = song.id

@@ -45,10 +45,16 @@ struct LaxifySlider: View {
             ZStack(alignment: .leading) {
                 Group {
                     if isGlass {
+                        // Glass rather than a flat capsule: the bar sits over
+                        // artwork, and a solid track reads as a sticker laid
+                        // on top of it. The hairline is what keeps a bar this
+                        // slim visible over a light cover.
                         Capsule()
-                            .fill(.clear)
+                            .fill(.ultraThinMaterial)
+                            .overlay {
+                                Capsule().stroke(.white.opacity(0.18), lineWidth: 0.5)
+                            }
                             .frame(height: trackHeight)
-                            .glassEffect(.regular, in: .capsule)
                     } else {
                         Capsule()
                             .fill(tint.opacity(0.25))
@@ -59,6 +65,10 @@ struct LaxifySlider: View {
                 Capsule()
                     .fill(tint)
                     .frame(width: max(knobX, 0), height: trackHeight)
+                    .shadow(
+                        color: isGlass ? tint.opacity(0.5) : .clear,
+                        radius: 4
+                    )
                     // Follows the finger exactly while dragging, and eases
                     // between clock ticks the rest of the time so playback
                     // progress glides instead of stepping.
