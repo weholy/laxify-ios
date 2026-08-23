@@ -26,6 +26,14 @@ class ListeningEvent(Base, UUIDMixin):
     __table_args__ = (
         Index("ix_listening_user_time", "user_id", "played_at"),
         Index("ix_listening_track", "track_id"),
+        # The same track, at the same instant, for the same person is one
+        # play however many times it arrives. A request that succeeds here
+        # but whose response never reaches the phone is retried by design,
+        # and without this every such retry inflated the figures — which is
+        # exactly what made statistics disagree with themselves.
+        UniqueConstraint(
+            "user_id", "track_id", "played_at", name="uq_listening_once"
+        ),
     )
 
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))

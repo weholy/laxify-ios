@@ -8,6 +8,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Index,
+    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -164,3 +165,26 @@ class LyricsCache(Base, TimestampMixin):
     plain: Mapped[str | None] = mapped_column(Text, default=None)
     # Timed lines, as [{"timestamp": 12.34, "text": "..."}].
     synced: Mapped[list] = mapped_column(JSONB, default=list)
+
+
+class ReferenceArtist(Base):
+    """An artist a proper music catalogue knows about.
+
+    Collected from a catalogue that only has artists — no accounts, no
+    uploads, nothing anyone can create. Used to recognise which of the
+    accounts claiming a name is the person, and to spell that name the way
+    the world does rather than the way an account chose to.
+
+    Deliberately not the only test. The list is large but not complete, and
+    an artist missing from it is not thereby a fake — several of the best
+    known are absent simply because of how the list was gathered.
+    """
+
+    __tablename__ = "reference_artists"
+
+    source_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    name: Mapped[str] = mapped_column(Text)
+    # Lowercased, stripped of decoration, for matching against an account.
+    normalised: Mapped[str] = mapped_column(Text, index=True)
+    tracks: Mapped[int] = mapped_column(Integer, default=0)
+    albums: Mapped[int] = mapped_column(Integer, default=0)

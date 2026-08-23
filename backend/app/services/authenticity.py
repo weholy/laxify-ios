@@ -23,6 +23,9 @@ import time
 import unicodedata
 
 import httpx
+from sqlalchemy import select
+
+from app.models import ReferenceArtist
 
 logger = logging.getLogger("laxify.authenticity")
 
@@ -114,7 +117,24 @@ async def _reference_names(name: str) -> list[tuple[str, int]]:
     ]
 
 
-async def is_genuine(user: dict) -> bool:
+async def reference_match(session, name: str) -> str | None:
+    """The catalogue's own spelling of this name, if it knows it.
+
+    Matching against a catalogue that contains only artists is the strongest
+    signal available short of the source's own badge: nobody can add
+    themselves to it.
+    """
+    key = normalise(name)
+    if not key:
+        return None
+
+    row = await session.scalar(
+        select(ReferenceArtist.name).where(ReferenceArtist.normalised == key).limit(1)
+    )
+    return row
+
+
+async def is_genuine(user: dict, session=None) -> bool:
     """Whether this account is the artist it appears to be.
 
     Verified accounts pass immediately. Otherwise the name has to match a
@@ -147,6 +167,11 @@ async def is_genuine(user: dict) -> bool:
     if not key:
         return False
 
+    # The reference catalogue first: a local lookup, and a stronger signal
+    # than an outside search, because nothing can put itself in it.
+    if session is not None and await reference_match(session, username):
+        return True
+
     now = time.monotonic()
     cached = _cache.get(key)
     if cached is not None and now - cached[1] < _CACHE_TTL:
@@ -167,7 +192,7 @@ async def is_genuine(user: dict) -> bool:
     return verdict
 
 
-async def filter_artists(users: list[dict], limit: int) -> list[dict]:
+async def filter_artists(users: list[dict], limit: int, session=None) -> list[dict]:
     """Keeps the accounts that are who they say they are, best first."""
     if not users:
         return []
@@ -176,7 +201,7 @@ async def filter_artists(users: list[dict], limit: int) -> list[dict]:
 
     async def check(user: dict) -> tuple[dict, bool]:
         async with semaphore:
-            return user, await is_genuine(user)
+            return user, await is_genuine(user, session=session)
 
     results = await asyncio.gather(*(check(user) for user in users), return_exceptions=True)
 

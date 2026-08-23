@@ -74,6 +74,16 @@ def _upsize(url: str | None) -> str | None:
     return url.replace("-large.jpg", "-t500x500.jpg").replace("-small.jpg", "-t500x500.jpg")
 
 
+def _credited(raw: dict[str, Any]) -> str | None:
+    """The artist a release credits, when it says anything useful."""
+    metadata = raw.get("publisher_metadata") or {}
+    name = (metadata.get("artist") or "").strip()
+
+    if not name or len(name) > 60 or name.lower() == "various artists":
+        return None
+    return name
+
+
 def normalise_track(raw: dict[str, Any]) -> CatalogTrack | None:
     if not raw or raw.get("kind") != "track":
         return None
@@ -87,7 +97,9 @@ def normalise_track(raw: dict[str, Any]) -> CatalogTrack | None:
         id=str(raw.get("id")),
         title=raw.get("title") or "Без названия",
         artist_id=str(user["id"]) if user.get("id") else None,
-        artist_name=user.get("username") or "Неизвестный исполнитель",
+        # What the release credits, before who uploaded it. An account is
+        # called "☆LiL PEEP☆"; the release says "Lil Peep".
+        artist_name=_credited(raw) or user.get("username") or "Неизвестный исполнитель",
         artwork_url=_upsize(artwork),
         # full_duration is the real length; duration can be a 30s preview
         # window for tracks the viewer cannot hear in full.
@@ -151,6 +163,7 @@ def _guard(error: SoundCloudError) -> HTTPException:
 @router.get("/search", response_model=SearchResponse)
 async def search(
     user: CurrentUser,
+    session: SessionDep,
     q: str = Query(min_length=1, max_length=200),
     limit: int = Query(30, ge=1, le=50),
 ) -> SearchResponse:
@@ -161,7 +174,7 @@ async def search(
 
     # Anyone can open an account under a famous name, and a search for one
     # used to return a dozen of them beside the real thing.
-    genuine = await authenticity.filter_artists(results["users"], limit=10)
+    genuine = await authenticity.filter_artists(results["users"], limit=10, session=session)
 
     return SearchResponse(
         tracks=_tracks(results["tracks"]),

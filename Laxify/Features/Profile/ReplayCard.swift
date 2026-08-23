@@ -101,22 +101,16 @@ struct ReplayEntryCard: View {
     private func load() async {
         defer { isLoading = false }
 
-        // Whatever this device recorded, straight away. Waiting on the server
-        // is what made the card appear and disappear.
+        // Straight from the device. The account's history is copied here on
+        // launch, so this is the same figure the server would give — and,
+        // unlike the server's, it does not arrive a second late and change
+        // the number someone is already looking at.
         let local = LocalReplay.bundle(context: modelContext)
-        if let fresh = local.current {
-            summary = fresh
-            previous = local.previous
-            await applyPalette(for: fresh)
-        }
 
-        guard let bundle = try? await LaxifyAPI.shared.replayBundle(),
-              let fresh = bundle.current
-        else { return }
+        guard let fresh = local.current else { return }
 
         summary = fresh
-        previous = bundle.previous
-
+        previous = local.previous
         await applyPalette(for: fresh)
     }
 

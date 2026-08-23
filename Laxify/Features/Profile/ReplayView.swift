@@ -420,25 +420,23 @@ struct ReplayView: View {
         }
         isLoading = false
 
-        // Anything the account has that this device does not, before the
-        // server's own figures are asked for.
+        // Anything the account has that this device does not is copied down,
+        // and then the figures are worked out here — once, from one place.
+        //
+        // They used to be shown twice: local first, then the server's own
+        // calculation replacing it. The two disagreed, so the number visibly
+        // changed a second after appearing — 226 becoming 164. Whichever was
+        // right, showing both was wrong. The device now holds everything the
+        // account does, so it can answer on its own.
         await HistoryMirror.sync(context: modelContext)
 
-        do {
-            // One request rather than three in sequence: the months, this
-            // month's figures and the month before all arrive together.
-            let bundle = try await LaxifyAPI.shared.replayBundle()
-            periods = bundle.periods
-            selected = bundle.current?.period ?? bundle.periods.first
+        let merged = LocalReplay.bundle(context: modelContext)
+        periods = merged.periods
+        selected = merged.current?.period ?? merged.periods.first
 
-            if let fresh = bundle.current {
-                summary = fresh
-                await refreshPalette(for: fresh)
-            }
-        } catch {
-            // The local figures are already on screen, so there is nothing to
-            // report — the server simply had nothing to add.
-            AppLogger.log("replay: сервер недоступен, показана локальная статистика")
+        if let fresh = merged.current {
+            withAnimation(.easeInOut(duration: 0.3)) { summary = fresh }
+            await refreshPalette(for: fresh)
         }
 
         isLoading = false
@@ -450,14 +448,9 @@ struct ReplayView: View {
         withAnimation(.snappy(duration: 0.3)) { selected = period }
 
         Task {
-            // The device answers instantly; the server refines it if it can.
             let local = LocalReplay.summary(period: period, context: modelContext)
             withAnimation(.easeInOut(duration: 0.35)) { summary = local }
             await refreshPalette(for: local)
-
-            guard let fresh = try? await LaxifyAPI.shared.replay(period: period.id) else { return }
-            withAnimation(.easeInOut(duration: 0.35)) { summary = fresh }
-            await refreshPalette(for: fresh)
         }
     }
 

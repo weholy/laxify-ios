@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, tuple_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import selectinload
 
@@ -30,6 +30,27 @@ async def record_playback(
 ) -> StatsOut:
     await upsert_tracks(session, [event.track for event in payload.events])
 
+    # Anything already recorded is dropped here rather than at the database,
+    # so a retry succeeds quietly instead of failing the whole batch — and so
+    # the totals below count only what was genuinely new.
+    incoming = {
+        (event.track.track_id, event.played_at): event
+        for event in payload.events
+    }
+
+    already = set(
+        (
+            await session.execute(
+                select(ListeningEvent.track_id, ListeningEvent.played_at).where(
+                    ListeningEvent.user_id == user.id,
+                    tuple_(ListeningEvent.track_id, ListeningEvent.played_at).in_(
+                        list(incoming.keys())
+                    ),
+                )
+            )
+        ).all()
+    ) if incoming else set()
+
     rows = [
         ListeningEvent(
             user_id=user.id,
@@ -40,7 +61,8 @@ async def record_playback(
             completed=event.completed,
             source=event.source,
         )
-        for event in payload.events
+        for key, event in incoming.items()
+        if key not in already
     ]
     session.add_all(rows)
 

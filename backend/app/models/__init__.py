@@ -11,6 +11,7 @@ from app.models.activity import (
 from app.models.library import (
     DislikedTrack,
     LyricsCache,
+    ReferenceArtist,
     Favorite,
     Playlist,
     PlaylistCollaborator,
@@ -21,6 +22,7 @@ from app.models.library import (
 from app.models.user import Device, EmailVerification, Follow, PushToken, User
 
 __all__ = [
+    "ReferenceArtist",
     "LyricsCache",
     "ClientLog",
     "AuditLog",

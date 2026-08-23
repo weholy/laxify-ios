@@ -508,6 +508,18 @@ struct SCItem: Decodable {
     let trackAuthorization: String?
     let user: User?
     let media: Media?
+    /// What the release itself says, as opposed to who uploaded it.
+    let publisherMetadata: PublisherMetadata?
+
+    struct PublisherMetadata: Decodable {
+        let artist: String?
+        let albumTitle: String?
+
+        enum CodingKeys: String, CodingKey {
+            case artist
+            case albumTitle = "album_title"
+        }
+    }
 
     struct User: Decodable {
         let id: Int?
@@ -541,6 +553,7 @@ struct SCItem: Decodable {
 
     enum CodingKeys: String, CodingKey {
         case id, kind, title, username, duration, genre, policy, streamable, verified, description, user, media
+        case publisherMetadata = "publisher_metadata"
         case permalinkUrl = "permalink_url"
         case artworkUrl = "artwork_url"
         case avatarUrl = "avatar_url"
@@ -562,6 +575,18 @@ struct SCItem: Decodable {
         )
     }
 
+    /// The artist the release credits, when it says anything useful.
+    private var credited: String? {
+        guard let name = publisherMetadata?.artist?.trimmingCharacters(in: .whitespaces),
+              !name.isEmpty,
+              // Some uploads put the label or a placeholder here.
+              name.count < 60,
+              name.lowercased() != "various artists"
+        else { return nil }
+
+        return name
+    }
+
     var song: Song? {
         guard kind == "track", let id, let title else { return nil }
         // A blocked track will not play, so it should never be offered.
@@ -570,9 +595,12 @@ struct SCItem: Decodable {
         return Song(
             id: "\(id)",
             title: title,
-            artistName: user?.username ?? "Неизвестный исполнитель",
+            // What the release credits, before who uploaded it. An account
+            // is called "☆LiL PEEP☆" or "everlov3d"; the release says
+            // "Lil Peep". The second is the artist, the first is a username.
+            artistName: credited ?? user?.username ?? "Неизвестный исполнитель",
             artistId: user?.id.map(String.init),
-            albumTitle: nil,
+            albumTitle: publisherMetadata?.albumTitle,
             // full_duration is the real length; duration can be a preview
             // window for tracks the viewer cannot hear in full.
             coverURL: Self.upsized(artworkUrl ?? user?.avatarUrl),
