@@ -82,13 +82,14 @@ jobs:
       - name: Package unsigned IPA
         run: |
           set -euo pipefail
+          VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "build/Laxify.xcarchive/Products/Applications/Laxify.app/Info.plist")
           mkdir -p build/Payload
           cp -r "build/Laxify.xcarchive/Products/Applications/Laxify.app" build/Payload/
-          cd build && zip -qr Laxify.ipa Payload
+          cd build && zip -qr "Laxify_${VERSION}.ipa" Payload
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
           name: Laxify-unsigned-ipa
-          path: build/Laxify.ipa
+          path: build/Laxify_*.ipa
           retention-days: 14

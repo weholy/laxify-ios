@@ -57,7 +57,7 @@ struct SettingsView: View {
 
                 ScrollView {
                     VStack(spacing: 12) {
-                        ForEach([Page.privacy, .about, .account, .appearance, .export, .diagnostics]) { entry in
+                        ForEach([Page.privacy, .about, .account, .appearance]) { entry in
                             entryRow(entry)
                         }
 
