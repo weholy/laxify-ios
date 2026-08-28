@@ -33,7 +33,7 @@ struct CategoryTracksView: View {
                 }
 
                 if hasError {
-                    Button("Повторить") {
+                    Button(L("common.retry", "Повторить")) {
                         Task { await loadNextPage() }
                     }
                     .buttonStyle(.laxifySecondary)

@@ -73,7 +73,7 @@ struct SearchView: View {
 
     private var header: some View {
         HStack {
-            Text("Поиск")
+            Text(L("search.title", "Поиск"))
                 .font(LaxifyTypography.largeTitle)
                 .foregroundStyle(LaxifyPalette.textPrimary)
 
@@ -125,7 +125,7 @@ struct SearchView: View {
     private var browseSection: some View {
         if !viewModel.popular.isEmpty {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Популярные рекомендации")
+                Text(L("search.popular", "Популярные рекомендации"))
                     .font(LaxifyTypography.title)
                     .foregroundStyle(LaxifyPalette.textPrimary)
 
@@ -147,7 +147,7 @@ struct SearchView: View {
 
         if !viewModel.categories.isEmpty {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Категории")
+                Text(L("search.categories", "Категории"))
                     .font(LaxifyTypography.title)
                     .foregroundStyle(LaxifyPalette.textPrimary)
 
@@ -215,13 +215,13 @@ struct SearchView: View {
         if !history.isEmpty {
             VStack(alignment: .leading, spacing: 14) {
                 HStack {
-                    Text("Недавние")
+                    Text(L("search.recent", "Недавние"))
                         .font(LaxifyTypography.title)
                         .foregroundStyle(LaxifyPalette.textPrimary)
 
                     Spacer()
 
-                    Button("Очистить") {
+                    Button(L("search.clear", "Очистить")) {
                         for entry in history { modelContext.delete(entry) }
                     }
                     .font(LaxifyTypography.footnote)
@@ -300,11 +300,11 @@ struct SearchView: View {
                 .padding(.top, 40)
         } else if viewModel.hasError {
             VStack(spacing: 14) {
-                Text("Не удалось выполнить поиск")
+                Text(L("search.failed", "Не удалось выполнить поиск"))
                     .font(LaxifyTypography.body)
                     .foregroundStyle(LaxifyPalette.textSecondary)
 
-                Button("Повторить") {
+                Button(L("common.retry", "Повторить")) {
                     Task { await viewModel.search(query: trimmedQuery) }
                 }
                 .buttonStyle(.laxifySecondary)
@@ -313,14 +313,14 @@ struct SearchView: View {
             .padding(.top, 40)
         } else if let results = viewModel.results {
             if results.isEmpty {
-                Text("Ничего не найдено")
+                Text(L("common.nothingFound", "Ничего не найдено"))
                     .font(LaxifyTypography.body)
                     .foregroundStyle(LaxifyPalette.textSecondary)
                     .padding(.top, 40)
             } else {
                 if let corrected = results.correctedQuery {
                     HStack(spacing: 4) {
-                        Text("Показано по запросу")
+                        Text(L("search.corrected", "Показано по запросу"))
                             .foregroundStyle(LaxifyPalette.textSecondary)
                         Text("«\(corrected)»")
                             .foregroundStyle(LaxifyPalette.textPrimary)
@@ -341,7 +341,7 @@ struct SearchView: View {
     @ViewBuilder
     private func tracksBlock(_ results: SearchResults) -> some View {
         if !results.tracks.isEmpty {
-            Text("Треки")
+            Text(L("search.tracks", "Треки"))
                 .font(LaxifyTypography.title)
                 .foregroundStyle(LaxifyPalette.textPrimary)
 
@@ -362,14 +362,14 @@ struct SearchView: View {
     @ViewBuilder
     private func artistsBlock(_ results: SearchResults) -> some View {
         if !results.artists.isEmpty {
-            Text("Артисты")
+            Text(L("search.artists", "Артисты"))
                 .font(LaxifyTypography.title)
                 .foregroundStyle(LaxifyPalette.textPrimary)
 
             VStack(spacing: 12) {
                 ForEach(results.artists) { artist in
                     Button {
-                        recordHistory(id: artist.id, title: artist.name, subtitle: "Исполнитель", coverURL: artist.imageURL, kind: .artist)
+                        recordHistory(id: artist.id, title: artist.name, subtitle: L("search.artistRole", "Исполнитель"), coverURL: artist.imageURL, kind: .artist)
                         selectedArtistId = artist.id
                     } label: {
                         ArtistRowView(artist: artist)

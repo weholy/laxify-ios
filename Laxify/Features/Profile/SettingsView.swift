@@ -78,7 +78,8 @@ struct SettingsView: View {
 
                 ScrollView {
                     VStack(spacing: 12) {
-                        ForEach([Page.language, .info, .privacy, .about, .account, .appearance]) { entry in
+                        // .info is hidden for now — re-add to this list to show it.
+                        ForEach([Page.language, .privacy, .about, .account, .appearance]) { entry in
                             entryRow(entry)
                         }
 

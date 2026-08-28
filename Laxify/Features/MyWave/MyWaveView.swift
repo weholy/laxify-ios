@@ -152,10 +152,10 @@ struct MyWaveView: View {
                 Image(systemName: "dot.radiowaves.left.and.right")
                     .font(.system(size: 40))
                     .foregroundStyle(.white.opacity(0.6))
-                Text(viewModel.errorMessage ?? "Волна пока недоступна")
+                Text(viewModel.errorMessage ?? L("wave.unavailable", "Волна пока недоступна"))
                     .font(LaxifyTypography.body)
                     .foregroundStyle(.white.opacity(0.7))
-                Button("Повторить") { Task { await viewModel.load() } }
+                Button(L("common.retry", "Повторить")) { Task { await viewModel.load() } }
                     .buttonStyle(.laxifySecondary)
             }
         }
@@ -164,12 +164,12 @@ struct MyWaveView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("МОЯ ВОЛНА")
+            Text(L("wave.label", "МОЯ ВОЛНА"))
                 .font(.system(size: 13, weight: .heavy))
                 .tracking(2.5)
                 .foregroundStyle(.white.opacity(0.75))
 
-            Text(focus?.artistName ?? "Ваша волна")
+            Text(focus?.artistName ?? L("wave.default.artist", "Ваша волна"))
                 .font(.system(size: 44, weight: .heavy))
                 .foregroundStyle(.white)
                 .lineLimit(2)
@@ -317,7 +317,7 @@ private struct WaveTrackCard: View {
                 }
                 .overlay(alignment: .topLeading) {
                     if isCurrent {
-                        Text("Сейчас играет")
+                        Text(L("wave.nowPlaying", "Сейчас играет"))
                             .font(.system(size: 10, weight: .bold))
                             .foregroundStyle(.black)
                             .padding(.horizontal, 9)

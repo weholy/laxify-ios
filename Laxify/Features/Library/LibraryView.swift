@@ -150,7 +150,11 @@ struct PlaylistCard: View {
         }
     }
 
+    @MainActor
     static func tracksWord(_ n: Int) -> String {
+        guard LocalizationManager.shared.language == .ru else {
+            return L("unit.tracks", "треков")
+        }
         let r10 = n % 10, r100 = n % 100
         if r10 == 1, r100 != 11 { return "трек" }
         if (2...4).contains(r10), !(12...14).contains(r100) { return "трека" }

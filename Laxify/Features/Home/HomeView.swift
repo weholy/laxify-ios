@@ -3,6 +3,7 @@ import SwiftData
 
 struct HomeView: View {
     @State private var viewModel = HomeViewModel()
+    @State private var isSearchPresented = false
     @Query private var dislikedTracks: [DislikedTrack]
 
     private var recommendedTracks: [Song] {
@@ -14,6 +15,7 @@ struct HomeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: LaxifyMetrics.sectionSpacing) {
+                searchField
                 homeContent
             }
             .padding(.top, 12)
@@ -23,6 +25,32 @@ struct HomeView: View {
         .task {
             await viewModel.loadIfNeeded()
         }
+        .fullScreenCover(isPresented: $isSearchPresented) {
+            SearchView { isSearchPresented = false }
+        }
+    }
+
+    /// Opens the search screen — Home does not search inline any more, this is
+    /// just the way in that people expect at the top of a music app.
+    private var searchField: some View {
+        Button {
+            isSearchPresented = true
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(LaxifyPalette.textTertiary)
+                Text(L("search.field", "Треки, артисты"))
+                    .foregroundStyle(LaxifyPalette.textTertiary)
+                Spacer()
+            }
+            .font(LaxifyTypography.body)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .laxGlassCapsule()
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, LaxifyMetrics.screenPadding)
     }
 
     @ViewBuilder

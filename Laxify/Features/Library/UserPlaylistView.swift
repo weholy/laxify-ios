@@ -29,7 +29,7 @@ struct UserPlaylistView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.top, 40)
                 } else if songs.isEmpty {
-                    Text("В этом плейлисте пока нет треков")
+                    Text(L("playlist.empty", "В этом плейлисте пока нет треков"))
                         .font(LaxifyTypography.body)
                         .foregroundStyle(LaxifyPalette.textSecondary)
                         .frame(maxWidth: .infinity)
@@ -46,7 +46,7 @@ struct UserPlaylistView: View {
                                     Button(role: .destructive) {
                                         remove(song)
                                     } label: {
-                                        Label("Убрать из плейлиста", systemImage: "trash")
+                                        Label(L("playlist.removeTrack", "Убрать из плейлиста"), systemImage: "trash")
                                     }
                                 }
                         }
@@ -60,21 +60,21 @@ struct UserPlaylistView: View {
         .background(LaxifyPalette.background.ignoresSafeArea())
         .task { await load() }
         .withMiniPlayer()
-        .alert("Название плейлиста", isPresented: $isRenaming) {
-            TextField("Название", text: $draftName)
-            Button("Сохранить") {
+        .alert(L("playlist.nameTitle", "Название плейлиста"), isPresented: $isRenaming) {
+            TextField(L("playlist.nameTitle", "Название плейлиста"), text: $draftName)
+            Button(L("common.save", "Сохранить")) {
                 Task { await store.rename(playlist, to: draftName) }
             }
-            Button("Отмена", role: .cancel) {}
+            Button(L("common.cancel", "Отмена"), role: .cancel) {}
         }
-        .confirmationDialog("Удалить плейлист «\(title)»?", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
-            Button("Удалить", role: .destructive) {
+        .confirmationDialog("\(L("playlist.delete", "Удалить плейлист")) «\(title)»?", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
+            Button(L("common.delete", "Удалить"), role: .destructive) {
                 Task {
                     await store.delete(playlist)
                     onClose()
                 }
             }
-            Button("Отмена", role: .cancel) {}
+            Button(L("common.cancel", "Отмена"), role: .cancel) {}
         }
     }
 
@@ -88,20 +88,20 @@ struct UserPlaylistView: View {
                         draftName = title
                         isRenaming = true
                     } label: {
-                        Label("Переименовать", systemImage: "pencil")
+                        Label(L("playlist.rename", "Переименовать"), systemImage: "pencil")
                     }
                     Button {
                         Task { _ = try? await LaxifyAPI.shared.setPlaylistPublic(id: playlist.id, isPublic: !(detail?.isPublic ?? playlist.isPublic)) }
                     } label: {
                         Label(
-                            (detail?.isPublic ?? playlist.isPublic) ? "Сделать закрытым" : "Сделать открытым",
+                            (detail?.isPublic ?? playlist.isPublic) ? L("playlist.makePrivate", "Сделать закрытым") : L("playlist.makePublic", "Сделать открытым"),
                             systemImage: (detail?.isPublic ?? playlist.isPublic) ? "lock" : "globe"
                         )
                     }
                     Button(role: .destructive) {
                         showDeleteConfirm = true
                     } label: {
-                        Label("Удалить плейлист", systemImage: "trash")
+                        Label(L("playlist.delete", "Удалить плейлист"), systemImage: "trash")
                     }
                 } label: {
                     Image(systemName: "ellipsis")
@@ -133,7 +133,7 @@ struct UserPlaylistView: View {
                     guard let first = songs.first else { return }
                     AudioPlayerController.shared.play(first, queue: songs)
                 } label: {
-                    Label("Слушать", systemImage: "play.fill").frame(maxWidth: .infinity)
+                    Label(L("playlist.listen", "Слушать"), systemImage: "play.fill").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.laxifyPrimary)
                 .disabled(songs.isEmpty)
@@ -144,7 +144,7 @@ struct UserPlaylistView: View {
                     guard let first = shuffled.first else { return }
                     AudioPlayerController.shared.play(first, queue: shuffled)
                 } label: {
-                    Label("Перемешать", systemImage: "shuffle").frame(maxWidth: .infinity)
+                    Label(L("playlist.shuffle", "Перемешать"), systemImage: "shuffle").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.laxifySecondary)
                 .disabled(songs.isEmpty)

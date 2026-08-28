@@ -78,7 +78,7 @@ struct SignInView: View {
     private var bottomPanel: some View {
         VStack(spacing: 0) {
 
-            Text("Вся твоя музыка\nв одном месте")
+            Text(L("signin.tagline", "Вся твоя музыка\nв одном месте"))
                 .font(.system(size: 30, weight: .bold))
                 .foregroundStyle(LaxifyPalette.textPrimary)
                 .multilineTextAlignment(.center)
@@ -110,9 +110,9 @@ struct SignInView: View {
             Button {
                 showsTerms = true
             } label: {
-                Text("Продолжая, вы принимаете ")
+                Text(L("signin.terms1", "Продолжая, вы принимаете "))
                     .foregroundStyle(LaxifyPalette.textTertiary)
-                + Text("условия использования")
+                + Text(L("signin.terms2", "условия использования"))
                     .foregroundStyle(LaxifyPalette.textSecondary)
                     .underline()
             }
@@ -139,7 +139,7 @@ struct SignInView: View {
         Button {
             session.continueAsGuest()
         } label: {
-            Text("Слушать без аккаунта")
+            Text(L("signin.guest", "Слушать без аккаунта"))
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(LaxifyPalette.textSecondary)
                 .frame(maxWidth: .infinity)
@@ -160,7 +160,7 @@ struct SignInView: View {
                     GoogleLogoView(size: 20)
                 }
 
-                Text(isSigningIn ? "Входим…" : "Продолжить с Google")
+                Text(isSigningIn ? L("signin.googleLoading", "Входим…") : L("signin.google", "Продолжить с Google"))
                     .font(.system(size: 17, weight: .semibold))
             }
             .foregroundStyle(LaxifyPalette.background)
@@ -185,7 +185,7 @@ struct SignInView: View {
             } catch {
                 isSigningIn = false
                 withAnimation {
-                    errorMessage = "Не удалось войти. Попробуйте ещё раз"
+                    errorMessage = L("signin.error", "Не удалось войти. Попробуйте ещё раз")
                 }
                 AppLogger.log("auth: sign-in failed \(error)")
             }

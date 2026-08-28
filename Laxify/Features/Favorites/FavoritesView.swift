@@ -7,9 +7,24 @@ struct FavoritesView: View {
     @State private var sortOption: SortOption = .recent
 
     enum SortOption: String, CaseIterable {
-        case recent = "Недавние"
-        case artist = "Исполнитель"
-        case alphabetical = "Алфавит"
+        case recent
+        case artist
+        case alphabetical
+
+        var titleKey: String {
+            switch self {
+            case .recent: "sort.recent"
+            case .artist: "sort.artist"
+            case .alphabetical: "sort.alpha"
+            }
+        }
+        var fallback: String {
+            switch self {
+            case .recent: "Недавние"
+            case .artist: "Исполнитель"
+            case .alphabetical: "Алфавит"
+            }
+        }
     }
 
     private var sortedFavorites: [FavoriteTrack] {
@@ -78,7 +93,7 @@ struct FavoritesView: View {
                 .shadow(color: .black.opacity(0.3), radius: 24, y: 12)
 
             VStack(spacing: 6) {
-                Text("Избранное")
+                Text(L("favorites.title", "Избранное"))
                     .font(.system(size: 30, weight: .bold))
                     .foregroundStyle(LaxifyPalette.textPrimary)
 
@@ -91,7 +106,7 @@ struct FavoritesView: View {
                 Button {
                     playAll(shuffled: false)
                 } label: {
-                    Label("Слушать", systemImage: "play.fill")
+                    Label(L("favorites.listen", "Слушать"), systemImage: "play.fill")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.laxifyPrimary)
@@ -99,7 +114,7 @@ struct FavoritesView: View {
                 Button {
                     playAll(shuffled: true)
                 } label: {
-                    Label("Перемешать", systemImage: "shuffle")
+                    Label(L("favorites.shuffle", "Перемешать"), systemImage: "shuffle")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.laxifySecondary)
@@ -111,6 +126,10 @@ struct FavoritesView: View {
     }
 
     private var tracksWord: String {
+        // Russian keeps its case forms; every other language uses one word.
+        guard LocalizationManager.shared.language == .ru else {
+            return L("unit.tracks", "треков")
+        }
         let remainder10 = allFavorites.count % 10
         let remainder100 = allFavorites.count % 100
         if remainder10 == 1, remainder100 != 11 {
@@ -153,7 +172,7 @@ struct FavoritesView: View {
 
     private var sortRow: some View {
         HStack {
-            Text("Сортировка")
+            Text(L("favorites.sort", "Сортировка"))
                 .font(LaxifyTypography.footnote)
                 .foregroundStyle(LaxifyPalette.textSecondary)
 
@@ -161,13 +180,13 @@ struct FavoritesView: View {
 
             Menu {
                 ForEach(SortOption.allCases, id: \.self) { option in
-                    Button(option.rawValue) {
+                    Button(L(option.titleKey, option.fallback)) {
                         sortOption = option
                     }
                 }
             } label: {
                 HStack(spacing: 4) {
-                    Text(sortOption.rawValue)
+                    Text(L(sortOption.titleKey, sortOption.fallback))
                     Image(systemName: "chevron.up.chevron.down")
                 }
                 .font(LaxifyTypography.footnote)
@@ -200,7 +219,7 @@ struct FavoritesView: View {
             Image(systemName: "star")
                 .font(.system(size: 40))
                 .foregroundStyle(LaxifyPalette.textTertiary)
-            Text("Пока нет избранных треков")
+            Text(L("favorites.empty", "Пока нет избранных треков"))
                 .font(LaxifyTypography.body)
                 .foregroundStyle(LaxifyPalette.textSecondary)
         }

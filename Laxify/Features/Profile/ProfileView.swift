@@ -5,7 +5,6 @@ struct ProfileView: View {
     var session = SessionStore.shared
     var background = ProfileBackgroundStore.shared
 
-    @State private var isEditPresented = false
     @State private var isSettingsPresented = false
     @State private var isReplayPresented = false
     @State private var avatarPalette: ArtworkPalette = .neutral
@@ -50,9 +49,6 @@ struct ProfileView: View {
                 backgroundPick = nil
             }
         }
-        .fullScreenCover(isPresented: $isEditPresented) {
-            EditProfileView { isEditPresented = false }
-        }
         .fullScreenCover(isPresented: $isSettingsPresented) {
             SettingsView { isSettingsPresented = false }
         }
@@ -67,10 +63,6 @@ struct ProfileView: View {
 
             if user != nil {
                 backgroundControl
-
-                LaxifyPillButton(title: L("common.edit", "Изм."), systemImage: "pencil") {
-                    isEditPresented = true
-                }
 
                 Button {
                     isSettingsPresented = true

@@ -84,7 +84,7 @@ struct LyricsView: View {
             Menu {
                 if let shareableLyrics {
                     ShareLink(item: shareableLyrics) {
-                        Label("Поделиться текстом", systemImage: "square.and.arrow.up")
+                        Label(L("player.lyricsShare", "Поделиться текстом"), systemImage: "square.and.arrow.up")
                     }
                 }
 
@@ -101,7 +101,7 @@ struct LyricsView: View {
                         }
                     }
                 } label: {
-                    Label("Размер текста", systemImage: "textformat.size")
+                    Label(L("player.lyricsSize", "Размер текста"), systemImage: "textformat.size")
                 }
             } label: {
                 Image(systemName: "ellipsis")
@@ -141,7 +141,7 @@ struct LyricsView: View {
             plainScroll(plain)
         } else if viewModel.hasLoaded {
             Spacer()
-            Text("Текст песни не найден")
+            Text(L("player.lyricsNotFound", "Текст песни не найден"))
                 .font(LaxifyTypography.body)
                 .foregroundStyle(.white.opacity(0.6))
             Spacer()
@@ -285,12 +285,13 @@ private enum LyricsFontStep: String, CaseIterable, Identifiable {
         }
     }
 
+    @MainActor
     var title: String {
         switch self {
-        case .small: "Мелкий"
-        case .regular: "Обычный"
-        case .large: "Крупный"
-        case .huge: "Очень крупный"
+        case .small: L("lyrics.sizeSmall", "Мелкий")
+        case .regular: L("lyrics.sizeRegular", "Обычный")
+        case .large: L("lyrics.sizeLarge", "Крупный")
+        case .huge: L("lyrics.sizeHuge", "Очень крупный")
         }
     }
 }

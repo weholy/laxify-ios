@@ -120,7 +120,7 @@ struct FullPlayerView: View {
                     }
                 }
             } label: {
-                Label("Скорость", systemImage: "speedometer")
+                Label(L("player.speed", "Скорость"), systemImage: "speedometer")
             }
 
             Menu {
@@ -130,18 +130,18 @@ struct FullPlayerView: View {
                     }
                 }
                 if player.sleepTimerDeadline != nil {
-                    Button("Отключить таймер", role: .destructive) {
+                    Button(L("player.sleepOff", "Отключить таймер"), role: .destructive) {
                         player.cancelSleepTimer()
                     }
                 }
             } label: {
-                Label("Таймер сна", systemImage: "moon.zzz")
+                Label(L("player.sleepTimer", "Таймер сна"), systemImage: "moon.zzz")
             }
 
             Button {
                 isAddToPlaylistPresented = true
             } label: {
-                Label("Добавить в плейлист", systemImage: "text.badge.plus")
+                Label(L("player.addToPlaylist", "Добавить в плейлист"), systemImage: "text.badge.plus")
             }
 
             downloadButton
@@ -149,11 +149,11 @@ struct FullPlayerView: View {
             Button {
                 markNotInterested()
             } label: {
-                Label("Не интересно", systemImage: "hand.thumbsdown")
+                Label(L("player.notInterested", "Не интересно"), systemImage: "hand.thumbsdown")
             }
 
             ShareLink(item: shareText) {
-                Label("Поделиться", systemImage: "square.and.arrow.up")
+                Label(L("player.share", "Поделиться"), systemImage: "square.and.arrow.up")
             }
         } label: {
             Image(systemName: "ellipsis")
@@ -248,21 +248,21 @@ struct FullPlayerView: View {
                 Button(role: .destructive) {
                     downloads.remove(song.id)
                 } label: {
-                    Label("Удалить загрузку", systemImage: "trash")
+                    Label(L("player.downloadRemove", "Удалить загрузку"), systemImage: "trash")
                 }
 
             case .downloading:
                 Button {
                     downloads.cancel(song.id)
                 } label: {
-                    Label("Отменить загрузку", systemImage: "xmark.circle")
+                    Label(L("player.downloadCancel", "Отменить загрузку"), systemImage: "xmark.circle")
                 }
 
             case .none, .failed:
                 Button {
                     downloads.download(song)
                 } label: {
-                    Label("Скачать", systemImage: "arrow.down.circle")
+                    Label(L("player.download", "Скачать"), systemImage: "arrow.down.circle")
                 }
             }
         }
@@ -402,10 +402,11 @@ private enum PlaybackSpeedOption: Double, CaseIterable, Identifiable {
     var id: Double { rawValue }
     var rate: Double { rawValue }
 
+    @MainActor
     var label: String {
         switch self {
         case .slow: return "0.75×"
-        case .normal: return "Обычная"
+        case .normal: return L("player.speedNormal", "Обычная")
         case .fast: return "1.25×"
         case .faster: return "1.5×"
         }
@@ -420,5 +421,7 @@ private enum SleepTimerOption: Int, CaseIterable, Identifiable {
 
     var id: Int { rawValue }
     var minutes: Int { rawValue }
-    var label: String { "\(rawValue) мин" }
+
+    @MainActor
+    var label: String { "\(rawValue) " + L("unit.min", "мин") }
 }
