@@ -87,7 +87,7 @@ struct SearchView: View {
         HStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(LaxifyPalette.textTertiary)
-            TextField("Треки, артисты", text: $query)
+            TextField(L("search.field", "Треки, артисты"), text: $query)
                 .focused($isFocused)
                 .foregroundStyle(LaxifyPalette.textPrimary)
                 .submitLabel(.search)
@@ -109,6 +109,14 @@ struct SearchView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .laxGlassCapsule()
+        // The reference: a light beam raking behind the field.
+        .background {
+            BeamBackground(tint: Color(hex: 0x8A7CFF), opacity: isFocused ? 0.7 : 0.4)
+                .frame(height: 74)
+                .blur(radius: 10)
+                .offset(y: 4)
+                .animation(.easeInOut(duration: 0.4), value: isFocused)
+        }
     }
 
     // MARK: - Browse (no query)
