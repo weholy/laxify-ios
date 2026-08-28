@@ -77,16 +77,22 @@ struct SettingsView: View {
                 SettingsHeader(title: L("settings.title", "Настройки"), onBack: onClose)
 
                 ScrollView {
-                    VStack(spacing: 12) {
+                    VStack(spacing: 16) {
                         // .info is hidden for now — re-add to this list to show it.
-                        ForEach([Page.language, .privacy, .about, .account, .appearance]) { entry in
-                            entryRow(entry)
+                        let entries: [Page] = [.language, .privacy, .about, .account, .appearance]
+                        SettingsCard {
+                            ForEach(Array(entries.enumerated()), id: \.element) { index, entry in
+                                entryRow(entry)
+                                if index < entries.count - 1 {
+                                    SettingsDivider()
+                                }
+                            }
                         }
 
                         signOutButton
-                            .padding(.top, 16)
                     }
                     .padding(.horizontal, LaxifyMetrics.screenPadding)
+                    .padding(.top, 4)
                     .padding(.bottom, 120)
                 }
             }
@@ -144,10 +150,6 @@ struct SettingsView: View {
                     .foregroundStyle(LaxifyPalette.textTertiary)
             }
             .padding(16)
-            .background(
-                LaxifyPalette.surface,
-                in: RoundedRectangle(cornerRadius: 22, style: .continuous)
-            )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -417,34 +419,26 @@ struct AppearanceSettingsView: View {
     @State private var appearance = AppearanceSettings.shared
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            SettingsPage(title: L("settings.appearance", "Дизайн"), status: nil, onBack: onBack) {
-                SettingsGroup {
-                    ForEach(AppearanceSettings.Theme.allCases, id: \.self) { theme in
-                        themeRow(theme)
-                        if theme != AppearanceSettings.Theme.allCases.last {
-                            SettingsDivider()
-                        }
+        SettingsPage(title: L("settings.appearance", "Дизайн"), status: nil, onBack: onBack) {
+            SettingsGroup {
+                ForEach(AppearanceSettings.Theme.allCases, id: \.self) { theme in
+                    themeRow(theme)
+                    if theme != AppearanceSettings.Theme.allCases.last {
+                        SettingsDivider()
                     }
                 }
-
-                SettingsGroup(footer: L("appearance.hideLabels.sub", "Оставить в нижней панели только иконки")) {
-                    SettingsToggle(
-                        title: L("appearance.hideLabels", "Скрыть подписи в панели"),
-                        isOn: Binding(
-                            get: { appearance.hideTabLabels },
-                            set: { appearance.hideTabLabels = $0 }
-                        )
-                    )
-                }
             }
 
-            if appearance.needsRestart {
-                RestartBanner()
-                    .padding(.bottom, 24)
+            SettingsGroup(footer: L("appearance.hideLabels.sub", "Оставить в нижней панели только иконки")) {
+                SettingsToggle(
+                    title: L("appearance.hideLabels", "Скрыть подписи в панели"),
+                    isOn: Binding(
+                        get: { appearance.hideTabLabels },
+                        set: { appearance.hideTabLabels = $0 }
+                    )
+                )
             }
         }
-        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: appearance.needsRestart)
     }
 
     private func themeRow(_ theme: AppearanceSettings.Theme) -> some View {
@@ -607,24 +601,35 @@ struct SettingsCard<Content: View>: View {
         }
         .background(
             LaxifyPalette.surface,
-            in: RoundedRectangle(cornerRadius: 22, style: .continuous)
+            in: RoundedRectangle(cornerRadius: LaxifyMetrics.groupedCornerRadius, style: .continuous)
         )
     }
 }
 
-/// A card plus the grey footer line under it, outside the rounded rectangle —
-/// the grouped-list pattern the user asked to match.
+/// One section of a Telegram-style grouped list: an optional uppercase header
+/// above the block, the rounded block itself, and an optional grey footer
+/// line below it — both outside the rounded rectangle.
 struct SettingsGroup<Content: View>: View {
+    var header: String?
     var footer: String?
     @ViewBuilder var content: () -> Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
+            if let header {
+                Text(header.uppercased())
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(LaxifyPalette.textSecondary)
+                    .tracking(0.4)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 4)
+            }
+
             SettingsCard { content() }
 
             if let footer {
                 Text(footer)
-                    .font(LaxifyTypography.footnote)
+                    .font(.system(size: 12))
                     .foregroundStyle(LaxifyPalette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 16)

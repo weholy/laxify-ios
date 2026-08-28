@@ -84,20 +84,21 @@ struct InfoSettingsView: View {
     }
 }
 
-/// The "restart to apply" notice, in the mould of Telegram's info toast: a
-/// dark rounded bar low on the screen with a round glyph and the text, never
-/// a modal — the settings keep working while it is up.
+/// The "restart to apply" notice, copied from Telegram's undo/info toast:
+/// a dark blurred bar (corner radius 25) with a round white "i" (radius 16)
+/// and 14pt text. Never a modal — settings keep working while it is up, and
+/// it stays until the change is actually applied on the next launch.
 struct RestartBanner: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: "info")
-                .font(.system(size: 15, weight: .black))
-                .foregroundStyle(Color(hex: 0x1C1C1E))
-                .frame(width: 30, height: 30)
-                .background(.white, in: Circle())
+                .font(.system(size: 16, weight: .black))
+                .foregroundStyle(.white)
+                .frame(width: 32, height: 32)
+                .background(.white.opacity(0.16), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
 
             Text(L("restart.banner", "Перезапустите Laxify — настройка встанет на все экраны."))
-                .font(.system(size: 14, weight: .medium))
+                .font(.system(size: 14))
                 .foregroundStyle(.white)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -106,9 +107,17 @@ struct RestartBanner: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(hex: 0x1E1E20), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .shadow(color: .black.opacity(0.35), radius: 20, y: 8)
-        .padding(.horizontal, LaxifyMetrics.screenPadding)
+        .background {
+            RoundedRectangle(cornerRadius: LaxifyMetrics.toastCornerRadius, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .environment(\.colorScheme, .dark)
+                .overlay(
+                    RoundedRectangle(cornerRadius: LaxifyMetrics.toastCornerRadius, style: .continuous)
+                        .fill(.black.opacity(0.35))
+                )
+        }
+        .clipShape(RoundedRectangle(cornerRadius: LaxifyMetrics.toastCornerRadius, style: .continuous))
+        .shadow(color: .black.opacity(0.4), radius: 24, y: 8)
         .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 }

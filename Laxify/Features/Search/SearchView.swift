@@ -109,9 +109,6 @@ struct SearchView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .laxGlassCapsule()
-        // The reference: a beam of light running the border of the field.
-        .borderBeam(isFocused ? .md : .sm, cornerRadius: 999, colorVariant: .violet)
-        .animation(.easeInOut(duration: 0.3), value: isFocused)
     }
 
     // MARK: - Browse (no query)

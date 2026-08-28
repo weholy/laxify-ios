@@ -7,6 +7,7 @@ struct RootView: View {
     @Namespace private var playerZoom
     var router = DeepLinkRouter.shared
     var announcements = AnnouncementService.shared
+    var appearance = AppearanceSettings.shared
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -16,6 +17,11 @@ struct RootView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             VStack(spacing: 10) {
+                if appearance.needsRestart {
+                    RestartBanner()
+                        .padding(.horizontal, LaxifyMetrics.screenPadding)
+                }
+
                 MiniPlayerBar(zoomNamespace: playerZoom) {
                     isPlayerPresented = true
                 }
@@ -26,6 +32,7 @@ struct RootView: View {
             }
             .padding(.horizontal, LaxifyMetrics.screenPadding)
             .padding(.bottom, LaxifyMetrics.tabBarBottomInset)
+            .animation(.spring(response: 0.4, dampingFraction: 0.85), value: appearance.needsRestart)
         }
         .fullScreenCover(isPresented: $isSearchPresented) {
             SearchView { isSearchPresented = false }
