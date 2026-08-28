@@ -6,6 +6,7 @@ struct RootView: View {
     @State private var isPlayerPresented = false
     @Namespace private var playerZoom
     var router = DeepLinkRouter.shared
+    var announcements = AnnouncementService.shared
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -52,6 +53,12 @@ struct RootView: View {
             set: { router.pendingCollection = $0 }
         )) { collection in
             PlaylistDetailView(collection: collection) { router.pendingCollection = nil }
+        }
+        .sheet(item: Binding(
+            get: { announcements.current },
+            set: { if $0 == nil { announcements.markSeen() } }
+        )) { item in
+            LaunchAnnouncementView(announcement: item) { announcements.markSeen() }
         }
     }
 

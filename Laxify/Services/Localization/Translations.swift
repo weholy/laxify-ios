@@ -24,6 +24,9 @@ enum Translations {
         "common.delete": "Удалить",
         "common.close": "Закрыть",
         "common.copy": "Скопировать",
+        "common.edit": "Изм.",
+        "profile.bg.change": "Сменить фон",
+        "profile.bg.remove": "Убрать фон",
 
         "account.username": "Имя пользователя",
         "account.name": "Имя и фото",
@@ -149,6 +152,9 @@ enum Translations {
         "common.delete": "Delete",
         "common.close": "Close",
         "common.copy": "Copy",
+        "common.edit": "Edit",
+        "profile.bg.change": "Change background",
+        "profile.bg.remove": "Remove background",
 
         "account.username": "Username",
         "account.name": "Name & photo",
@@ -274,6 +280,9 @@ enum Translations {
         "common.delete": "Eliminar",
         "common.close": "Cerrar",
         "common.copy": "Copiar",
+        "common.edit": "Editar",
+        "profile.bg.change": "Cambiar fondo",
+        "profile.bg.remove": "Quitar fondo",
 
         "account.username": "Nombre de usuario",
         "account.name": "Nombre y foto",
@@ -399,6 +408,9 @@ enum Translations {
         "common.delete": "删除",
         "common.close": "关闭",
         "common.copy": "复制",
+        "common.edit": "编辑",
+        "profile.bg.change": "更换背景",
+        "profile.bg.remove": "移除背景",
 
         "account.username": "用户名",
         "account.name": "昵称和头像",

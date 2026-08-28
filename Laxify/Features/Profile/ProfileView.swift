@@ -1,12 +1,15 @@
 import SwiftUI
+import PhotosUI
 
 struct ProfileView: View {
     var session = SessionStore.shared
+    var background = ProfileBackgroundStore.shared
 
     @State private var isEditPresented = false
     @State private var isSettingsPresented = false
     @State private var isReplayPresented = false
     @State private var avatarPalette: ArtworkPalette = .neutral
+    @State private var backgroundPick: PhotosPickerItem?
 
     private var user: BackendUser? { session.user }
 
@@ -38,6 +41,15 @@ struct ProfileView: View {
             await session.refreshUser()
             avatarPalette = await PaletteExtractor.shared.palette(for: session.user?.avatarURL)
         }
+        .onChange(of: backgroundPick) { _, item in
+            guard let item else { return }
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self) {
+                    background.set(data)
+                }
+                backgroundPick = nil
+            }
+        }
         .fullScreenCover(isPresented: $isEditPresented) {
             EditProfileView { isEditPresented = false }
         }
@@ -50,11 +62,13 @@ struct ProfileView: View {
     }
 
     private var header: some View {
-        HStack {
+        HStack(spacing: 10) {
             Spacer()
 
             if user != nil {
-                LaxifyPillButton(title: "Изм.", systemImage: "pencil") {
+                backgroundControl
+
+                LaxifyPillButton(title: L("common.edit", "Изм."), systemImage: "pencil") {
                     isEditPresented = true
                 }
 
@@ -75,6 +89,23 @@ struct ProfileView: View {
         .padding(.bottom, 4)
     }
 
+    private var backgroundControl: some View {
+        PhotosPicker(selection: $backgroundPick, matching: .images) {
+            Image(systemName: background.image == nil ? "photo" : "photo.fill")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(LaxifyPalette.textPrimary)
+                .frame(width: 38, height: 38)
+                .glassEffect(.regular.interactive(), in: .circle)
+        }
+        .contextMenu {
+            if background.image != nil {
+                Button(L("profile.bg.remove", "Убрать фон"), role: .destructive) {
+                    background.clear()
+                }
+            }
+        }
+    }
+
     /// A wash of the avatar's own colour at the top, fading into the page.
     ///
     /// A blurred copy of the picture sat as a visibly different image over a
@@ -85,17 +116,41 @@ struct ProfileView: View {
         ZStack(alignment: .top) {
             LaxifyPalette.background
 
-            LinearGradient(
-                colors: [
-                    avatarPalette.accent.opacity(0.55),
-                    avatarPalette.dominant.opacity(0.28),
-                    LaxifyPalette.background.opacity(0)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .frame(height: 460)
-            .animation(.easeInOut(duration: 0.6), value: avatarPalette)
+            if let custom = background.image {
+                Image(uiImage: custom)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(height: 460)
+                    .frame(maxWidth: .infinity)
+                    .clipped()
+                    .overlay {
+                        // Legible header controls up top, a clean seam into the
+                        // page where the stats card begins.
+                        LinearGradient(
+                            stops: [
+                                .init(color: .black.opacity(0.35), location: 0),
+                                .init(color: .black.opacity(0.05), location: 0.35),
+                                .init(color: LaxifyPalette.background.opacity(0.2), location: 0.75),
+                                .init(color: LaxifyPalette.background, location: 1)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    }
+                    .transition(.opacity)
+            } else {
+                LinearGradient(
+                    colors: [
+                        avatarPalette.accent.opacity(0.55),
+                        avatarPalette.dominant.opacity(0.28),
+                        LaxifyPalette.background.opacity(0)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 460)
+                .animation(.easeInOut(duration: 0.6), value: avatarPalette)
+            }
         }
         .ignoresSafeArea()
     }
