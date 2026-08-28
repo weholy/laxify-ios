@@ -3,7 +3,7 @@ import SwiftUI
 /// The first screen a new install shows — pick a language before anything
 /// else. Titles preview in the language under the finger.
 struct LanguagePickerView: View {
-    private var localization = LocalizationManager.shared
+    var localization = LocalizationManager.shared
     @State private var selected: AppLanguage = LocalizationManager.shared.language
     @State private var appear = false
 
@@ -106,7 +106,7 @@ struct LanguagePickerView: View {
 struct LanguageSettingsView: View {
     var onBack: () -> Void
 
-    private var localization = LocalizationManager.shared
+    var localization = LocalizationManager.shared
 
     var body: some View {
         SettingsPage(title: L("settings.language", "Язык"), status: nil, onBack: onBack) {
