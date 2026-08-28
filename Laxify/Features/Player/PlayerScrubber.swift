@@ -48,7 +48,7 @@ struct PlayerScrubber: View {
                 .monospacedDigit()
             }
         }
-        .sensoryFeedback(.impact(weight: .soft), trigger: isScrubbing)
+        .sensoryFeedback(.impact(weight: .light), trigger: isScrubbing)
     }
 
     static func format(_ time: TimeInterval) -> String {
