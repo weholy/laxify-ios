@@ -9,6 +9,8 @@ struct LaxifyTabBar: View {
     /// the destination is a cover rather than a state change.
     @State private var searchBounce = 0
 
+    private var hideLabels: Bool { AppearanceSettings.shared.hideTabLabelsApplied }
+
     var body: some View {
         GlassEffectContainer(spacing: 16) {
             HStack(spacing: 16) {
@@ -50,11 +52,11 @@ struct LaxifyTabBar: View {
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: tab.icon)
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: hideLabels ? 18 : 16, weight: .semibold))
                     // Replays whenever this tab becomes the selected one.
                     .symbolEffect(.bounce, options: .nonRepeating, value: isSelected)
 
-                if isSelected {
+                if isSelected && !hideLabels {
                     Text(L(tab.titleKey, tab.title))
                         .font(LaxifyTypography.tabLabel)
                         .lineLimit(1)

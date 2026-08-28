@@ -45,10 +45,27 @@ final class AppearanceSettings {
         didSet { UserDefaults.standard.set(theme.rawValue, forKey: Self.themeKey) }
     }
 
+    /// Whether the tab bar shows text labels. Toggling this only takes effect
+    /// after a relaunch — the bar reads `hideTabLabelsApplied`, a snapshot
+    /// frozen at launch — so a plaque prompts the restart.
+    var hideTabLabels: Bool {
+        didSet { UserDefaults.standard.set(hideTabLabels, forKey: Self.hideLabelsKey) }
+    }
+
+    /// The value in effect this session.
+    let hideTabLabelsApplied: Bool
+
+    var needsRestart: Bool { hideTabLabels != hideTabLabelsApplied }
+
     private static let themeKey = "laxify.appearance.theme"
+    private static let hideLabelsKey = "laxify.appearance.hideTabLabels"
 
     private init() {
         let stored = UserDefaults.standard.string(forKey: Self.themeKey)
         theme = stored.flatMap(Theme.init(rawValue:)) ?? .system
+
+        let hide = UserDefaults.standard.bool(forKey: Self.hideLabelsKey)
+        hideTabLabels = hide
+        hideTabLabelsApplied = hide
     }
 }

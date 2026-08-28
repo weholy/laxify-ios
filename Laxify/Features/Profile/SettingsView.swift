@@ -15,6 +15,7 @@ struct SettingsView: View {
 
     private enum Page: String, Identifiable {
         case language
+        case info
         case privacy
         case about
         case account
@@ -27,6 +28,7 @@ struct SettingsView: View {
         var titleKey: String {
             switch self {
             case .language: "settings.language"
+            case .info: "settings.info"
             case .privacy: "settings.privacy"
             case .about: "settings.about"
             case .account: "settings.account"
@@ -41,6 +43,7 @@ struct SettingsView: View {
         var title: String {
             switch self {
             case .language: "Язык"
+            case .info: "Информация"
             case .privacy: "Конфиденциальность"
             case .about: "О себе"
             case .account: "Аккаунт"
@@ -53,10 +56,11 @@ struct SettingsView: View {
         var subtitle: String {
             switch self {
             case .language: "Язык приложения"
+            case .info: "Telegram-канал, поддержать проект"
             case .privacy: "Кто видит ваш профиль и что вы слушаете"
             case .about: "Пара строк для вашей страницы"
-            case .account: "Почта, пароль, имя"
-            case .appearance: "Светлая или тёмная тема"
+            case .account: "Имя пользователя и сессии"
+            case .appearance: "Тема и подписи в панели"
             case .export: "Список исполнителей файлом"
             case .diagnostics: "Что не работает и почему"
             }
@@ -74,7 +78,7 @@ struct SettingsView: View {
 
                 ScrollView {
                     VStack(spacing: 12) {
-                        ForEach([Page.language, .privacy, .about, .account, .appearance]) { entry in
+                        ForEach([Page.language, .info, .privacy, .about, .account, .appearance]) { entry in
                             entryRow(entry)
                         }
 
@@ -90,6 +94,8 @@ struct SettingsView: View {
             switch entry {
             case .language:
                 LanguageSettingsView { page = nil }
+            case .info:
+                InfoSettingsView { page = nil }
             case .privacy:
                 PrivacySettingsView { page = nil }
             case .about:
@@ -418,13 +424,32 @@ struct AppearanceSettingsView: View {
     @State private var appearance = AppearanceSettings.shared
 
     var body: some View {
-        SettingsPage(title: "Дизайн", status: nil, onBack: onBack) {
-            VStack(spacing: 12) {
-                ForEach(AppearanceSettings.Theme.allCases, id: \.self) { theme in
-                    themeRow(theme)
+        ZStack(alignment: .bottom) {
+            SettingsPage(title: L("settings.appearance", "Дизайн"), status: nil, onBack: onBack) {
+                VStack(spacing: 12) {
+                    ForEach(AppearanceSettings.Theme.allCases, id: \.self) { theme in
+                        themeRow(theme)
+                    }
+                }
+
+                SettingsCard {
+                    SettingsToggle(
+                        title: L("appearance.hideLabels", "Скрыть подписи в панели"),
+                        description: L("appearance.hideLabels.sub", "Оставить в нижней панели только иконки"),
+                        isOn: Binding(
+                            get: { appearance.hideTabLabels },
+                            set: { appearance.hideTabLabels = $0 }
+                        )
+                    )
                 }
             }
+
+            if appearance.needsRestart {
+                RestartBanner()
+                    .padding(.bottom, 24)
+            }
         }
+        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: appearance.needsRestart)
     }
 
     private func themeRow(_ theme: AppearanceSettings.Theme) -> some View {
