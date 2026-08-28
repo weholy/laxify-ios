@@ -5,6 +5,9 @@ struct LaxifyTabBar: View {
     var onSearchTap: () -> Void
 
     @Namespace private var selectionNamespace
+    /// Bumped on every search tap so the glyph replays its bounce even when
+    /// the destination is a cover rather than a state change.
+    @State private var searchBounce = 0
 
     var body: some View {
         GlassEffectContainer(spacing: 16) {
@@ -16,14 +19,23 @@ struct LaxifyTabBar: View {
                 }
                 .padding(6)
                 .laxGlassCapsule()
+                // One place for the haptic: putting it on each button fired
+                // twice per switch (old tab leaving, new tab arriving).
+                .sensoryFeedback(.selection, trigger: selectedTab)
 
-                Button(action: onSearchTap) {
+                Button {
+                    searchBounce += 1
+                    onSearchTap()
+                } label: {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 20, weight: .semibold))
                         .foregroundStyle(LaxifyPalette.textPrimary)
+                        .symbolEffect(.bounce, options: .nonRepeating, value: searchBounce)
                         .frame(width: LaxifyMetrics.searchButtonDiameter, height: LaxifyMetrics.searchButtonDiameter)
                 }
+                .buttonStyle(TabPressStyle())
                 .laxGlassCircle(interactive: true)
+                .sensoryFeedback(.impact(weight: .light), trigger: searchBounce)
             }
         }
     }
@@ -39,9 +51,13 @@ struct LaxifyTabBar: View {
             HStack(spacing: 6) {
                 Image(systemName: tab.icon)
                     .font(.system(size: 16, weight: .semibold))
+                    // Replays whenever this tab becomes the selected one.
+                    .symbolEffect(.bounce, options: .nonRepeating, value: isSelected)
+
                 if isSelected {
                     Text(tab.title)
                         .font(LaxifyTypography.tabLabel)
+                        .transition(.opacity.combined(with: .move(edge: .leading)))
                 }
             }
             .foregroundStyle(isSelected ? LaxifyPalette.textPrimary : LaxifyPalette.textTertiary)
@@ -56,6 +72,16 @@ struct LaxifyTabBar: View {
             }
             .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(TabPressStyle())
+    }
+}
+
+/// A quick squash on press, springing back on release — the same feel the
+/// player controls have, so the whole chrome responds to touch the same way.
+private struct TabPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.86 : 1)
+            .animation(.spring(response: 0.3, dampingFraction: 0.55), value: configuration.isPressed)
     }
 }

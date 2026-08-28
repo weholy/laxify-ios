@@ -84,8 +84,17 @@ struct FullPlayerView: View {
 
     private var topBar: some View {
         HStack {
-            LaxifyCloseButton(style: .chevronDown, tinted: false, action: onClose)
+            Button(action: onClose) {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 40, height: 40)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(PlayerGlyphButtonStyle())
+
             Spacer()
+
             menuButton
         }
     }
@@ -136,11 +145,11 @@ struct FullPlayerView: View {
             }
         } label: {
             Image(systemName: "ellipsis")
-                .font(.system(size: 16, weight: .semibold))
+                .font(.system(size: 20, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 40, height: 40)
+                .contentShape(Rectangle())
         }
-        .laxGlassCircle(interactive: true)
         .disabled(player.currentSong == nil)
     }
 
@@ -357,6 +366,18 @@ struct FullPlayerView: View {
         let minutes = Int(time) / 60
         let seconds = Int(time) % 60
         return String(format: "%d:%02d", minutes, seconds)
+    }
+}
+
+/// Bare glyph, no material behind it — used for the collapse chevron and the
+/// overflow menu at the top of the full player, where a glass circle competed
+/// with the artwork for attention.
+private struct PlayerGlyphButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.55 : 1)
+            .scaleEffect(configuration.isPressed ? 0.88 : 1)
+            .animation(.spring(response: 0.28, dampingFraction: 0.6), value: configuration.isPressed)
     }
 }
 

@@ -1,9 +1,23 @@
 import SwiftUI
+import SwiftData
 
 struct LyricsView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+    @Query private var favorites: [FavoriteTrack]
+
     var player = AudioPlayerController.shared
     @State private var viewModel = LyricsViewModel()
+
+    /// Reader-set line size, remembered across sessions. Multiplies the base
+    /// sizes below rather than replacing them, so the synced/plain hierarchy
+    /// stays intact at every step.
+    @AppStorage("laxify.lyrics.fontScale") private var fontScale = 1.0
+
+    private var isFavorite: Bool {
+        guard let song = player.currentSong else { return false }
+        return favorites.contains { $0.id == song.id }
+    }
 
     var body: some View {
         ZStack {
@@ -40,8 +54,18 @@ struct LyricsView: View {
             .ignoresSafeArea()
     }
 
+    /// Cover + title + artist on the left, the track's own actions on the
+    /// right: favourite it, or open the overflow. Dismiss is the chevron,
+    /// kept last so its position matches the full player.
     private var header: some View {
-        HStack {
+        HStack(spacing: 12) {
+            AsyncCoverImage(
+                url: player.currentSong?.coverURL,
+                cornerRadius: 10,
+                displaySize: 48
+            )
+            .frame(width: 44, height: 44)
+
             VStack(alignment: .leading, spacing: 2) {
                 Text(player.currentSong?.title ?? "")
                     .font(LaxifyTypography.headline)
@@ -53,17 +77,51 @@ struct LyricsView: View {
                     .lineLimit(1)
             }
 
-            Spacer()
+            Spacer(minLength: 6)
+
+            FavouriteStar(isOn: isFavorite) { toggleFavorite() }
+
+            Menu {
+                if let shareableLyrics {
+                    ShareLink(item: shareableLyrics) {
+                        Label("Поделиться текстом", systemImage: "square.and.arrow.up")
+                    }
+                }
+
+                Menu {
+                    ForEach(LyricsFontStep.allCases) { step in
+                        Button {
+                            fontScale = step.scale
+                        } label: {
+                            if abs(fontScale - step.scale) < 0.01 {
+                                Label(step.title, systemImage: "checkmark")
+                            } else {
+                                Text(step.title)
+                            }
+                        }
+                    }
+                } label: {
+                    Label("Размер текста", systemImage: "textformat.size")
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 34, height: 34)
+                    .contentShape(Rectangle())
+            }
+            .disabled(shareableLyrics == nil)
 
             Button {
                 dismiss()
             } label: {
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(.white)
-                    .frame(width: 40, height: 40)
+                    .frame(width: 34, height: 34)
+                    .contentShape(Rectangle())
             }
-            .laxGlassCircle(interactive: true)
+            .buttonStyle(.plain)
         }
         .padding(.horizontal, LaxifyMetrics.screenPadding)
         .padding(.top, 16)
@@ -154,7 +212,7 @@ struct LyricsView: View {
                 ForEach(Array(words.enumerated()), id: \.offset) { index, word in
                     let isSung = Double(index) < spoken
                     Text(word)
-                        .font(.system(size: 26, weight: .bold))
+                        .font(.system(size: 26 * fontScale, weight: .bold))
                         .foregroundStyle(isSung ? .white : .white.opacity(0.3))
                         .shadow(color: .white.opacity(isSung ? 0.3 : 0), radius: 10)
                         .scaleEffect(isSung ? 1 : 0.95, anchor: .bottom)
@@ -163,7 +221,7 @@ struct LyricsView: View {
             }
         } else {
             Text(text)
-                .font(.system(size: 21, weight: .semibold))
+                .font(.system(size: 21 * fontScale, weight: .semibold))
                 .foregroundStyle(.white.opacity(isPast ? 0.26 : 0.42))
                 .blur(radius: 0.5)
                 .scaleEffect(0.94, anchor: .leading)
@@ -173,11 +231,66 @@ struct LyricsView: View {
     private func plainScroll(_ text: String) -> some View {
         ScrollView {
             Text(text)
-                .font(LaxifyTypography.body)
+                .font(.system(size: 16 * fontScale, weight: .regular))
                 .foregroundStyle(.white.opacity(0.85))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, LaxifyMetrics.screenPadding)
                 .padding(.bottom, 40)
+        }
+    }
+
+    // MARK: - Actions
+
+    private func toggleFavorite() {
+        guard let song = player.currentSong else { return }
+        if let existing = favorites.first(where: { $0.id == song.id }) {
+            modelContext.delete(existing)
+            SyncService.shared.favoriteRemoved(trackId: song.id)
+        } else {
+            modelContext.insert(FavoriteTrack(song: song))
+            SyncService.shared.favoriteAdded(song)
+        }
+    }
+
+    /// Title, artist and the words, ready to send. Nil when there is nothing
+    /// to share yet, which also disables the overflow button.
+    private var shareableLyrics: String? {
+        guard let song = player.currentSong else { return nil }
+
+        let body: String?
+        if let synced = viewModel.lyrics?.syncedLines, !synced.isEmpty {
+            body = synced.map(\.text).joined(separator: "\n")
+        } else {
+            body = viewModel.lyrics?.plainText
+        }
+
+        guard let body, !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return "\(song.title) — \(song.artistName)\n\n\(body)"
+    }
+}
+
+private enum LyricsFontStep: String, CaseIterable, Identifiable {
+    case small, regular, large, huge
+
+    var id: String { rawValue }
+
+    var scale: Double {
+        switch self {
+        case .small: 0.85
+        case .regular: 1.0
+        case .large: 1.2
+        case .huge: 1.4
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .small: "Мелкий"
+        case .regular: "Обычный"
+        case .large: "Крупный"
+        case .huge: "Очень крупный"
         }
     }
 }
