@@ -1,8 +1,8 @@
 import SwiftUI
 import SwiftData
 
-/// "Моя волна" — a full-bleed station screen: the artist behind everything, a
-/// deck of what's coming, and one big button.
+/// "Моя волна" — the artist fills the screen, the name sits over the photo,
+/// and a deck of what's coming runs along the bottom above one big button.
 ///
 /// The station itself lives in `AudioPlayerController` (so it keeps going from
 /// the mini player too); this screen mirrors that live queue and feeds it
@@ -17,14 +17,10 @@ struct MyWaveView: View {
     @State private var isSettingsPresented = false
     @State private var palette: ArtworkPalette = .neutral
 
-    /// The track the screen centres on: the player's, when it is playing the
-    /// wave; otherwise the head of the preview.
     private var focus: Song? {
         player.isPlayingWave ? player.currentSong : viewModel.tracks.first
     }
 
-    /// What the deck is built from — the live player queue once the wave is
-    /// playing, the preview batch before that.
     private var deckSource: [Song] {
         player.isPlayingWave ? player.queue : viewModel.tracks
     }
@@ -32,6 +28,11 @@ struct MyWaveView: View {
     private var isFocusFavorite: Bool {
         guard let focus else { return false }
         return favorites.contains { $0.id == focus.id }
+    }
+
+    private var isFocusDisliked: Bool {
+        guard let focus else { return false }
+        return dislikedTracks.contains { $0.id == focus.id }
     }
 
     private var upcoming: [Song] {
@@ -45,7 +46,26 @@ struct MyWaveView: View {
     var body: some View {
         ZStack {
             backdrop
-            content
+
+            if deckSource.isEmpty {
+                emptyState
+            } else {
+                VStack(spacing: 0) {
+                    // Empty space up top is the point — it is where the photo
+                    // shows through.
+                    Spacer(minLength: 0)
+                    header.padding(.bottom, 20)
+                    trackDeck.padding(.bottom, 24)
+                    controls
+                }
+                .padding(.horizontal, LaxifyMetrics.screenPadding)
+                .padding(.bottom, LaxifyMetrics.tabBarHeight + LaxifyMetrics.miniPlayerHeight + 22)
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            settingsButton
+                .padding(.trailing, LaxifyMetrics.screenPadding)
+                .padding(.top, 6)
         }
         .task { await viewModel.loadIfNeeded() }
         .task(id: focus?.id) {
@@ -70,11 +90,12 @@ struct MyWaveView: View {
             .overlay {
                 Group {
                     if let url = viewModel.backdropURL {
-                        CachedImage(url: url, displaySize: 320, contentMode: .fill)
+                        CachedImage(url: url, displaySize: 600, contentMode: .fill)
                             .id(url)
                             .transition(.opacity)
-                            .blur(radius: 36)
-                            .scaleEffect(1.15)
+                            // Sharp for a real photo, softened for a cover.
+                            .blur(radius: viewModel.backdropIsArtistPhoto ? 3 : 22)
+                            .scaleEffect(viewModel.backdropIsArtistPhoto ? 1.04 : 1.12)
                     } else {
                         palette.gradient
                     }
@@ -82,33 +103,35 @@ struct MyWaveView: View {
             }
             .overlay {
                 LinearGradient(
-                    colors: [.black.opacity(0.2), .black.opacity(0.3), .black.opacity(0.9)],
+                    stops: [
+                        .init(color: .black.opacity(0.05), location: 0),
+                        .init(color: .black.opacity(0.12), location: 0.35),
+                        .init(color: .black.opacity(0.55), location: 0.62),
+                        .init(color: .black.opacity(0.96), location: 1)
+                    ],
                     startPoint: .top,
                     endPoint: .bottom
                 )
             }
+            .overlay(alignment: .top) {
+                LinearGradient(colors: [.black.opacity(0.55), .clear], startPoint: .top, endPoint: .bottom)
+                    .frame(height: 130)
+            }
             .clipped()
             .ignoresSafeArea()
-            .animation(.easeInOut(duration: 0.6), value: viewModel.backdropURL)
+            .animation(.easeInOut(duration: 0.7), value: viewModel.backdropURL)
     }
 
-    // MARK: - Content
-
-    @ViewBuilder
-    private var content: some View {
-        if deckSource.isEmpty {
-            emptyState
-        } else {
-            VStack(spacing: 0) {
-                header
-                Spacer(minLength: 12)
-                trackDeck
-                controls
-            }
-            .padding(.horizontal, LaxifyMetrics.screenPadding)
-            .padding(.top, 12)
-            .padding(.bottom, LaxifyMetrics.tabBarHeight + LaxifyMetrics.miniPlayerHeight + 24)
+    private var settingsButton: some View {
+        Button { isSettingsPresented = true } label: {
+            Image(systemName: "slider.horizontal.3")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 44, height: 44)
+                .background(.black.opacity(0.28), in: Circle())
+                .overlay(Circle().stroke(.white.opacity(0.15), lineWidth: 1))
         }
+        .buttonStyle(.plain)
     }
 
     private var emptyState: some View {
@@ -130,90 +153,72 @@ struct MyWaveView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("МОЯ ВОЛНА")
-                    .font(.system(size: 13, weight: .heavy))
-                    .tracking(2)
-                    .foregroundStyle(.white.opacity(0.7))
+        VStack(alignment: .leading, spacing: 4) {
+            Text("МОЯ ВОЛНА")
+                .font(.system(size: 13, weight: .heavy))
+                .tracking(2.5)
+                .foregroundStyle(.white.opacity(0.75))
 
-                Text(focus?.artistName ?? "Ваша волна")
-                    .font(.system(size: 38, weight: .heavy))
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.55)
-                    .contentTransition(.opacity)
-                    .animation(.spring(response: 0.5, dampingFraction: 0.85), value: focus?.artistName)
-            }
-
-            Spacer()
-
-            Button { isSettingsPresented = true } label: {
-                Image(systemName: "slider.horizontal.3")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
-                    .background(.white.opacity(0.14), in: Circle())
-            }
-            .buttonStyle(.plain)
+            Text(focus?.artistName ?? "Ваша волна")
+                .font(.system(size: 44, weight: .heavy))
+                .foregroundStyle(.white)
+                .lineLimit(2)
+                .minimumScaleFactor(0.5)
+                .shadow(color: .black.opacity(0.4), radius: 12, y: 4)
+                .contentTransition(.opacity)
+                .animation(.spring(response: 0.5, dampingFraction: 0.85), value: focus?.artistName)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var trackDeck: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(alignment: .top, spacing: 14) {
+            HStack(alignment: .bottom, spacing: 16) {
                 ForEach(Array(upcoming.enumerated()), id: \.element.id) { index, song in
                     WaveTrackCard(song: song, isCurrent: index == 0 && player.isPlayingWave)
                         .onTapGesture { playFrom(song) }
                 }
             }
-            .padding(.vertical, 10)
+            .padding(.vertical, 6)
         }
         .scrollClipDisabled()
-        .animation(.spring(response: 0.45, dampingFraction: 0.82), value: focus?.id)
+        .animation(.spring(response: 0.5, dampingFraction: 0.82), value: focus?.id)
     }
 
     private var controls: some View {
-        HStack(spacing: 26) {
+        HStack(spacing: 28) {
             circleButton(
-                system: "hand.thumbsdown\(isFocusDisliked ? ".fill" : "")",
-                tint: .white.opacity(0.85)
+                system: isFocusDisliked ? "hand.thumbsdown.fill" : "hand.thumbsdown",
+                tint: .white.opacity(0.9)
             ) { dislikeCurrent() }
 
             Button { togglePlay() } label: {
                 Image(systemName: (player.isPlayingWave && player.isPlaying) ? "pause.fill" : "play.fill")
-                    .font(.system(size: 30, weight: .bold))
+                    .font(.system(size: 32, weight: .bold))
                     .foregroundStyle(.black)
-                    .frame(width: 76, height: 76)
+                    .frame(width: 80, height: 80)
                     .background(.white, in: Circle())
-                    .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
+                    .shadow(color: .black.opacity(0.4), radius: 20, y: 8)
             }
             .buttonStyle(.plain)
             .sensoryFeedback(.impact(weight: .medium), trigger: player.isPlaying)
 
             circleButton(
                 system: isFocusFavorite ? "heart.fill" : "heart",
-                tint: isFocusFavorite ? LaxifyPalette.accent : .white.opacity(0.85)
+                tint: isFocusFavorite ? LaxifyPalette.accent : .white.opacity(0.9)
             ) { likeCurrent() }
         }
         .frame(maxWidth: .infinity)
-        .padding(.top, 20)
-    }
-
-    private var isFocusDisliked: Bool {
-        guard let focus else { return false }
-        return dislikedTracks.contains { $0.id == focus.id }
     }
 
     private func circleButton(system: String, tint: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: system)
-                .font(.system(size: 20, weight: .semibold))
+                .font(.system(size: 21, weight: .semibold))
                 .foregroundStyle(tint)
-                .frame(width: 54, height: 54)
-                .background(.white.opacity(0.12), in: Circle())
-                .overlay(Circle().stroke(.white.opacity(0.12), lineWidth: 1))
+                .frame(width: 56, height: 56)
+                .background(.white.opacity(0.14), in: Circle())
+                .overlay(Circle().stroke(.white.opacity(0.14), lineWidth: 1))
                 .contentTransition(.symbolEffect)
         }
         .buttonStyle(.plain)
@@ -268,40 +273,47 @@ struct MyWaveView: View {
     }
 }
 
+/// One card in the deck. The current track is grown, ringed and badged; the
+/// rest sit smaller and dimmed so the eye lands on what's playing.
 private struct WaveTrackCard: View {
     let song: Song
     let isCurrent: Bool
 
-    private var side: CGFloat { isCurrent ? 190 : 150 }
+    private var side: CGFloat { isCurrent ? 200 : 132 }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            AsyncCoverImage(url: song.coverURL, cornerRadius: 28, displaySize: 220)
+            AsyncCoverImage(url: song.coverURL, cornerRadius: isCurrent ? 30 : 22, displaySize: 240)
                 .frame(width: side, height: side)
-                .shadow(color: .black.opacity(0.4), radius: 16, y: 10)
+                .overlay {
+                    RoundedRectangle(cornerRadius: isCurrent ? 30 : 22, style: .continuous)
+                        .stroke(.white.opacity(isCurrent ? 0.9 : 0), lineWidth: 2)
+                }
                 .overlay(alignment: .topLeading) {
                     if isCurrent {
                         Text("Сейчас играет")
                             .font(.system(size: 10, weight: .bold))
                             .foregroundStyle(.black)
-                            .padding(.horizontal, 8)
+                            .padding(.horizontal, 9)
                             .padding(.vertical, 4)
                             .background(.white, in: Capsule())
                             .padding(10)
                     }
                 }
+                .shadow(color: .black.opacity(isCurrent ? 0.5 : 0.3), radius: isCurrent ? 22 : 12, y: 10)
 
             Text(song.title)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: isCurrent ? 15 : 13, weight: .semibold))
                 .foregroundStyle(.white)
                 .lineLimit(1)
             Text(song.artistName)
-                .font(.system(size: 13))
-                .foregroundStyle(.white.opacity(0.65))
+                .font(.system(size: isCurrent ? 13 : 12))
+                .foregroundStyle(.white.opacity(0.6))
                 .lineLimit(1)
         }
         .frame(width: side, alignment: .leading)
-        .animation(.spring(response: 0.4, dampingFraction: 0.82), value: isCurrent)
+        .opacity(isCurrent ? 1 : 0.62)
+        .animation(.spring(response: 0.45, dampingFraction: 0.82), value: isCurrent)
     }
 }
 

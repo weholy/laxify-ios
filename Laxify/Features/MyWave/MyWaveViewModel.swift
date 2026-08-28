@@ -16,6 +16,9 @@ final class MyWaveViewModel {
     /// URL the backdrop is drawn from — the artist's photo when there is one,
     /// the current cover until then.
     private(set) var backdropURL: URL?
+    /// True once the URL above is a real artist photo rather than a cover, so
+    /// the screen can show it sharp rather than heavily blurred.
+    private(set) var backdropIsArtistPhoto = false
     private var backdropArtistId: String?
 
     var settings: WaveSettings = .load()
@@ -89,11 +92,13 @@ final class MyWaveViewModel {
         guard artistId != backdropArtistId else { return }
         backdropArtistId = artistId
         backdropURL = song.coverURL
+        backdropIsArtistPhoto = false
 
         guard !artistId.isEmpty else { return }
         if let photo = try? await service.artistDetail(artistId: artistId).artist.imageURL,
            backdropArtistId == artistId {
             backdropURL = photo
+            backdropIsArtistPhoto = true
         }
     }
 }
