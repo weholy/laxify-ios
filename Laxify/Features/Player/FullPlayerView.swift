@@ -11,6 +11,7 @@ struct FullPlayerView: View {
     var player = AudioPlayerController.shared
 
     @State private var isLyricsPresented = false
+    @State private var isAddToPlaylistPresented = false
     @State private var artworkDragOffset: CGFloat = 0
     @State private var selectedArtistId: String?
 
@@ -60,6 +61,11 @@ struct FullPlayerView: View {
         }
         .sheet(isPresented: $isLyricsPresented) {
             LyricsView()
+        }
+        .sheet(isPresented: $isAddToPlaylistPresented) {
+            if let song = player.currentSong {
+                AddToPlaylistSheet(songs: [song]) { isAddToPlaylistPresented = false }
+            }
         }
         .fullScreenCover(isPresented: Binding(
             get: { selectedArtistId != nil },
@@ -130,6 +136,12 @@ struct FullPlayerView: View {
                 }
             } label: {
                 Label("Таймер сна", systemImage: "moon.zzz")
+            }
+
+            Button {
+                isAddToPlaylistPresented = true
+            } label: {
+                Label("Добавить в плейлист", systemImage: "text.badge.plus")
             }
 
             downloadButton

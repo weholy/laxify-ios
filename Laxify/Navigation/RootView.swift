@@ -63,7 +63,7 @@ struct RootView: View {
         case .myWave:
             MyWaveView()
         case .favorites:
-            FavoritesView()
+            LibraryView()
         case .profile:
             ProfileView()
         }

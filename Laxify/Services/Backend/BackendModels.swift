@@ -110,6 +110,57 @@ struct BackendFavorite: Codable, Sendable {
     let addedAt: Date
 }
 
+// MARK: - Playlists
+
+/// A user playlist as the server lists it. `id` is the server's UUID string.
+struct PlaylistDTO: Codable, Sendable, Identifiable, Hashable {
+    let id: String
+    let title: String
+    let description: String?
+    let coverUrl: String?
+    let isPublic: Bool
+    let shareSlug: String
+    let trackCount: Int
+    let totalDurationSeconds: Double
+    let updatedAt: Date
+
+    var coverURL: URL? { coverUrl.flatMap(URL.init(string:)) }
+}
+
+struct PlaylistItemDTO: Codable, Sendable, Identifiable {
+    let id: String
+    let track: BackendTrack
+    let position: Int
+
+    var song: Song { track.song }
+}
+
+struct PlaylistDetailDTO: Codable, Sendable {
+    let id: String
+    let title: String
+    let description: String?
+    let coverUrl: String?
+    let isPublic: Bool
+    let shareSlug: String
+    let trackCount: Int
+    let totalDurationSeconds: Double
+    let updatedAt: Date
+    let items: [PlaylistItemDTO]
+    let canEdit: Bool
+
+    var songs: [Song] {
+        items.sorted { $0.position < $1.position }.map(\.song)
+    }
+
+    var summary: PlaylistDTO {
+        PlaylistDTO(
+            id: id, title: title, description: description, coverUrl: coverUrl,
+            isPublic: isPublic, shareSlug: shareSlug, trackCount: trackCount,
+            totalDurationSeconds: totalDurationSeconds, updatedAt: updatedAt
+        )
+    }
+}
+
 struct BackendPage<Item: Codable & Sendable>: Codable, Sendable {
     let items: [Item]
     let total: Int

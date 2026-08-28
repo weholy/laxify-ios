@@ -602,6 +602,60 @@ actor LaxifyAPI {
         )
     }
 
+    // MARK: - Playlists
+
+    func myPlaylists() async throws -> [PlaylistDTO] {
+        let page: BackendPage<PlaylistDTO> = try await send("/playlists?limit=200", method: "GET")
+        return page.items
+    }
+
+    func playlist(id: String) async throws -> PlaylistDetailDTO {
+        try await send("/playlists/\(escaped(id))", method: "GET")
+    }
+
+    func createPlaylist(
+        title: String, isPublic: Bool, tracks: [BackendTrack] = []
+    ) async throws -> PlaylistDetailDTO {
+        struct Body: Encodable {
+            let title: String
+            let isPublic: Bool
+            let tracks: [BackendTrack]
+        }
+        return try await send(
+            "/playlists", method: "POST",
+            body: Body(title: title, isPublic: isPublic, tracks: tracks)
+        )
+    }
+
+    /// Only the title — a PATCH that also carried nil fields would blank the
+    /// description and cover, since the server treats a present null as "set".
+    func renamePlaylist(id: String, title: String) async throws -> PlaylistDTO {
+        struct Body: Encodable { let title: String }
+        return try await send("/playlists/\(escaped(id))", method: "PATCH", body: Body(title: title))
+    }
+
+    func setPlaylistPublic(id: String, isPublic: Bool) async throws -> PlaylistDTO {
+        struct Body: Encodable { let isPublic: Bool }
+        return try await send("/playlists/\(escaped(id))", method: "PATCH", body: Body(isPublic: isPublic))
+    }
+
+    func deletePlaylist(id: String) async throws {
+        _ = try await send("/playlists/\(escaped(id))", method: "DELETE") as MessageResponse
+    }
+
+    func addTracks(playlistId: String, tracks: [BackendTrack]) async throws {
+        struct Body: Encodable { let tracks: [BackendTrack] }
+        _ = try await send(
+            "/playlists/\(escaped(playlistId))/tracks", method: "POST", body: Body(tracks: tracks)
+        ) as MessageResponse
+    }
+
+    func removeTrack(playlistId: String, trackId: String) async throws {
+        _ = try await send(
+            "/playlists/\(escaped(playlistId))/tracks/\(escaped(trackId))", method: "DELETE"
+        ) as MessageResponse
+    }
+
     // MARK: - Listening statistics
 
     /// Minutes this device is ahead of UTC.
