@@ -286,6 +286,40 @@ struct CatalogService: MusicService {
         return (album, tracks)
     }
 
+    // MARK: - Discover
+
+    func popularTracks() async throws -> [Song] {
+        if await LaxifyAPI.shared.isServerReachable,
+           let charts = try? await api.catalogCharts(limit: 50), !charts.isEmpty {
+            return charts.map(\.song)
+        }
+        return try await SoundCloudDirect.shared.charts(limit: 50)
+    }
+
+    func categories() async throws -> [MusicCategory] {
+        let genres = try await api.discoverGenres()
+        return genres.map { MusicCategory(id: $0.id, title: $0.title) }
+    }
+
+    func categoryTracks(id: String, title: String, page: Int) async throws -> [Song] {
+        // The genre listing is the better first page — it is ranked by plays.
+        // It has no offset upstream, so the endless tail is paged search on
+        // the genre's own name; the screen de-duplicates the seam.
+        if page == 0,
+           let listed = try? await api.discoverGenreTracks(genre: id, limit: 60),
+           !listed.isEmpty {
+            return listed.map(\.song)
+        }
+
+        return try await api
+            .catalogSearchTracks(query: title, limit: 40, offset: page * 40)
+            .map(\.song)
+    }
+
+    func suggestions(for query: String) async throws -> [String] {
+        (try? await api.discoverSuggest(query: query)) ?? []
+    }
+
     // MARK: - Errors
 
     /// Maps transport failures onto something the screens already handle.

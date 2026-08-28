@@ -3,10 +3,6 @@ import SwiftData
 
 struct HomeView: View {
     @State private var viewModel = HomeViewModel()
-    @State private var query = ""
-    @State private var searchResults: SearchResults?
-    @State private var isSearching = false
-    @State private var selectedArtistId: String?
     @State private var isWaveSettingsPresented = false
     @Query(sort: \FavoriteTrack.addedAt, order: .reverse) private var favorites: [FavoriteTrack]
     @Query private var dislikedTracks: [DislikedTrack]
@@ -22,24 +18,10 @@ struct HomeView: View {
         return viewModel.waveTracks.filter { !dislikedIds.contains($0.id) }
     }
 
-    private var isWaveSettingsPresentedBinding: Binding<Bool> {
-        Binding(get: { isWaveSettingsPresented }, set: { isWaveSettingsPresented = $0 })
-    }
-
-    private var trimmedQuery: String {
-        query.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: LaxifyMetrics.sectionSpacing) {
-                searchField
-
-                if trimmedQuery.isEmpty {
-                    homeContent
-                } else {
-                    inlineSearchResults
-                }
+                homeContent
             }
             .padding(.top, 12)
             .padding(.bottom, LaxifyMetrics.tabBarHeight + LaxifyMetrics.miniPlayerHeight + 40)
@@ -50,25 +32,6 @@ struct HomeView: View {
         }
         .task {
             await viewModel.loadWave()
-        }
-        .task(id: trimmedQuery) {
-            guard !trimmedQuery.isEmpty else {
-                searchResults = nil
-                return
-            }
-            try? await Task.sleep(for: .milliseconds(400))
-            guard !Task.isCancelled else { return }
-            isSearching = true
-            searchResults = try? await CatalogService.shared.search(query: trimmedQuery)
-            isSearching = false
-        }
-        .fullScreenCover(isPresented: Binding(
-            get: { selectedArtistId != nil },
-            set: { if !$0 { selectedArtistId = nil } }
-        )) {
-            if let artistId = selectedArtistId {
-                ArtistView(artistId: artistId) { selectedArtistId = nil }
-            }
         }
         .sheet(isPresented: $isWaveSettingsPresented) {
             WaveSettingsView(
@@ -248,83 +211,12 @@ struct HomeView: View {
         }
     }
 
-    @ViewBuilder
-    private var inlineSearchResults: some View {
-        if isSearching && searchResults == nil {
-            ProgressView()
-                .frame(maxWidth: .infinity)
-                .padding(.top, 60)
-        } else if let results = searchResults {
-            if results.artists.isEmpty && results.tracks.isEmpty {
-                Text("Ничего не найдено")
-                    .font(LaxifyTypography.body)
-                    .foregroundStyle(LaxifyPalette.textSecondary)
-                    .padding(.horizontal, LaxifyMetrics.screenPadding)
-                    .padding(.top, 40)
-            } else {
-                if !results.artists.isEmpty {
-                    sectionTitle("Артисты")
-                    VStack(spacing: 12) {
-                        ForEach(results.artists) { artist in
-                            Button {
-                                selectedArtistId = artist.id
-                            } label: {
-                                ArtistRowView(artist: artist)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(.horizontal, LaxifyMetrics.screenPadding)
-                }
-
-                if !results.tracks.isEmpty {
-                    sectionTitle("Треки")
-                    VStack(spacing: 12) {
-                        ForEach(results.tracks) { song in
-                            Button {
-                                AudioPlayerController.shared.play(song, queue: results.tracks)
-                            } label: {
-                                SongRowView(song: song)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(.horizontal, LaxifyMetrics.screenPadding)
-                }
-            }
-        }
-    }
-
     private func sectionTitle(_ title: String) -> some View {
         Text(title)
             .font(LaxifyTypography.title)
             .foregroundStyle(LaxifyPalette.textPrimary)
             .padding(.horizontal, LaxifyMetrics.screenPadding)
     }
-
-    private var searchField: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(LaxifyPalette.textTertiary)
-            TextField("Поиск", text: $query)
-                .foregroundStyle(LaxifyPalette.textPrimary)
-            if !query.isEmpty {
-                Button {
-                    query = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(LaxifyPalette.textTertiary)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .font(LaxifyTypography.body)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .laxGlassCapsule()
-        .padding(.horizontal, LaxifyMetrics.screenPadding)
-    }
-
 }
 
 #Preview {

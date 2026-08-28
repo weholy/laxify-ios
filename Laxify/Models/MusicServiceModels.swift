@@ -22,6 +22,13 @@ struct HomeContent: Sendable {
     var recommendedTracks: [Song] = []
 }
 
+/// A browsable genre on the search screen. `id` is the source's genre key,
+/// `title` is what to show on the banner.
+struct MusicCategory: Identifiable, Hashable, Sendable {
+    let id: String
+    let title: String
+}
+
 struct ArtistDetail: Sendable {
     var artist: MusicArtist
     var topTracks: [Song] = []

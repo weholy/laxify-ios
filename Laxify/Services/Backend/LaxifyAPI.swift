@@ -764,6 +764,29 @@ actor LaxifyAPI {
         try await send("/wave/home?limit=\(limit)", method: "GET")
     }
 
+    // MARK: - Discover
+
+    /// The genres worth browsing, titled in the app's language by the server.
+    func discoverGenres() async throws -> [DiscoverGenre] {
+        try await send("/discover/genres", method: "GET")
+    }
+
+    /// Popular tracks in one genre, ranked by plays. Limit-only upstream, so
+    /// deeper pages of a category come from paged search on the genre name.
+    func discoverGenreTracks(genre: String, limit: Int = 60) async throws -> [CatalogTrackDTO] {
+        try await send("/discover/genres/\(escaped(genre))/tracks?limit=\(limit)", method: "GET")
+    }
+
+    /// Completions for a half-typed query, so the field can suggest rather
+    /// than search on every keystroke.
+    func discoverSuggest(query: String, limit: Int = 8) async throws -> [String] {
+        struct Response: Decodable { let queries: [String] }
+        let response: Response = try await send(
+            "/discover/suggest?q=\(escaped(query))&limit=\(limit)", method: "GET"
+        )
+        return response.queries
+    }
+
     // MARK: - Transport
 
     private func send<Response: Decodable>(

@@ -166,6 +166,12 @@ struct CatalogTrackDTO: Codable, Sendable {
     }
 }
 
+/// One browsable genre from `/discover/genres`.
+struct DiscoverGenre: Codable, Sendable, Identifiable, Hashable {
+    let id: String
+    let title: String
+}
+
 struct CatalogArtistDTO: Codable, Sendable {
     let id: String
     let name: String

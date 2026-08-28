@@ -29,4 +29,22 @@ protocol MusicService: Sendable {
     func song(id: String) async throws -> Song
     func albumDetail(albumId: String) async throws -> (album: MusicAlbum, songs: [Song])
     func artistTracks(artistId: String, page: Int) async throws -> [Song]
+
+    /// What's popular right now — the "Популярные рекомендации" row on search.
+    func popularTracks() async throws -> [Song]
+    /// The genres to show as banner cards.
+    func categories() async throws -> [MusicCategory]
+    /// One category's tracks, paged. De-duplicate by id across pages.
+    func categoryTracks(id: String, title: String, page: Int) async throws -> [Song]
+    /// Query completions for the search field.
+    func suggestions(for query: String) async throws -> [String]
+}
+
+/// Discovery is optional for a source: the one that only ever backed search
+/// and playback does not have to grow four methods to stay conformant.
+extension MusicService {
+    func popularTracks() async throws -> [Song] { [] }
+    func categories() async throws -> [MusicCategory] { [] }
+    func categoryTracks(id: String, title: String, page: Int) async throws -> [Song] { [] }
+    func suggestions(for query: String) async throws -> [String] { [] }
 }

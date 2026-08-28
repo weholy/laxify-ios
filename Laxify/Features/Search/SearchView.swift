@@ -11,6 +11,7 @@ struct SearchView: View {
     @State private var viewModel = SearchViewModel()
     @State private var selectedArtistId: String?
     @State private var selectedAlbum: MusicAlbum?
+    @State private var selectedCategory: MusicCategory?
     @FocusState private var isFocused: Bool
 
     private var trimmedQuery: String {
@@ -24,7 +25,9 @@ struct SearchView: View {
                 searchField
 
                 if trimmedQuery.isEmpty {
-                    historySection
+                    browseSection
+                } else if !viewModel.suggestions.isEmpty && viewModel.results == nil {
+                    suggestionsSection
                 } else {
                     resultsSection
                 }
@@ -34,15 +37,21 @@ struct SearchView: View {
             .padding(.bottom, LaxifyMetrics.miniPlayerHeight + 40)
         }
         .background(LaxifyPalette.background.ignoresSafeArea())
+        .scrollDismissesKeyboard(.interactively)
+        .task {
+            await viewModel.loadBrowseIfNeeded()
+        }
         .task(id: trimmedQuery) {
-            guard !trimmedQuery.isEmpty else { return }
-            try? await Task.sleep(for: .milliseconds(400))
+            guard !trimmedQuery.isEmpty else {
+                viewModel.clearResults()
+                return
+            }
+            viewModel.updateSuggestions(for: trimmedQuery)
+            try? await Task.sleep(for: .milliseconds(450))
             guard !Task.isCancelled else { return }
             await viewModel.search(query: trimmedQuery)
         }
-        .onAppear {
-            isFocused = true
-        }
+        .onAppear { isFocused = true }
         .fullScreenCover(isPresented: Binding(
             get: { selectedArtistId != nil },
             set: { if !$0 { selectedArtistId = nil } }
@@ -53,6 +62,11 @@ struct SearchView: View {
         }
         .fullScreenCover(item: $selectedAlbum) { album in
             AlbumDetailView(album: album) { selectedAlbum = nil }
+        }
+        .fullScreenCover(item: $selectedCategory) { category in
+            CategoryTracksView(categoryId: category.id, categoryTitle: category.title) {
+                selectedCategory = nil
+            }
         }
         .withMiniPlayer()
     }
@@ -76,9 +90,14 @@ struct SearchView: View {
             TextField("Треки, артисты", text: $query)
                 .focused($isFocused)
                 .foregroundStyle(LaxifyPalette.textPrimary)
+                .submitLabel(.search)
+                .onSubmit {
+                    Task { await viewModel.search(query: trimmedQuery) }
+                }
             if !query.isEmpty {
                 Button {
                     query = ""
+                    viewModel.clearResults()
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(LaxifyPalette.textTertiary)
@@ -92,6 +111,97 @@ struct SearchView: View {
         .laxGlassCapsule()
     }
 
+    // MARK: - Browse (no query)
+
+    @ViewBuilder
+    private var browseSection: some View {
+        if !viewModel.popular.isEmpty {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Популярные рекомендации")
+                    .font(LaxifyTypography.title)
+                    .foregroundStyle(LaxifyPalette.textPrimary)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: LaxifyMetrics.itemSpacing) {
+                        ForEach(viewModel.popular) { song in
+                            Button {
+                                AudioPlayerController.shared.play(song, queue: viewModel.popular)
+                            } label: {
+                                SongCardView(song: song)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .scrollClipDisabled()
+            }
+        }
+
+        if !viewModel.categories.isEmpty {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Категории")
+                    .font(LaxifyTypography.title)
+                    .foregroundStyle(LaxifyPalette.textPrimary)
+
+                LazyVGrid(
+                    columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
+                    spacing: 12
+                ) {
+                    ForEach(viewModel.categories) { category in
+                        Button {
+                            selectedCategory = category
+                        } label: {
+                            CategoryCard(category: category)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        } else if viewModel.isLoadingBrowse {
+            ProgressView()
+                .frame(maxWidth: .infinity)
+                .padding(.top, 20)
+        }
+
+        historySection
+    }
+
+    // MARK: - Suggestions (typing)
+
+    private var suggestionsSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(viewModel.suggestions, id: \.self) { suggestion in
+                Button {
+                    query = suggestion
+                    Task { await viewModel.search(query: suggestion) }
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 14))
+                            .foregroundStyle(LaxifyPalette.textTertiary)
+                        Text(suggestion)
+                            .font(LaxifyTypography.body)
+                            .foregroundStyle(LaxifyPalette.textPrimary)
+                            .lineLimit(1)
+                        Spacer()
+                        Image(systemName: "arrow.up.left")
+                            .font(.system(size: 12))
+                            .foregroundStyle(LaxifyPalette.textTertiary)
+                    }
+                    .padding(.vertical, 12)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                if suggestion != viewModel.suggestions.last {
+                    Divider().overlay(LaxifyPalette.separator)
+                }
+            }
+        }
+    }
+
+    // MARK: - History
+
     @ViewBuilder
     private var historySection: some View {
         if !history.isEmpty {
@@ -104,9 +214,7 @@ struct SearchView: View {
                     Spacer()
 
                     Button("Очистить") {
-                        for entry in history {
-                            modelContext.delete(entry)
-                        }
+                        for entry in history { modelContext.delete(entry) }
                     }
                     .font(LaxifyTypography.footnote)
                     .foregroundStyle(LaxifyPalette.textSecondary)
@@ -174,6 +282,8 @@ struct SearchView: View {
         }
     }
 
+    // MARK: - Results
+
     @ViewBuilder
     private var resultsSection: some View {
         if viewModel.isSearching && viewModel.results == nil {
@@ -215,7 +325,6 @@ struct SearchView: View {
                 // the same page above it does not.
                 artistsBlock(results)
                 tracksBlock(results)
-
                 albumsBlock(results)
             }
         }
@@ -300,6 +409,63 @@ struct SearchView: View {
         Task {
             guard let song = try? await CatalogService.shared.song(id: entry.id) else { return }
             AudioPlayerController.shared.play(song, queue: [song])
+        }
+    }
+}
+
+/// A genre as a coloured banner. No cover to lean on, so the look comes from a
+/// gradient keyed to the genre's name and a big faint glyph — distinct enough
+/// to tell apart at a glance in a grid.
+private struct CategoryCard: View {
+    let category: MusicCategory
+
+    var body: some View {
+        let seed = category.id.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }
+        let hue = Double(seed % 360) / 360
+
+        ZStack(alignment: .bottomLeading) {
+            LinearGradient(
+                colors: [
+                    Color(hue: hue, saturation: 0.6, brightness: 0.82),
+                    Color(hue: (hue + 0.08).truncatingRemainder(dividingBy: 1),
+                          saturation: 0.72, brightness: 0.5)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            Image(systemName: Self.symbol(for: category.id))
+                .font(.system(size: 62, weight: .bold))
+                .foregroundStyle(.white.opacity(0.16))
+                .offset(x: 44, y: 22)
+
+            Text(category.title)
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(.white)
+                .padding(14)
+        }
+        .frame(height: 92)
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .contentShape(Rectangle())
+    }
+
+    static func symbol(for id: String) -> String {
+        switch id {
+        case "hiphoprap", "trap": "mic.fill"
+        case "pop": "star.fill"
+        case "electronic", "house", "techno", "dubstep", "drumbass": "waveform"
+        case "rnb": "heart.fill"
+        case "rock", "metal": "guitars.fill"
+        case "dance": "figure.dance"
+        case "indie": "sparkles"
+        case "ambient": "moon.stars.fill"
+        case "classical": "pianokeys"
+        case "jazzblues": "music.quarternote.3"
+        case "reggae": "sun.max.fill"
+        case "soundtrack": "film.fill"
+        case "country": "hat.cap.fill"
+        case "latin": "flame.fill"
+        default: "music.note"
         }
     }
 }
