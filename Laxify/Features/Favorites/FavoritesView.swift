@@ -53,6 +53,21 @@ struct FavoritesView: View {
         .background(LaxifyPalette.background)
         .task {
             await SyncService.shared.pullLibrary(into: modelContext)
+            await backfillDurations()
+        }
+    }
+
+    /// Older favourites were saved before track length was carried through and
+    /// sit at zero. Fetch the real length once and patch the local record, so
+    /// the row and the total stop reading "0".
+    private func backfillDurations() async {
+        let broken = allFavorites.filter { $0.duration <= 0 }
+        guard !broken.isEmpty else { return }
+
+        for favorite in broken.prefix(30) {
+            if let song = try? await CatalogService.shared.song(id: favorite.id), song.duration > 0 {
+                favorite.duration = song.duration
+            }
         }
     }
 

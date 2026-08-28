@@ -320,6 +320,11 @@ struct CatalogService: MusicService {
         (try? await api.discoverSuggest(query: query)) ?? []
     }
 
+    func categoryCoverURL(id: String) async -> URL? {
+        guard let tracks = try? await api.discoverGenreTracks(genre: id, limit: 5) else { return nil }
+        return tracks.compactMap { $0.song.coverURL }.first
+    }
+
     // MARK: - Errors
 
     /// Maps transport failures onto something the screens already handle.

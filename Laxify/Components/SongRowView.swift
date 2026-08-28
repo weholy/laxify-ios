@@ -33,9 +33,13 @@ struct SongRowView: View {
                     .transition(.scale.combined(with: .opacity))
             }
 
-            Text(formattedDuration)
-                .font(LaxifyTypography.footnote)
-                .foregroundStyle(LaxifyPalette.textTertiary)
+            // Hidden rather than shown as "0:00" when the length is not known
+            // yet — the library backfills it in the background.
+            if song.duration > 0 {
+                Text(formattedDuration)
+                    .font(LaxifyTypography.footnote)
+                    .foregroundStyle(LaxifyPalette.textTertiary)
+            }
 
             if showsDownload {
                 DownloadIndicator(song: song)

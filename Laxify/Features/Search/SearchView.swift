@@ -151,7 +151,7 @@ struct SearchView: View {
                         Button {
                             selectedCategory = category
                         } label: {
-                            CategoryCard(category: category)
+                            CategoryCard(category: category, coverURL: viewModel.categoryCovers[category.id])
                         }
                         .buttonStyle(.plain)
                     }
@@ -413,35 +413,47 @@ struct SearchView: View {
     }
 }
 
-/// A genre as a coloured banner. No cover to lean on, so the look comes from a
-/// gradient keyed to the genre's name and a big faint glyph — distinct enough
-/// to tell apart at a glance in a grid.
+/// A genre banner: a real cover from the genre behind a dark scrim when one
+/// is known, the coloured gradient tile as the fallback.
 private struct CategoryCard: View {
     let category: MusicCategory
+    var coverURL: URL?
 
     var body: some View {
         let seed = category.id.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }
         let hue = Double(seed % 360) / 360
+        let gradient = LinearGradient(
+            colors: [
+                Color(hue: hue, saturation: 0.6, brightness: 0.82),
+                Color(hue: (hue + 0.08).truncatingRemainder(dividingBy: 1),
+                      saturation: 0.72, brightness: 0.5)
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
 
         ZStack(alignment: .bottomLeading) {
-            LinearGradient(
-                colors: [
-                    Color(hue: hue, saturation: 0.6, brightness: 0.82),
-                    Color(hue: (hue + 0.08).truncatingRemainder(dividingBy: 1),
-                          saturation: 0.72, brightness: 0.5)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-
-            Image(systemName: Self.symbol(for: category.id))
-                .font(.system(size: 62, weight: .bold))
-                .foregroundStyle(.white.opacity(0.16))
-                .offset(x: 44, y: 22)
+            if let coverURL {
+                CachedImage(url: coverURL, displaySize: 240, contentMode: .fill)
+                    .overlay(gradient.opacity(0.35))
+                    .overlay(
+                        LinearGradient(
+                            colors: [.clear, .black.opacity(0.55)],
+                            startPoint: .center, endPoint: .bottom
+                        )
+                    )
+            } else {
+                gradient
+                Image(systemName: Self.symbol(for: category.id))
+                    .font(.system(size: 62, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.16))
+                    .offset(x: 44, y: 22)
+            }
 
             Text(category.title)
                 .font(.system(size: 16, weight: .bold))
                 .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.4), radius: 6, y: 2)
                 .padding(14)
         }
         .frame(height: 92)

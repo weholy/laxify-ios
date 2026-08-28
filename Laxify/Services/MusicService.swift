@@ -38,6 +38,8 @@ protocol MusicService: Sendable {
     func categoryTracks(id: String, title: String, page: Int) async throws -> [Song]
     /// Query completions for the search field.
     func suggestions(for query: String) async throws -> [String]
+    /// A representative cover for a category's banner. Nil when there is none.
+    func categoryCoverURL(id: String) async -> URL?
 }
 
 /// Discovery is optional for a source: the one that only ever backed search
@@ -47,4 +49,5 @@ extension MusicService {
     func categories() async throws -> [MusicCategory] { [] }
     func categoryTracks(id: String, title: String, page: Int) async throws -> [Song] { [] }
     func suggestions(for query: String) async throws -> [String] { [] }
+    func categoryCoverURL(id: String) async -> URL? { nil }
 }

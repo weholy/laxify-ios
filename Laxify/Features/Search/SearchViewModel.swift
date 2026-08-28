@@ -11,6 +11,7 @@ final class SearchViewModel {
     // The browse surface shown before anyone searches.
     private(set) var popular: [Song] = []
     private(set) var categories: [MusicCategory] = []
+    private(set) var categoryCovers: [String: URL] = [:]
     private(set) var isLoadingBrowse = false
 
     // Live completions for the half-typed field.
@@ -35,6 +36,32 @@ final class SearchViewModel {
         popular = (try? await popularResult) ?? []
         categories = (try? await categoriesResult) ?? []
         AsyncCoverImage.prefetchCovers(for: popular, width: 150)
+
+        await loadCategoryCovers()
+    }
+
+    /// A banner cover per category, fetched in parallel. Best-effort — a
+    /// category with no cover falls back to its gradient tile.
+    private func loadCategoryCovers() async {
+        let pending = categories.filter { categoryCovers[$0.id] == nil }
+        guard !pending.isEmpty else { return }
+
+        let found: [(String, URL)] = await withTaskGroup(of: (String, URL?).self) { group in
+            for category in pending {
+                group.addTask { [service] in
+                    (category.id, await service.categoryCoverURL(id: category.id))
+                }
+            }
+            var collected: [(String, URL)] = []
+            for await (id, url) in group {
+                if let url { collected.append((id, url)) }
+            }
+            return collected
+        }
+
+        for (id, url) in found {
+            categoryCovers[id] = url
+        }
     }
 
     func search(query: String) async {
