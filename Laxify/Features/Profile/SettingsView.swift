@@ -146,7 +146,7 @@ struct SettingsView: View {
             .padding(16)
             .background(
                 LaxifyPalette.surface,
-                in: RoundedRectangle(cornerRadius: 32, style: .continuous)
+                in: RoundedRectangle(cornerRadius: 22, style: .continuous)
             )
             .contentShape(Rectangle())
         }
@@ -161,7 +161,7 @@ struct SettingsView: View {
                 if isSigningOut {
                     ProgressView().tint(.red)
                 }
-                Text(isSigningOut ? "Выходим…" : "Выйти из аккаунта")
+                Text(isSigningOut ? L("settings.signingOut", "Выходим…") : L("settings.signout", "Выйти из аккаунта"))
                     .font(.system(size: 16, weight: .semibold))
             }
             .foregroundStyle(.red)
@@ -193,27 +193,19 @@ struct PrivacySettingsView: View {
     @State private var status: String?
 
     var body: some View {
-        SettingsPage(title: "Конфиденциальность", status: status, onBack: onBack) {
-            SettingsCard {
-                SettingsToggle(
-                    title: "Открытый профиль",
-                    description: "Вас смогут найти по имени и увидеть ваши плейлисты",
-                    isOn: $isProfilePublic
-                )
-                .onChange(of: isProfilePublic) { _, value in
-                    save(isProfilePublic: value)
-                }
+        SettingsPage(title: L("settings.privacy", "Конфиденциальность"), status: status, onBack: onBack) {
+            SettingsGroup(footer: L("privacy.publicProfile.sub", "Вас смогут найти по имени и увидеть ваши плейлисты")) {
+                SettingsToggle(title: L("privacy.publicProfile", "Открытый профиль"), isOn: $isProfilePublic)
+                    .onChange(of: isProfilePublic) { _, value in
+                        save(isProfilePublic: value)
+                    }
+            }
 
-                SettingsDivider()
-
-                SettingsToggle(
-                    title: "Показывать, что слушаю",
-                    description: "Сколько вы слушаете и какие треки — будет видно в профиле",
-                    isOn: $isStatsPublic
-                )
-                .onChange(of: isStatsPublic) { _, value in
-                    save(isStatsPublic: value)
-                }
+            SettingsGroup(footer: L("privacy.showListening.sub", "Сколько вы слушаете и какие треки — будет видно в профиле")) {
+                SettingsToggle(title: L("privacy.showListening", "Показывать, что слушаю"), isOn: $isStatsPublic)
+                    .onChange(of: isStatsPublic) { _, value in
+                        save(isStatsPublic: value)
+                    }
             }
         }
         .onAppear {
@@ -236,7 +228,7 @@ struct PrivacySettingsView: View {
                 self.isProfilePublic = session.user?.isProfilePublic ?? true
                 self.isStatsPublic = session.user?.isStatsPublic ?? false
             } else {
-                flash("Сохранено")
+                flash(L("privacy.saved", "Сохранено"))
             }
         }
     }
@@ -264,20 +256,20 @@ struct AboutSettingsView: View {
     private let limit = 160
 
     var body: some View {
-        SettingsPage(title: "О себе", status: status, onBack: onBack) {
+        SettingsPage(title: L("settings.about", "О себе"), status: status, onBack: onBack) {
             SettingsCard {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Эти строки увидят те, кто откроет ваш профиль")
+                    Text(L("about.hint", "Эти строки увидят те, кто откроет ваш профиль"))
                         .font(LaxifyTypography.footnote)
                         .foregroundStyle(LaxifyPalette.textSecondary)
 
-                    TextField("Расскажите о себе", text: $bio, axis: .vertical)
+                    TextField(L("about.placeholder", "Расскажите о себе"), text: $bio, axis: .vertical)
                         .font(.system(size: 16))
                         .foregroundStyle(LaxifyPalette.textPrimary)
                         .lineLimit(3...6)
                         .focused($isEditing)
 
-                    Text("\(bio.count) из \(limit)")
+                    Text("\(bio.count) / \(limit)")
                         .font(.system(size: 12))
                         .foregroundStyle(bio.count > limit ? .red : LaxifyPalette.textTertiary)
                 }
@@ -289,7 +281,7 @@ struct AboutSettingsView: View {
                     isEditing = false
                     save()
                 } label: {
-                    Text("Сохранить")
+                    Text(L("common.save", "Сохранить"))
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(LaxifyPalette.background)
                         .frame(maxWidth: .infinity)
@@ -319,7 +311,7 @@ struct AboutSettingsView: View {
             } else {
                 saved = value
                 bio = value
-                flash("Сохранено")
+                flash(L("privacy.saved", "Сохранено"))
             }
         }
     }
@@ -427,16 +419,18 @@ struct AppearanceSettingsView: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             SettingsPage(title: L("settings.appearance", "Дизайн"), status: nil, onBack: onBack) {
-                VStack(spacing: 12) {
+                SettingsGroup {
                     ForEach(AppearanceSettings.Theme.allCases, id: \.self) { theme in
                         themeRow(theme)
+                        if theme != AppearanceSettings.Theme.allCases.last {
+                            SettingsDivider()
+                        }
                     }
                 }
 
-                SettingsCard {
+                SettingsGroup(footer: L("appearance.hideLabels.sub", "Оставить в нижней панели только иконки")) {
                     SettingsToggle(
                         title: L("appearance.hideLabels", "Скрыть подписи в панели"),
-                        description: L("appearance.hideLabels.sub", "Оставить в нижней панели только иконки"),
                         isOn: Binding(
                             get: { appearance.hideTabLabels },
                             set: { appearance.hideTabLabels = $0 }
@@ -475,19 +469,13 @@ struct AppearanceSettingsView: View {
                 Spacer(minLength: 4)
             }
             .padding(16)
-            .background(
-                LaxifyPalette.surface,
-                in: RoundedRectangle(cornerRadius: 32, style: .continuous)
-            )
-            .overlay {
-                // The outline alone says which one is chosen. A tick as well
-                // was saying it twice, and in a colour that belonged to
-                // nothing else on the screen.
-                RoundedRectangle(cornerRadius: 32, style: .continuous)
-                    .stroke(
-                        isSelected ? LaxifyPalette.selectionOutline : .clear,
-                        lineWidth: isSelected ? 2 : 0
-                    )
+            .overlay(alignment: .trailing) {
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(LaxifyPalette.accent)
+                        .padding(.trailing, 16)
+                }
             }
             .contentShape(Rectangle())
         }
@@ -587,9 +575,9 @@ struct SettingsHeader: View {
         HStack {
             Button(action: onBack) {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: 19, weight: .bold))
                     .foregroundStyle(LaxifyPalette.textPrimary)
-                    .frame(width: 38, height: 38)
+                    .frame(width: 46, height: 46)
                     .glassEffect(.regular.interactive(), in: .circle)
             }
             .buttonStyle(.plain)
@@ -597,16 +585,16 @@ struct SettingsHeader: View {
             Spacer()
 
             Text(title)
-                .font(LaxifyTypography.headline)
+                .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(LaxifyPalette.textPrimary)
 
             Spacer()
 
             // Balances the back button so the title sits centred.
-            Color.clear.frame(width: 38, height: 38)
+            Color.clear.frame(width: 46, height: 46)
         }
         .padding(.horizontal, LaxifyMetrics.screenPadding)
-        .padding(.bottom, 16)
+        .padding(.bottom, 14)
     }
 }
 
@@ -619,28 +607,44 @@ struct SettingsCard<Content: View>: View {
         }
         .background(
             LaxifyPalette.surface,
-            in: RoundedRectangle(cornerRadius: 32, style: .continuous)
+            in: RoundedRectangle(cornerRadius: 22, style: .continuous)
         )
+    }
+}
+
+/// A card plus the grey footer line under it, outside the rounded rectangle —
+/// the grouped-list pattern the user asked to match.
+struct SettingsGroup<Content: View>: View {
+    var footer: String?
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            SettingsCard { content() }
+
+            if let footer {
+                Text(footer)
+                    .font(LaxifyTypography.footnote)
+                    .foregroundStyle(LaxifyPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 16)
+            }
+        }
     }
 }
 
 struct SettingsToggle: View {
     let title: String
-    let description: String
+    /// Kept for callers that still pass it, but the grouped pattern puts the
+    /// explanation in a footer under the card instead.
+    var description: String = ""
     @Binding var isOn: Bool
 
     var body: some View {
-        HStack(alignment: .top, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(LaxifyPalette.textPrimary)
-
-                Text(description)
-                    .font(LaxifyTypography.footnote)
-                    .foregroundStyle(LaxifyPalette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+        HStack(spacing: 14) {
+            Text(title)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(LaxifyPalette.textPrimary)
 
             Spacer(minLength: 8)
 

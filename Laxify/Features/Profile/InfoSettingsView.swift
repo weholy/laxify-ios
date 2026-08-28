@@ -84,31 +84,30 @@ struct InfoSettingsView: View {
     }
 }
 
-/// A bottom banner that asks for a relaunch when a setting only takes effect
-/// on next launch. Rectangular, sits above the home indicator.
+/// The "restart to apply" notice, in the mould of Telegram's info toast: a
+/// dark rounded bar low on the screen with a round glyph and the text, never
+/// a modal — the settings keep working while it is up.
 struct RestartBanner: View {
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "arrow.clockwise.circle.fill")
-                .font(.system(size: 18))
-                .foregroundStyle(LaxifyPalette.accent)
+        HStack(spacing: 12) {
+            Image(systemName: "info")
+                .font(.system(size: 15, weight: .black))
+                .foregroundStyle(Color(hex: 0x1C1C1E))
+                .frame(width: 30, height: 30)
+                .background(.white, in: Circle())
 
-            Text(L("restart.banner", "Перезапустите Laxify — для применения настроек"))
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(LaxifyPalette.textPrimary)
+            Text(L("restart.banner", "Перезапустите Laxify — настройка встанет на все экраны."))
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(.white)
                 .fixedSize(horizontal: false, vertical: true)
 
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .frame(maxWidth: .infinity)
-        .background(LaxifyPalette.surfaceElevated, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(LaxifyPalette.separator, lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(0.18), radius: 16, y: 6)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(hex: 0x1E1E20), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .shadow(color: .black.opacity(0.35), radius: 20, y: 8)
         .padding(.horizontal, LaxifyMetrics.screenPadding)
         .transition(.move(edge: .bottom).combined(with: .opacity))
     }

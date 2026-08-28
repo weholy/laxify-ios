@@ -57,7 +57,7 @@ enum Translations {
         "info.support": "Поддержать проект",
         "info.support.sub": "Помочь развитию Laxify",
         "info.version": "Версия",
-        "restart.banner": "Перезапустите Laxify — для применения настроек",
+        "restart.banner": "Перезапустите Laxify — настройка встанет на все экраны.",
         "appearance.hideLabels": "Скрыть подписи в панели",
         "appearance.hideLabels.sub": "Оставить в нижней панели только иконки",
         "settings.signout": "Выйти из аккаунта",
