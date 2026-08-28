@@ -23,6 +23,12 @@ final class AudioPlayerController {
     var hasNext: Bool { currentIndex + 1 < queue.count }
     var hasPrevious: Bool { currentIndex > 0 }
 
+    /// Whether the queue currently playing is the personal wave. Its defining
+    /// property is that it never ends — the tail is refilled as it is neared.
+    var isPlayingWave: Bool { waveBatchId != nil && currentSong != nil }
+
+    private var isExtendingWave = false
+
     private var player: AVPlayer?
     private var timeObserverToken: Any?
     private var endObserver: NSObjectProtocol?
@@ -280,6 +286,7 @@ final class AudioPlayerController {
         AppLogger.log("play: start id=\(song.id) title=\(song.title)")
         CrashReporter.breadcrumb("play start \(song.id)")
         currentSong = song
+        extendWaveQueueIfNeeded()
         currentTime = 0
         duration = song.duration
         isLoading = true
@@ -563,6 +570,22 @@ final class AudioPlayerController {
             return
         }
 
+        // A wave never ends. If the buffer emptied faster than it refilled,
+        // wait for one more run rather than stopping the music.
+        if waveBatchId != nil {
+            Task {
+                await extendWaveQueue()
+                if hasNext {
+                    currentIndex += 1
+                    loadAndPlayCurrent()
+                } else {
+                    isPlaying = false
+                    updateNowPlayingInfo()
+                }
+            }
+            return
+        }
+
         if repeatMode == .all, !queue.isEmpty {
             currentIndex = 0
             loadAndPlayCurrent()
@@ -571,6 +594,64 @@ final class AudioPlayerController {
 
         isPlaying = false
         updateNowPlayingInfo()
+    }
+
+    // MARK: - Wave continuation
+
+    /// Pulls the next wave run and appends what is new. One fetch at a time,
+    /// and only ever near the tail — the personal radio the source runs is
+    /// endless, so the queue has to be too, no matter which screen started it.
+    private func extendWaveQueue() async {
+        guard waveBatchId != nil, !isExtendingWave, let lastId = queue.last?.id else { return }
+        isExtendingWave = true
+        defer { isExtendingWave = false }
+
+        guard let batch = try? await CatalogService.shared.waveBatch(lastTrackId: lastId),
+              waveBatchId != nil else { return }
+
+        let existing = Set(queue.map(\.id))
+        let fresh = batch.songs.filter { !existing.contains($0.id) }
+        guard !fresh.isEmpty else { return }
+        // Keep the original batch id: one wave session, one id. The new
+        // batch's own id is client-generated and only ever nil-checked.
+        queue.append(contentsOf: fresh)
+    }
+
+    private func extendWaveQueueIfNeeded() {
+        guard waveBatchId != nil, !isExtendingWave, currentIndex >= queue.count - 3 else { return }
+        Task { await extendWaveQueue() }
+    }
+
+    /// Drops the unplayed tail and refills it from the wave, so what comes
+    /// next reflects a signal that just changed — a settings tweak, usually.
+    func reshapeWaveTail() {
+        guard waveBatchId != nil else { return }
+        Task {
+            if currentIndex < queue.count - 1 {
+                queue.removeSubrange((currentIndex + 1)...)
+            }
+            await extendWaveQueue()
+        }
+    }
+
+    /// Skips the current track, then reshapes what follows once the dislike
+    /// that prompted it has actually reached the server.
+    func skipAndReshapeWave() {
+        let couldAdvance = hasNext
+        if couldAdvance { next() }
+        guard waveBatchId != nil else { return }
+
+        Task {
+            await SyncOutbox.shared.flush()
+            if currentIndex < queue.count - 1 {
+                queue.removeSubrange((currentIndex + 1)...)
+            }
+            await extendWaveQueue()
+            if !couldAdvance, hasNext {
+                currentIndex += 1
+                loadAndPlayCurrent()
+            }
+        }
     }
 
     private func reportWaveStart(for song: Song) {

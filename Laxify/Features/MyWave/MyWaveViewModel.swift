@@ -69,8 +69,16 @@ final class MyWaveViewModel {
         settings = newSettings
         newSettings.save()
         try? await CatalogService.shared.applyWaveSettings(newSettings)
-        loadedAt = nil
-        await load()
+
+        // Playing: keep the current track, reshape only what comes after it —
+        // the way Yandex's wave settings take effect without a gap. Idle:
+        // rebuild the preview outright.
+        if AudioPlayerController.shared.isPlayingWave {
+            AudioPlayerController.shared.reshapeWaveTail()
+        } else {
+            loadedAt = nil
+            await load()
+        }
     }
 
     /// Resolves the backdrop for whatever is in focus. The cover shows at

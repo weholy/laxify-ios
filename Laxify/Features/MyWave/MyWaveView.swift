@@ -2,8 +2,11 @@ import SwiftUI
 import SwiftData
 
 /// "Моя волна" — a full-bleed station screen: the artist behind everything, a
-/// deck of what's coming, and one big button. Whatever the player is on, if it
-/// belongs to the wave, this screen follows it.
+/// deck of what's coming, and one big button.
+///
+/// The station itself lives in `AudioPlayerController` (so it keeps going from
+/// the mini player too); this screen mirrors that live queue and feeds it
+/// thumbs and settings the way Yandex's wave does.
 struct MyWaveView: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var favorites: [FavoriteTrack]
@@ -15,26 +18,28 @@ struct MyWaveView: View {
     @State private var palette: ArtworkPalette = .neutral
 
     /// The track the screen centres on: the player's, when it is playing the
-    /// wave; otherwise the head of the queue.
+    /// wave; otherwise the head of the preview.
     private var focus: Song? {
-        if let current = player.currentSong,
-           viewModel.tracks.contains(where: { $0.id == current.id }) {
-            return current
-        }
-        return viewModel.tracks.first
+        player.isPlayingWave ? player.currentSong : viewModel.tracks.first
     }
 
-    private var isPlayingWave: Bool {
-        guard let current = player.currentSong else { return false }
-        return viewModel.tracks.contains { $0.id == current.id }
+    /// What the deck is built from — the live player queue once the wave is
+    /// playing, the preview batch before that.
+    private var deckSource: [Song] {
+        player.isPlayingWave ? player.queue : viewModel.tracks
+    }
+
+    private var isFocusFavorite: Bool {
+        guard let focus else { return false }
+        return favorites.contains { $0.id == focus.id }
     }
 
     private var upcoming: [Song] {
-        guard let focus,
-              let index = viewModel.tracks.firstIndex(where: { $0.id == focus.id }) else {
-            return Array(viewModel.tracks.prefix(10))
+        let source = deckSource
+        guard let focus, let index = source.firstIndex(where: { $0.id == focus.id }) else {
+            return Array(source.prefix(12))
         }
-        return Array(viewModel.tracks[index...].prefix(12))
+        return Array(source[index...].prefix(14))
     }
 
     var body: some View {
@@ -45,13 +50,6 @@ struct MyWaveView: View {
         .task { await viewModel.loadIfNeeded() }
         .task(id: focus?.id) {
             await viewModel.updateBackdrop(for: focus)
-
-            // Keep a few tracks of headroom under the deck.
-            if let focus,
-               let index = viewModel.tracks.firstIndex(where: { $0.id == focus.id }),
-               index >= viewModel.tracks.count - 4 {
-                await viewModel.extend()
-            }
         }
         .task(id: viewModel.backdropURL) {
             palette = await PaletteExtractor.shared.palette(for: viewModel.backdropURL)
@@ -98,7 +96,7 @@ struct MyWaveView: View {
 
     @ViewBuilder
     private var content: some View {
-        if viewModel.tracks.isEmpty {
+        if deckSource.isEmpty {
             emptyState
         } else {
             VStack(spacing: 0) {
@@ -132,19 +130,32 @@ struct MyWaveView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("МОЯ ВОЛНА")
-                .font(.system(size: 13, weight: .heavy))
-                .tracking(2)
-                .foregroundStyle(.white.opacity(0.7))
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("МОЯ ВОЛНА")
+                    .font(.system(size: 13, weight: .heavy))
+                    .tracking(2)
+                    .foregroundStyle(.white.opacity(0.7))
 
-            Text(focus?.artistName ?? "Ваша волна")
-                .font(.system(size: 40, weight: .heavy))
-                .foregroundStyle(.white)
-                .lineLimit(2)
-                .minimumScaleFactor(0.55)
-                .contentTransition(.opacity)
-                .animation(.spring(response: 0.5, dampingFraction: 0.85), value: focus?.artistName)
+                Text(focus?.artistName ?? "Ваша волна")
+                    .font(.system(size: 38, weight: .heavy))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.55)
+                    .contentTransition(.opacity)
+                    .animation(.spring(response: 0.5, dampingFraction: 0.85), value: focus?.artistName)
+            }
+
+            Spacer()
+
+            Button { isSettingsPresented = true } label: {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .background(.white.opacity(0.14), in: Circle())
+            }
+            .buttonStyle(.plain)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -153,7 +164,7 @@ struct MyWaveView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: 14) {
                 ForEach(Array(upcoming.enumerated()), id: \.element.id) { index, song in
-                    WaveTrackCard(song: song, isCurrent: index == 0 && isPlayingWave)
+                    WaveTrackCard(song: song, isCurrent: index == 0 && player.isPlayingWave)
                         .onTapGesture { playFrom(song) }
                 }
             }
@@ -164,11 +175,14 @@ struct MyWaveView: View {
     }
 
     private var controls: some View {
-        HStack(spacing: 22) {
-            circleButton(system: "hand.thumbsdown", size: 52) { dislikeCurrent() }
+        HStack(spacing: 26) {
+            circleButton(
+                system: "hand.thumbsdown\(isFocusDisliked ? ".fill" : "")",
+                tint: .white.opacity(0.85)
+            ) { dislikeCurrent() }
 
             Button { togglePlay() } label: {
-                Image(systemName: (isPlayingWave && player.isPlaying) ? "pause.fill" : "play.fill")
+                Image(systemName: (player.isPlayingWave && player.isPlaying) ? "pause.fill" : "play.fill")
                     .font(.system(size: 30, weight: .bold))
                     .foregroundStyle(.black)
                     .frame(width: 76, height: 76)
@@ -176,22 +190,31 @@ struct MyWaveView: View {
                     .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
             }
             .buttonStyle(.plain)
-            .sensoryFeedback(.impact(weight: .medium), trigger: isPlayingWave && player.isPlaying)
+            .sensoryFeedback(.impact(weight: .medium), trigger: player.isPlaying)
 
-            circleButton(system: "slider.horizontal.3", size: 52) { isSettingsPresented = true }
+            circleButton(
+                system: isFocusFavorite ? "heart.fill" : "heart",
+                tint: isFocusFavorite ? LaxifyPalette.accent : .white.opacity(0.85)
+            ) { likeCurrent() }
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 20)
     }
 
-    private func circleButton(system: String, size: CGFloat, action: @escaping () -> Void) -> some View {
+    private var isFocusDisliked: Bool {
+        guard let focus else { return false }
+        return dislikedTracks.contains { $0.id == focus.id }
+    }
+
+    private func circleButton(system: String, tint: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: system)
                 .font(.system(size: 20, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.85))
-                .frame(width: size, height: size)
+                .foregroundStyle(tint)
+                .frame(width: 54, height: 54)
                 .background(.white.opacity(0.12), in: Circle())
                 .overlay(Circle().stroke(.white.opacity(0.12), lineWidth: 1))
+                .contentTransition(.symbolEffect)
         }
         .buttonStyle(.plain)
     }
@@ -199,15 +222,34 @@ struct MyWaveView: View {
     // MARK: - Actions
 
     private func togglePlay() {
-        if isPlayingWave {
+        if player.isPlayingWave {
             player.togglePlayPause()
-        } else if let start = focus ?? viewModel.tracks.first {
+            return
+        }
+        Task {
+            if viewModel.batchId == nil { await viewModel.load() }
+            guard let start = viewModel.tracks.first else { return }
             player.play(start, queue: viewModel.tracks, waveBatchId: viewModel.batchId)
         }
     }
 
     private func playFrom(_ song: Song) {
-        player.play(song, queue: viewModel.tracks, waveBatchId: viewModel.batchId)
+        if player.isPlayingWave, let index = player.queue.firstIndex(where: { $0.id == song.id }) {
+            player.playIndex(index)
+        } else {
+            player.play(song, queue: viewModel.tracks, waveBatchId: viewModel.batchId)
+        }
+    }
+
+    private func likeCurrent() {
+        guard let song = focus else { return }
+        if let existing = favorites.first(where: { $0.id == song.id }) {
+            modelContext.delete(existing)
+            SyncService.shared.favoriteRemoved(trackId: song.id)
+        } else {
+            modelContext.insert(FavoriteTrack(song: song))
+            SyncService.shared.favoriteAdded(song)
+        }
     }
 
     private func dislikeCurrent() {
@@ -220,8 +262,8 @@ struct MyWaveView: View {
             modelContext.delete(favorite)
             SyncService.shared.favoriteRemoved(trackId: song.id)
         }
-        if isPlayingWave, player.hasNext {
-            player.next()
+        if player.isPlayingWave {
+            player.skipAndReshapeWave()
         }
     }
 }
