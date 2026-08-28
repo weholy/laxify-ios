@@ -35,12 +35,20 @@ struct MyWaveView: View {
         return dislikedTracks.contains { $0.id == focus.id }
     }
 
-    private var upcoming: [Song] {
+    /// A window around what's playing: a few already-heard on the left, the
+    /// current one, and what's queued on the right — so the deck reads as a
+    /// place in a stream, not a list that starts at "now".
+    private var windowed: [Song] {
         let source = deckSource
-        guard let focus, let index = source.firstIndex(where: { $0.id == focus.id }) else {
-            return Array(source.prefix(12))
+        guard !source.isEmpty else { return [] }
+
+        if player.isPlayingWave {
+            let index = player.currentIndex
+            let lower = max(0, index - 3)
+            let upper = min(source.count, index + 13)
+            return Array(source[lower..<upper])
         }
-        return Array(source[index...].prefix(14))
+        return Array(source.prefix(15))
     }
 
     var body: some View {
@@ -172,17 +180,33 @@ struct MyWaveView: View {
     }
 
     private var trackDeck: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(alignment: .bottom, spacing: 16) {
-                ForEach(Array(upcoming.enumerated()), id: \.element.id) { index, song in
-                    WaveTrackCard(song: song, isCurrent: index == 0 && player.isPlayingWave)
-                        .onTapGesture { playFrom(song) }
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .center, spacing: 16) {
+                    ForEach(windowed, id: \.id) { song in
+                        WaveTrackCard(song: song, isCurrent: song.id == focus?.id)
+                            .id(song.id)
+                            .onTapGesture { playFrom(song) }
+                    }
+                }
+                // Enough slack that the first or last card can still sit near
+                // the middle when it is the one playing.
+                .padding(.horizontal, 96)
+                .padding(.vertical, 6)
+            }
+            .scrollClipDisabled()
+            .animation(.spring(response: 0.5, dampingFraction: 0.85), value: focus?.id)
+            .onChange(of: focus?.id) { _, id in
+                guard let id else { return }
+                withAnimation(.spring(response: 0.55, dampingFraction: 0.86)) {
+                    proxy.scrollTo(id, anchor: .center)
                 }
             }
-            .padding(.vertical, 6)
+            .onAppear {
+                if let id = focus?.id { proxy.scrollTo(id, anchor: .center) }
+            }
         }
-        .scrollClipDisabled()
-        .animation(.spring(response: 0.5, dampingFraction: 0.82), value: focus?.id)
+        .frame(height: 264)
     }
 
     private var controls: some View {
@@ -279,7 +303,7 @@ private struct WaveTrackCard: View {
     let song: Song
     let isCurrent: Bool
 
-    private var side: CGFloat { isCurrent ? 200 : 132 }
+    private var side: CGFloat { isCurrent ? 208 : 140 }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {

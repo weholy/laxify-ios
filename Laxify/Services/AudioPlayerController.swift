@@ -610,8 +610,25 @@ final class AudioPlayerController {
               waveBatchId != nil else { return }
 
         let existing = Set(queue.map(\.id))
-        let fresh = batch.songs.filter { !existing.contains($0.id) }
+        // Spread artists out: three tracks by the same person in a row is the
+        // one thing that most makes a "wave" feel like a shuffle of a library.
+        var recentArtists = Set(queue.suffix(8).compactMap { $0.artistId }.filter { !$0.isEmpty })
+
+        var fresh: [Song] = []
+        for song in batch.songs where !existing.contains(song.id) {
+            let artist = song.artistId ?? ""
+            if !artist.isEmpty, recentArtists.contains(artist) { continue }
+            if !artist.isEmpty { recentArtists.insert(artist) }
+            fresh.append(song)
+        }
+
+        // The spread filter left nothing — a thin batch, or one artist's
+        // playlist. Better a repeat than silence.
+        if fresh.isEmpty {
+            fresh = batch.songs.filter { !existing.contains($0.id) }
+        }
         guard !fresh.isEmpty else { return }
+
         // Keep the original batch id: one wave session, one id. The new
         // batch's own id is client-generated and only ever nil-checked.
         queue.append(contentsOf: fresh)
