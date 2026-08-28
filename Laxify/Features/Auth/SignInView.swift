@@ -2,17 +2,12 @@ import SwiftUI
 
 struct SignInView: View {
     var onSignedIn: (AuthenticatedGoogleUser) async -> Void
-    /// Called when a session was created without Google. The response comes
-    /// with it, so the caller knows whether this account is new enough to be
-    /// offered whatever the device collected before it existed.
-    var onSignedInWithEmail: (BackendSessionResponse) async -> Void
 
     @State private var isSigningIn = false
     @State private var errorMessage: String?
     @State private var appear = false
     @State private var buttonAppear = false
     @State private var coverSongs: [Song] = CoverArtCache.load()
-    @State private var showsEmailSignIn = false
     @State private var showsTerms = false
     @State private var serverUnreachable = false
     private var session: SessionStore { SessionStore.shared }
@@ -40,15 +35,6 @@ struct SignInView: View {
         }
         .sheet(isPresented: $showsTerms) {
             TermsView { showsTerms = false }
-        }
-        .fullScreenCover(isPresented: $showsEmailSignIn) {
-            EmailSignInView(
-                onSignedIn: { created in
-                    showsEmailSignIn = false
-                    await onSignedInWithEmail(created)
-                },
-                onCancel: { showsEmailSignIn = false }
-            )
         }
         .onAppear {
             withAnimation(.easeOut(duration: 0.7).delay(0.15)) {
@@ -101,7 +87,6 @@ struct SignInView: View {
 
             VStack(spacing: 12) {
                 googleButton
-                emailButton
 
                 if serverUnreachable {
                     guestButton
@@ -161,25 +146,6 @@ struct SignInView: View {
                 .padding(.vertical, 14)
         }
         .buttonStyle(.plain)
-    }
-
-    private var emailButton: some View {
-        Button {
-            showsEmailSignIn = true
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: "envelope.fill")
-                    .font(.system(size: 16, weight: .semibold))
-                Text("Войти по почте")
-                    .font(.system(size: 17, weight: .semibold))
-            }
-            .foregroundStyle(LaxifyPalette.textPrimary)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 17)
-            .glassEffect(.regular.interactive(), in: .capsule)
-        }
-        .buttonStyle(.plain)
-        .disabled(isSigningIn)
     }
 
     private var googleButton: some View {
@@ -258,5 +224,5 @@ struct SignInView: View {
 }
 
 #Preview {
-    SignInView(onSignedIn: { _ in }, onSignedInWithEmail: { _ in })
+    SignInView(onSignedIn: { _ in })
 }

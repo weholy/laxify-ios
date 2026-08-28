@@ -23,6 +23,14 @@ enum Translations {
         "common.save": "Сохранить",
         "common.delete": "Удалить",
         "common.close": "Закрыть",
+        "common.copy": "Скопировать",
+
+        "account.username": "Имя пользователя",
+        "account.name": "Имя и фото",
+        "account.copied": "Скопировано",
+        "account.logoutAll": "Выйти на всех устройствах",
+        "account.logoutAll.sub": "Завершит все сессии, включая эту",
+        "account.logoutAll.confirm": "Выйти везде",
 
         "language.title": "Выберите язык",
         "language.subtitle": "Это можно изменить в настройках в любой момент",
@@ -130,6 +138,14 @@ enum Translations {
         "common.save": "Save",
         "common.delete": "Delete",
         "common.close": "Close",
+        "common.copy": "Copy",
+
+        "account.username": "Username",
+        "account.name": "Name & photo",
+        "account.copied": "Copied",
+        "account.logoutAll": "Sign out everywhere",
+        "account.logoutAll.sub": "Ends every session, including this one",
+        "account.logoutAll.confirm": "Sign out everywhere",
 
         "language.title": "Choose your language",
         "language.subtitle": "You can change this anytime in settings",
@@ -237,6 +253,14 @@ enum Translations {
         "common.save": "Guardar",
         "common.delete": "Eliminar",
         "common.close": "Cerrar",
+        "common.copy": "Copiar",
+
+        "account.username": "Nombre de usuario",
+        "account.name": "Nombre y foto",
+        "account.copied": "Copiado",
+        "account.logoutAll": "Cerrar sesión en todos",
+        "account.logoutAll.sub": "Termina todas las sesiones, incluida esta",
+        "account.logoutAll.confirm": "Cerrar en todos",
 
         "language.title": "Elige tu idioma",
         "language.subtitle": "Puedes cambiarlo cuando quieras en ajustes",
@@ -344,6 +368,14 @@ enum Translations {
         "common.save": "保存",
         "common.delete": "删除",
         "common.close": "关闭",
+        "common.copy": "复制",
+
+        "account.username": "用户名",
+        "account.name": "昵称和头像",
+        "account.copied": "已复制",
+        "account.logoutAll": "退出所有设备",
+        "account.logoutAll.sub": "结束所有会话，包括当前设备",
+        "account.logoutAll.confirm": "全部退出",
 
         "language.title": "选择语言",
         "language.subtitle": "随时可在设置中更改",

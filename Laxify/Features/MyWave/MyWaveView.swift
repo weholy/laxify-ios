@@ -67,7 +67,9 @@ struct MyWaveView: View {
                     controls
                 }
                 .padding(.horizontal, LaxifyMetrics.screenPadding)
-                .padding(.bottom, LaxifyMetrics.tabBarHeight + LaxifyMetrics.miniPlayerHeight + 22)
+                // Clear the mini player with room to spare — the play button
+                // was almost touching it.
+                .padding(.bottom, LaxifyMetrics.tabBarHeight + LaxifyMetrics.miniPlayerHeight + 52)
             }
         }
         .overlay(alignment: .topTrailing) {

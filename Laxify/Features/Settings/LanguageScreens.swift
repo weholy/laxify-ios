@@ -1,37 +1,52 @@
 import SwiftUI
 
 /// The first screen a new install shows — pick a language before anything
-/// else. Titles preview in the language under the finger.
+/// else. One tap selects and continues; there is nothing to get wrong.
 struct LanguagePickerView: View {
     var localization = LocalizationManager.shared
-    @State private var selected: AppLanguage = LocalizationManager.shared.language
     @State private var appear = false
 
     var body: some View {
         ZStack {
             LaxifyPalette.background.ignoresSafeArea()
 
-            LinearGradient(
-                colors: [LaxifyPalette.accent.opacity(0.18), .clear],
-                startPoint: .top, endPoint: .center
-            )
+            // A slow, dark wash of brand colour — texture, not a spotlight.
+            TimelineView(.animation) { timeline in
+                let t = timeline.date.timeIntervalSinceReferenceDate
+                MeshGradient(
+                    width: 3, height: 3,
+                    points: [
+                        [0, 0], [0.5, 0], [1, 0],
+                        [0, 0.5],
+                        [Float(0.5 + 0.12 * sin(t * 0.3)), Float(0.5 + 0.12 * cos(t * 0.24))],
+                        [1, 0.5],
+                        [0, 1], [0.5, 1], [1, 1]
+                    ],
+                    colors: [
+                        .clear, Color(hex: 0xA855F7).opacity(0.10), .clear,
+                        Color(hex: 0x5B7CFA).opacity(0.14), Color(hex: 0xFF5FA2).opacity(0.10), Color(hex: 0xA855F7).opacity(0.12),
+                        .clear, Color(hex: 0x5B7CFA).opacity(0.08), .clear
+                    ]
+                )
+                .blur(radius: 50)
+            }
             .ignoresSafeArea()
 
             VStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(preview("language.title", "Выберите язык"))
-                        .font(.system(size: 32, weight: .heavy))
+                    Text("Выберите язык")
+                        .font(.system(size: 34, weight: .heavy))
                         .foregroundStyle(LaxifyPalette.textPrimary)
-                    Text(preview("language.subtitle", "Это можно изменить в настройках"))
+                    Text("Choose your language · Elige tu idioma · 选择语言")
                         .font(LaxifyTypography.footnote)
                         .foregroundStyle(LaxifyPalette.textSecondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, LaxifyMetrics.screenPadding)
-                .padding(.top, 24)
-                .padding(.bottom, 28)
+                .padding(.top, 20)
+                .padding(.bottom, 32)
 
-                VStack(spacing: 12) {
+                VStack(spacing: 14) {
                     ForEach(AppLanguage.allCases) { language in
                         row(language)
                     }
@@ -40,43 +55,32 @@ struct LanguagePickerView: View {
 
                 Spacer()
 
-                Button {
-                    localization.choose(selected)
-                } label: {
-                    Text(preview("language.continue", "Продолжить"))
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 17)
-                        .background(LaxifyPalette.accent, in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, LaxifyMetrics.screenPadding)
-                .padding(.bottom, 24)
+                Text("Это можно изменить в настройках")
+                    .font(.system(size: 12))
+                    .foregroundStyle(LaxifyPalette.textTertiary)
+                    .padding(.bottom, 22)
             }
             .opacity(appear ? 1 : 0)
-            .offset(y: appear ? 0 : 16)
+            .offset(y: appear ? 0 : 14)
         }
         .onAppear {
-            withAnimation(.spring(response: 0.7, dampingFraction: 0.85)) { appear = true }
+            withAnimation(.spring(response: 0.7, dampingFraction: 0.86)) { appear = true }
         }
-    }
-
-    private func preview(_ key: String, _ fallback: String) -> String {
-        Translations.table[selected]?[key] ?? Translations.table[.en]?[key] ?? fallback
     }
 
     private func row(_ language: AppLanguage) -> some View {
-        let isSelected = selected == language
-        return Button {
-            withAnimation(.snappy(duration: 0.2)) { selected = language }
+        Button {
+            localization.choose(language)
         } label: {
-            HStack(spacing: 14) {
-                Text(language.flag).font(.system(size: 26))
+            HStack(spacing: 16) {
+                Text(language.flag)
+                    .font(.system(size: 28))
+                    .frame(width: 52, height: 52)
+                    .background(LaxifyPalette.surfaceElevated, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(language.nativeName)
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(.system(size: 18, weight: .bold))
                         .foregroundStyle(LaxifyPalette.textPrimary)
                     Text(language.englishName)
                         .font(LaxifyTypography.caption)
@@ -85,20 +89,23 @@ struct LanguagePickerView: View {
 
                 Spacer()
 
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 20))
-                    .foregroundStyle(isSelected ? LaxifyPalette.accent : LaxifyPalette.textTertiary)
-                    .contentTransition(.symbolEffect)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(LaxifyPalette.textTertiary)
             }
             .padding(16)
-            .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .stroke(isSelected ? LaxifyPalette.accent : .clear, lineWidth: 2)
-            }
-            .contentShape(Rectangle())
+            .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(LanguageRowPressStyle())
+    }
+}
+
+private struct LanguageRowPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(.spring(response: 0.25, dampingFraction: 0.7), value: configuration.isPressed)
     }
 }
 

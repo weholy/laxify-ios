@@ -198,6 +198,12 @@ actor LaxifyAPI {
         KeychainStore.clear()
     }
 
+    /// Revokes every device's session, this one included.
+    @discardableResult
+    func signOutEverywhere() async throws -> MessageResponse {
+        try await send("/auth/logout-all", method: "POST")
+    }
+
     // MARK: - Profile
 
     func currentUser() async throws -> BackendUser {

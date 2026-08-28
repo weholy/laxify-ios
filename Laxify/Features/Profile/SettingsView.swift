@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Settings, as a short list that opens into the thing you picked.
 ///
@@ -331,54 +332,72 @@ struct AccountSettingsView: View {
     var onBack: () -> Void
 
     @State private var session = SessionStore.shared
-    @State private var showsEmailSheet = false
-    @State private var showsPasswordSheet = false
+    @State private var isEditPresented = false
+    @State private var showsLogoutAll = false
     @State private var status: String?
 
     private var user: BackendUser? { session.user }
 
     var body: some View {
-        SettingsPage(title: "Аккаунт", status: status, onBack: onBack) {
+        SettingsPage(title: L("settings.account", "Аккаунт"), status: status, onBack: onBack) {
+            SettingsCard {
+                Button {
+                    UIPasteboard.general.string = user?.username
+                    flash(L("account.copied", "Скопировано"))
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(L("account.username", "Имя пользователя"))
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundStyle(LaxifyPalette.textPrimary)
+                            Text("@\(user?.username ?? "")")
+                                .font(LaxifyTypography.footnote)
+                                .foregroundStyle(LaxifyPalette.textSecondary)
+                        }
+                        Spacer()
+                        Image(systemName: "doc.on.doc")
+                            .font(.system(size: 14))
+                            .foregroundStyle(LaxifyPalette.textTertiary)
+                    }
+                    .padding(16)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                SettingsDivider()
+
+                SettingsRow(
+                    title: L("account.name", "Имя и фото"),
+                    description: user?.displayName ?? "—"
+                ) {
+                    isEditPresented = true
+                }
+            }
+
             SettingsCard {
                 SettingsRow(
-                    title: "Почта",
-                    description: user?.email ?? "—",
-                    badge: (user?.emailVerified ?? false) ? nil : "не подтверждена"
+                    title: L("account.logoutAll", "Выйти на всех устройствах"),
+                    description: L("account.logoutAll.sub", "Завершит все сессии, включая эту")
                 ) {
-                    showsEmailSheet = true
+                    showsLogoutAll = true
                 }
-
-                SettingsDivider()
-
-                SettingsRow(
-                    title: "Пароль",
-                    description: (user?.hasPassword ?? false)
-                        ? "Можно сменить в любой момент"
-                        : "Задайте, чтобы входить по почте"
-                ) {
-                    showsPasswordSheet = true
-                }
-
-                SettingsDivider()
-
-                SettingsRow(
-                    title: "Имя пользователя",
-                    description: "@\(user?.username ?? "")",
-                    showsChevron: false
-                ) {}
             }
         }
-        .sheet(isPresented: $showsEmailSheet) {
-            EmailBindingSheet { message in
-                showsEmailSheet = false
-                flash(message)
-            }
+        .fullScreenCover(isPresented: $isEditPresented) {
+            EditProfileView { isEditPresented = false }
         }
-        .sheet(isPresented: $showsPasswordSheet) {
-            PasswordChangeSheet { message in
-                showsPasswordSheet = false
-                flash(message)
+        .confirmationDialog(
+            L("account.logoutAll", "Выйти на всех устройствах"),
+            isPresented: $showsLogoutAll,
+            titleVisibility: .visible
+        ) {
+            Button(L("account.logoutAll.confirm", "Выйти везде"), role: .destructive) {
+                Task {
+                    _ = try? await LaxifyAPI.shared.signOutEverywhere()
+                    await session.signOut()
+                }
             }
+            Button(L("common.cancel", "Отмена"), role: .cancel) {}
         }
     }
 
