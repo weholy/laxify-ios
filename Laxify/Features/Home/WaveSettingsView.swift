@@ -29,13 +29,16 @@ struct WaveSettingsView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 30) {
-                    section(title: "Настроение", options: WaveSettings.Mood.allCases,
+                    section(title: L("wave.settings.mood", "Настроение"), keyPrefix: "mood",
+                            options: WaveSettings.Mood.allCases,
                             selection: settings.mood, titleFor: \.title) { settings.mood = $0 }
 
-                    section(title: "Что играть", options: WaveSettings.Diversity.allCases,
+                    section(title: L("wave.settings.diversity", "Что играть"), keyPrefix: "div",
+                            options: WaveSettings.Diversity.allCases,
                             selection: settings.diversity, titleFor: \.title) { settings.diversity = $0 }
 
-                    section(title: "Язык", options: WaveSettings.Language.allCases,
+                    section(title: L("wave.settings.lang", "Язык"), keyPrefix: "lang",
+                            options: WaveSettings.Language.allCases,
                             selection: settings.language, titleFor: \.title) { settings.language = $0 }
                 }
                 .padding(.horizontal, LaxifyMetrics.screenPadding)
@@ -51,10 +54,10 @@ struct WaveSettingsView: View {
     private var header: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 3) {
-                Text("Ваша волна")
+                Text(L("wave.settings.title", "Ваша волна"))
                     .font(.system(size: 32, weight: .heavy))
                     .foregroundStyle(LaxifyPalette.textPrimary)
-                Text("Подстройте под настроение")
+                Text(L("wave.settings.subtitle", "Подстройте под настроение"))
                     .font(LaxifyTypography.footnote)
                     .foregroundStyle(LaxifyPalette.textSecondary)
             }
@@ -66,9 +69,9 @@ struct WaveSettingsView: View {
                     .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(LaxifyPalette.textPrimary)
                     .frame(width: 44, height: 44)
-                    .background(LaxifyPalette.surface, in: Circle())
             }
             .buttonStyle(.plain)
+            .laxGlassCircle(interactive: true)
         }
         .padding(.horizontal, LaxifyMetrics.screenPadding)
         .padding(.top, 18)
@@ -77,6 +80,7 @@ struct WaveSettingsView: View {
 
     private func section<Option: RawRepresentable & Hashable & CaseIterable>(
         title: String,
+        keyPrefix: String,
         options: [Option],
         selection: Option,
         titleFor: KeyPath<Option, String>,
@@ -90,7 +94,7 @@ struct WaveSettingsView: View {
             LazyVGrid(columns: columns, spacing: 12) {
                 ForEach(options, id: \.self) { option in
                     WaveOptionCard(
-                        title: option[keyPath: titleFor],
+                        title: L("wave.\(keyPrefix).\(option.rawValue)", option[keyPath: titleFor]),
                         style: .forOption(option.rawValue),
                         isSelected: option == selection
                     ) {
@@ -106,20 +110,14 @@ struct WaveSettingsView: View {
             onApply(settings)
             onClose()
         } label: {
-            Text("Применить")
+            Text(L("wave.settings.apply", "Применить"))
                 .font(.system(size: 17, weight: .bold))
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 17)
-                .background(
-                    LinearGradient(
-                        colors: [LaxifyPalette.accent, LaxifyPalette.accent.opacity(0.75)],
-                        startPoint: .leading, endPoint: .trailing
-                    ),
-                    in: Capsule()
-                )
         }
         .buttonStyle(.plain)
+        .glassEffect(.regular.tint(LaxifyPalette.accent).interactive(), in: .capsule)
         .padding(.horizontal, LaxifyMetrics.screenPadding)
         .padding(.top, 8)
         .padding(.bottom, 18)
@@ -160,43 +158,56 @@ private struct WaveOptionCard: View {
     let isSelected: Bool
     let action: () -> Void
 
+    private var tint: Color { style.colors[0] }
+
     var body: some View {
         Button {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.72)) { action() }
         } label: {
             ZStack(alignment: .bottomLeading) {
-                LinearGradient(colors: style.colors, startPoint: .topLeading, endPoint: .bottomTrailing)
+                // Dark base with a soft wash of the option's colour rather
+                // than a full-bleed gradient — reads as part of the app, not
+                // a sticker.
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(LaxifyPalette.surface)
+
+                RadialGradient(
+                    colors: [tint.opacity(isSelected ? 0.5 : 0.28), .clear],
+                    center: .topTrailing, startRadius: 4, endRadius: 150
+                )
 
                 Image(systemName: style.symbol)
-                    .font(.system(size: 52, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.16))
-                    .offset(x: 42, y: 16)
+                    .font(.system(size: 44, weight: .semibold))
+                    .foregroundStyle(tint.opacity(0.9))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .padding(14)
 
                 Text(title)
                     .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(LaxifyPalette.textPrimary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
                     .padding(14)
             }
-            .frame(height: 96)
-            .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+            .frame(height: 92)
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 26, style: .continuous)
-                    .stroke(.white, lineWidth: isSelected ? 2.5 : 0)
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .stroke(
+                        isSelected ? LaxifyPalette.accent : LaxifyPalette.separator,
+                        lineWidth: isSelected ? 1.5 : 1
+                    )
             }
-            .overlay(alignment: .topTrailing) {
+            .overlay(alignment: .topLeading) {
                 if isSelected {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 12, weight: .black))
-                        .foregroundStyle(.black)
-                        .frame(width: 26, height: 26)
-                        .background(.white, in: Circle())
-                        .padding(9)
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 18))
+                        .foregroundStyle(LaxifyPalette.accent)
+                        .padding(10)
                         .transition(.scale.combined(with: .opacity))
                 }
             }
-            .contentShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         }
         .buttonStyle(WaveCardPressStyle())
     }

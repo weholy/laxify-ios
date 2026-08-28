@@ -102,7 +102,10 @@ enum Translations {
         "playlist.nameTitle": "Название плейлиста",
         "playlist.create": "Создать",
         "playlist.public": "Открытый плейлист",
+        "playlist.public.sub": "Смогут увидеть другие по ссылке на ваш профиль",
+        "playlist.willAdd": "Будет добавлено треков",
         "playlist.addTo": "В плейлист",
+        "playlist.addTo.empty": "Плейлистов пока нет — создайте первый",
 
         "player.addToPlaylist": "Добавить в плейлист",
         "player.notInterested": "Не интересно",
@@ -206,7 +209,10 @@ enum Translations {
         "playlist.nameTitle": "Playlist name",
         "playlist.create": "Create",
         "playlist.public": "Public playlist",
+        "playlist.public.sub": "Others can see it from your profile link",
+        "playlist.willAdd": "Tracks to add",
         "playlist.addTo": "Add to playlist",
+        "playlist.addTo.empty": "No playlists yet — create the first one",
 
         "player.addToPlaylist": "Add to playlist",
         "player.notInterested": "Not interested",
@@ -310,7 +316,10 @@ enum Translations {
         "playlist.nameTitle": "Nombre de la lista",
         "playlist.create": "Crear",
         "playlist.public": "Lista pública",
+        "playlist.public.sub": "Otros pueden verla desde el enlace de tu perfil",
+        "playlist.willAdd": "Pistas a añadir",
         "playlist.addTo": "Añadir a lista",
+        "playlist.addTo.empty": "Aún no hay listas — crea la primera",
 
         "player.addToPlaylist": "Añadir a lista",
         "player.notInterested": "No me interesa",
@@ -414,7 +423,10 @@ enum Translations {
         "playlist.nameTitle": "歌单名称",
         "playlist.create": "创建",
         "playlist.public": "公开歌单",
+        "playlist.public.sub": "他人可通过你的主页链接看到",
+        "playlist.willAdd": "将添加歌曲",
         "playlist.addTo": "添加到歌单",
+        "playlist.addTo.empty": "还没有歌单 — 创建第一个",
 
         "player.addToPlaylist": "添加到歌单",
         "player.notInterested": "不感兴趣",

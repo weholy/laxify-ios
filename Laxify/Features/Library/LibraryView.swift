@@ -5,19 +5,44 @@ import SwiftData
 /// switched with a segmented control.
 struct LibraryView: View {
     enum Segment: String, CaseIterable, Identifiable {
-        case tracks = "Треки"
-        case playlists = "Плейлисты"
+        case tracks
+        case playlists
         var id: String { rawValue }
+
+        var titleKey: String { self == .tracks ? "library.tracks" : "library.playlists" }
+        var fallback: String { self == .tracks ? "Треки" : "Плейлисты" }
     }
 
     @State private var segment: Segment = .tracks
+    @Namespace private var segmentNamespace
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("", selection: $segment) {
-                ForEach(Segment.allCases) { Text($0.rawValue).tag($0) }
+            HStack(spacing: 4) {
+                ForEach(Segment.allCases) { option in
+                    let isOn = segment == option
+                    Button {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) { segment = option }
+                    } label: {
+                        Text(L(option.titleKey, option.fallback))
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(isOn ? LaxifyPalette.textPrimary : LaxifyPalette.textSecondary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 9)
+                            .background {
+                                if isOn {
+                                    Capsule()
+                                        .fill(LaxifyPalette.surfaceElevated)
+                                        .matchedGeometryEffect(id: "librarySegment", in: segmentNamespace)
+                                }
+                            }
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
             }
-            .pickerStyle(.segmented)
+            .padding(4)
+            .background(LaxifyPalette.surface, in: Capsule())
             .padding(.horizontal, LaxifyMetrics.screenPadding)
             .padding(.top, 12)
             .padding(.bottom, 8)
@@ -61,10 +86,11 @@ struct PlaylistsView: View {
             .padding(.bottom, LaxifyMetrics.tabBarHeight + LaxifyMetrics.miniPlayerHeight + 40)
 
             if store.playlists.isEmpty && !store.isLoading {
-                Text("Создайте плейлист и складывайте в него треки —\nиз плеера или долгим нажатием на трек")
+                Text(L("library.empty", "Создайте плейлист и складывайте в него треки —\nиз плеера или долгим нажатием на трек"))
                     .font(LaxifyTypography.footnote)
                     .foregroundStyle(LaxifyPalette.textSecondary)
                     .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
                     .padding(.top, 8)
             }
         }
@@ -152,12 +178,12 @@ struct NewPlaylistCard: View {
                             .foregroundStyle(LaxifyPalette.textSecondary)
                     }
 
-                Text("Новый плейлист")
+                Text(L("library.newPlaylist", "Новый плейлист"))
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(LaxifyPalette.textPrimary)
                     .lineLimit(1)
 
-                Text("Пусто")
+                Text("·")
                     .font(LaxifyTypography.caption)
                     .foregroundStyle(.clear)
             }

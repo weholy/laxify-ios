@@ -13,39 +13,76 @@ struct CreatePlaylistSheet: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    TextField("Название", text: $name)
-                        .focused($focused)
+        ZStack {
+            LaxifyPalette.background.ignoresSafeArea()
+
+            VStack(alignment: .leading, spacing: 24) {
+                HStack {
+                    Text(L("library.newPlaylist", "Новый плейлист"))
+                        .font(.system(size: 26, weight: .heavy))
+                        .foregroundStyle(LaxifyPalette.textPrimary)
+                    Spacer()
+                    Button(action: onDone) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(LaxifyPalette.textPrimary)
+                            .frame(width: 40, height: 40)
+                    }
+                    .buttonStyle(.plain)
+                    .laxGlassCircle(interactive: true)
                 }
 
-                Section {
-                    Toggle("Открытый плейлист", isOn: $isPublic)
-                } footer: {
-                    Text("Открытый плейлист смогут увидеть другие по ссылке на ваш профиль.")
-                }
+                TextField(L("playlist.nameTitle", "Название плейлиста"), text: $name)
+                    .font(.system(size: 17))
+                    .focused($focused)
+                    .padding(16)
+                    .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
 
-                if !seed.isEmpty {
-                    Section {
-                        Text("Будет добавлено треков: \(seed.count)")
+                Toggle(isOn: $isPublic) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(L("playlist.public", "Открытый плейлист"))
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(LaxifyPalette.textPrimary)
+                        Text(L("playlist.public.sub", "Смогут увидеть другие по ссылке на ваш профиль"))
+                            .font(LaxifyTypography.footnote)
                             .foregroundStyle(LaxifyPalette.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-            }
-            .navigationTitle("Новый плейлист")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Отмена", action: onDone)
+                .tint(LaxifyPalette.accent)
+                .padding(16)
+                .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+
+                if !seed.isEmpty {
+                    Text("\(L("playlist.willAdd", "Будет добавлено треков")): \(seed.count)")
+                        .font(LaxifyTypography.footnote)
+                        .foregroundStyle(LaxifyPalette.textSecondary)
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Создать") { create() }
-                        .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || isBusy)
+
+                Spacer()
+
+                Button {
+                    create()
+                } label: {
+                    HStack(spacing: 8) {
+                        if isBusy { ProgressView().tint(.white) }
+                        Text(L("playlist.create", "Создать"))
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
                 }
+                .buttonStyle(.plain)
+                .glassEffect(.regular.tint(LaxifyPalette.accent).interactive(), in: .capsule)
+                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || isBusy)
+                .opacity(name.trimmingCharacters(in: .whitespaces).isEmpty ? 0.5 : 1)
             }
-            .onAppear { focused = true }
+            .padding(.horizontal, LaxifyMetrics.screenPadding)
+            .padding(.top, 22)
+            .padding(.bottom, 20)
         }
+        .onAppear { focused = true }
     }
 
     private func create() {
@@ -70,67 +107,139 @@ struct AddToPlaylistSheet: View {
     @State private var isCreatePresented = false
 
     var body: some View {
-        NavigationStack {
-            List {
-                Button {
-                    isCreatePresented = true
-                } label: {
-                    Label("Новый плейлист", systemImage: "plus.circle.fill")
-                        .foregroundStyle(LaxifyPalette.accent)
-                }
+        ZStack {
+            LaxifyPalette.background.ignoresSafeArea()
 
-                ForEach(store.playlists) { playlist in
-                    Button {
-                        add(to: playlist)
-                    } label: {
-                        HStack(spacing: 12) {
-                            playlistThumb(playlist)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(playlist.title)
-                                    .foregroundStyle(LaxifyPalette.textPrimary)
-                                    .lineLimit(1)
-                                Text("\(playlist.trackCount) \(PlaylistCard.tracksWord(playlist.trackCount))")
-                                    .font(LaxifyTypography.caption)
-                                    .foregroundStyle(LaxifyPalette.textSecondary)
-                            }
-                            Spacer()
-                            if addedTo.contains(playlist.id) {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(LaxifyPalette.accent)
-                                    .transition(.scale.combined(with: .opacity))
-                            }
+            VStack(spacing: 0) {
+                header
+
+                ScrollView {
+                    VStack(spacing: 12) {
+                        newPlaylistButton
+
+                        ForEach(store.playlists) { playlist in
+                            row(playlist)
+                        }
+
+                        if store.playlists.isEmpty && !store.isLoading {
+                            Text(L("playlist.addTo.empty", "Плейлистов пока нет — создайте первый"))
+                                .font(LaxifyTypography.footnote)
+                                .foregroundStyle(LaxifyPalette.textSecondary)
+                                .frame(maxWidth: .infinity)
+                                .padding(.top, 20)
                         }
                     }
-                    .disabled(addedTo.contains(playlist.id))
+                    .padding(.horizontal, LaxifyMetrics.screenPadding)
+                    .padding(.top, 6)
+                    .padding(.bottom, 40)
                 }
             }
-            .listStyle(.plain)
-            .navigationTitle(songs.count == 1 ? "В плейлист" : "Добавить \(songs.count) треков")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Готово", action: onDone)
-                }
-            }
-            .task { await store.loadIfNeeded() }
-            .sheet(isPresented: $isCreatePresented) {
-                CreatePlaylistSheet(onDone: { isCreatePresented = false }, seed: songs)
-            }
+        }
+        .task { await store.loadIfNeeded() }
+        .sheet(isPresented: $isCreatePresented) {
+            CreatePlaylistSheet(onDone: {
+                isCreatePresented = false
+            }, seed: songs)
         }
     }
 
+    private var header: some View {
+        HStack {
+            Text(songs.count == 1
+                 ? L("playlist.addTo", "В плейлист")
+                 : "\(L("playlist.addTo", "В плейлист")) · \(songs.count)")
+                .font(.system(size: 22, weight: .heavy))
+                .foregroundStyle(LaxifyPalette.textPrimary)
+
+            Spacer()
+
+            Button(action: onDone) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(LaxifyPalette.textPrimary)
+                    .frame(width: 40, height: 40)
+            }
+            .buttonStyle(.plain)
+            .laxGlassCircle(interactive: true)
+        }
+        .padding(.horizontal, LaxifyMetrics.screenPadding)
+        .padding(.top, 18)
+        .padding(.bottom, 16)
+    }
+
+    private var newPlaylistButton: some View {
+        Button {
+            isCreatePresented = true
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "plus")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .background(LaxifyPalette.accent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+                Text(L("library.newPlaylist", "Новый плейлист"))
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(LaxifyPalette.textPrimary)
+
+                Spacer()
+            }
+            .padding(12)
+            .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [6, 5]))
+                    .foregroundStyle(LaxifyPalette.separator)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func row(_ playlist: PlaylistDTO) -> some View {
+        Button {
+            add(to: playlist)
+        } label: {
+            HStack(spacing: 12) {
+                thumb(playlist)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(playlist.title)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(LaxifyPalette.textPrimary)
+                        .lineLimit(1)
+                    Text("\(playlist.trackCount) \(PlaylistCard.tracksWord(playlist.trackCount))")
+                        .font(LaxifyTypography.caption)
+                        .foregroundStyle(LaxifyPalette.textSecondary)
+                }
+
+                Spacer()
+
+                Image(systemName: addedTo.contains(playlist.id) ? "checkmark.circle.fill" : "plus.circle")
+                    .font(.system(size: 22))
+                    .foregroundStyle(addedTo.contains(playlist.id) ? LaxifyPalette.accent : LaxifyPalette.textTertiary)
+                    .contentTransition(.symbolEffect)
+            }
+            .padding(12)
+            .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(addedTo.contains(playlist.id))
+    }
+
     @ViewBuilder
-    private func playlistThumb(_ playlist: PlaylistDTO) -> some View {
+    private func thumb(_ playlist: PlaylistDTO) -> some View {
         if let url = playlist.coverURL {
-            AsyncCoverImage(url: url, cornerRadius: 10, displaySize: 44)
-                .frame(width: 40, height: 40)
+            AsyncCoverImage(url: url, cornerRadius: 14, displaySize: 48)
+                .frame(width: 44, height: 44)
         } else {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(LaxifyPalette.surface)
-                .frame(width: 40, height: 40)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(LaxifyPalette.surfaceElevated)
+                .frame(width: 44, height: 44)
                 .overlay {
                     Image(systemName: "music.note.list")
-                        .font(.system(size: 15))
+                        .font(.system(size: 16))
                         .foregroundStyle(LaxifyPalette.textTertiary)
                 }
         }
