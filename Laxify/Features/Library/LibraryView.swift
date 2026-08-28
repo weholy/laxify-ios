@@ -130,7 +130,9 @@ struct PlaylistCard: View {
 
     @ViewBuilder
     private var cover: some View {
-        if let url = playlist.coverURL {
+        if let local = PlaylistCoverStore.shared.image(for: playlist.id) {
+            Image(uiImage: local).resizable().scaledToFill()
+        } else if let url = playlist.coverURL {
             AsyncCoverImage(url: url, cornerRadius: 24, displaySize: 240)
         } else {
             let seed = playlist.id.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }

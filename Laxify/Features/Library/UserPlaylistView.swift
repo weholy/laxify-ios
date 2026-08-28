@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 
 /// One of the account's own playlists: a collage header, play controls, the
 /// tracks with swipe-to-remove, and an overflow to rename, flip visibility or
@@ -8,6 +9,7 @@ struct UserPlaylistView: View {
     var onClose: () -> Void
 
     var store = PlaylistStore.shared
+    var covers = PlaylistCoverStore.shared
 
     @State private var detail: PlaylistDetailDTO?
     @State private var isLoading = true
@@ -16,6 +18,7 @@ struct UserPlaylistView: View {
     @State private var isRenaming = false
     @State private var draftName = ""
     @State private var showDeleteConfirm = false
+    @State private var coverPick: PhotosPickerItem?
 
     private var title: String { detail?.title ?? playlist.title }
 
@@ -59,6 +62,15 @@ struct UserPlaylistView: View {
         }
         .background(LaxifyPalette.background.ignoresSafeArea())
         .task { await load() }
+        .onChange(of: coverPick) { _, item in
+            guard let item else { return }
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self) {
+                    covers.set(data, for: playlist.id)
+                }
+                coverPick = nil
+            }
+        }
         .withMiniPlayer()
         .alert(L("playlist.nameTitle", "Название плейлиста"), isPresented: $isRenaming) {
             TextField(L("playlist.nameTitle", "Название плейлиста"), text: $draftName)
@@ -89,6 +101,16 @@ struct UserPlaylistView: View {
                         isRenaming = true
                     } label: {
                         Label(L("playlist.rename", "Переименовать"), systemImage: "pencil")
+                    }
+                    PhotosPicker(selection: $coverPick, matching: .images) {
+                        Label(L("playlist.cover", "Обложка"), systemImage: "photo")
+                    }
+                    if covers.image(for: playlist.id) != nil {
+                        Button(role: .destructive) {
+                            covers.clear(for: playlist.id)
+                        } label: {
+                            Label(L("playlist.cover.remove", "Убрать обложку"), systemImage: "photo.badge.minus")
+                        }
                     }
                     Button {
                         Task { _ = try? await LaxifyAPI.shared.setPlaylistPublic(id: playlist.id, isPublic: !(detail?.isPublic ?? playlist.isPublic)) }
@@ -154,16 +176,25 @@ struct UserPlaylistView: View {
 
     @ViewBuilder
     private var collage: some View {
-        let covers = Array(songs.compactMap(\.coverURL).prefix(4))
-        if covers.count >= 4 {
+        if let custom = covers.image(for: playlist.id) {
+            Image(uiImage: custom).resizable().scaledToFill()
+        } else {
+            defaultCollage
+        }
+    }
+
+    @ViewBuilder
+    private var defaultCollage: some View {
+        let urls = Array(songs.compactMap(\.coverURL).prefix(4))
+        if urls.count >= 4 {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 0), GridItem(.flexible(), spacing: 0)], spacing: 0) {
                 ForEach(0..<4, id: \.self) { index in
-                    AsyncCoverImage(url: covers[index], cornerRadius: 0, displaySize: 100)
+                    AsyncCoverImage(url: urls[index], cornerRadius: 0, displaySize: 100)
                         .aspectRatio(1, contentMode: .fill)
                         .clipped()
                 }
             }
-        } else if let first = covers.first {
+        } else if let first = urls.first {
             AsyncCoverImage(url: first, cornerRadius: 0, displaySize: 200)
         } else {
             let seed = playlist.id.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }

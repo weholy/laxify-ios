@@ -36,22 +36,24 @@ struct CreatePlaylistSheet: View {
                     .font(.system(size: 17))
                     .focused($focused)
                     .padding(16)
-                    .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: LaxifyMetrics.groupedCornerRadius, style: .continuous))
 
-                Toggle(isOn: $isPublic) {
-                    VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 7) {
+                    Toggle(isOn: $isPublic) {
                         Text(L("playlist.public", "Открытый плейлист"))
                             .font(.system(size: 16, weight: .medium))
                             .foregroundStyle(LaxifyPalette.textPrimary)
-                        Text(L("playlist.public.sub", "Смогут увидеть другие по ссылке на ваш профиль"))
-                            .font(LaxifyTypography.footnote)
-                            .foregroundStyle(LaxifyPalette.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
                     }
+                    .tint(LaxifyPalette.accent)
+                    .padding(16)
+                    .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: LaxifyMetrics.groupedCornerRadius, style: .continuous))
+
+                    Text(L("playlist.public.sub", "Смогут увидеть другие по ссылке на ваш профиль"))
+                        .font(.system(size: 12))
+                        .foregroundStyle(LaxifyPalette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 16)
                 }
-                .tint(LaxifyPalette.accent)
-                .padding(16)
-                .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
 
                 if !seed.isEmpty {
                     Text("\(L("playlist.willAdd", "Будет добавлено треков")): \(seed.count)")
