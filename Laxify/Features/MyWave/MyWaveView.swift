@@ -274,27 +274,39 @@ struct MyWaveView: View {
 
     private func likeCurrent() {
         guard let song = focus else { return }
-        if let existing = favorites.first(where: { $0.id == song.id }) {
-            modelContext.delete(existing)
-            SyncService.shared.favoriteRemoved(trackId: song.id)
-        } else {
-            modelContext.insert(FavoriteTrack(song: song))
-            SyncService.shared.favoriteAdded(song)
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+            if let existing = favorites.first(where: { $0.id == song.id }) {
+                modelContext.delete(existing)
+                SyncService.shared.favoriteRemoved(trackId: song.id)
+            } else {
+                // Turning like on turns dislike off — smoothly, in the same
+                // transaction, so the thumb un-fills as the heart fills.
+                if let disliked = dislikedTracks.first(where: { $0.id == song.id }) {
+                    modelContext.delete(disliked)
+                }
+                modelContext.insert(FavoriteTrack(song: song))
+                SyncService.shared.favoriteAdded(song)
+            }
         }
     }
 
     private func dislikeCurrent() {
         guard let song = focus else { return }
-        if !dislikedTracks.contains(where: { $0.id == song.id }) {
-            modelContext.insert(DislikedTrack(id: song.id))
-            SyncService.shared.dislikeAdded(trackId: song.id)
-        }
-        if let favorite = favorites.first(where: { $0.id == song.id }) {
-            modelContext.delete(favorite)
-            SyncService.shared.favoriteRemoved(trackId: song.id)
-        }
-        if player.isPlayingWave {
-            player.skipAndReshapeWave()
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+            if let disliked = dislikedTracks.first(where: { $0.id == song.id }) {
+                // Already disliked — a second tap clears it.
+                modelContext.delete(disliked)
+            } else {
+                if let favorite = favorites.first(where: { $0.id == song.id }) {
+                    modelContext.delete(favorite)
+                    SyncService.shared.favoriteRemoved(trackId: song.id)
+                }
+                modelContext.insert(DislikedTrack(id: song.id))
+                SyncService.shared.dislikeAdded(trackId: song.id)
+                if player.isPlayingWave {
+                    player.skipAndReshapeWave()
+                }
+            }
         }
     }
 }

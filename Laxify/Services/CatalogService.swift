@@ -321,8 +321,23 @@ struct CatalogService: MusicService {
     }
 
     func categoryCoverURL(id: String) async -> URL? {
-        guard let tracks = try? await api.discoverGenreTracks(genre: id, limit: 5) else { return nil }
-        return tracks.compactMap { $0.song.coverURL }.first
+        if let tracks = try? await api.discoverGenreTracks(genre: id, limit: 6),
+           let cover = tracks.compactMap({ $0.song.coverURL }).first {
+            return cover
+        }
+        // Genre listing gave nothing — fall back to a plain search on the key.
+        return await coverForQuery(id)
+    }
+
+    /// A representative cover for an arbitrary query — used for the wave
+    /// settings tiles, which have no genre of their own.
+    func coverForQuery(_ query: String) async -> URL? {
+        if let tracks = try? await api.catalogSearchTracks(query: query, limit: 6),
+           let cover = tracks.compactMap({ $0.song.coverURL }).first {
+            return cover
+        }
+        return try? await SoundCloudDirect.shared.search(query, limit: 6).tracks
+            .compactMap(\.coverURL).first
     }
 
     // MARK: - Errors

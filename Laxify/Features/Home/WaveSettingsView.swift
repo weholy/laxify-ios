@@ -5,6 +5,7 @@ import SwiftUI
 /// one ringed and checked.
 struct WaveSettingsView: View {
     @State private var settings: WaveSettings
+    @State private var covers: [String: URL] = [:]
     private let onApply: (WaveSettings) -> Void
     private let onClose: () -> Void
 
@@ -17,6 +18,14 @@ struct WaveSettingsView: View {
         self.onApply = onApply
         self.onClose = onClose
     }
+
+    private static let optionQueries: [String: String] = [
+        "all": "hits", "fun": "feel good", "active": "workout energy",
+        "calm": "chill lofi", "sad": "sad songs",
+        "default": "top hits", "favorite": "love songs",
+        "popular": "popular hits", "discover": "new music",
+        "any": "world music", "russian": "русский рэп", "notRussian": "english pop"
+    ]
 
     private let columns = [
         GridItem(.flexible(), spacing: 12),
@@ -49,6 +58,22 @@ struct WaveSettingsView: View {
             applyButton
         }
         .background(LaxifyPalette.background.ignoresSafeArea())
+        .task { await loadCovers() }
+    }
+
+    private func loadCovers() async {
+        guard covers.isEmpty else { return }
+        let found: [(String, URL)] = await withTaskGroup(of: (String, URL?).self) { group in
+            for (raw, query) in Self.optionQueries {
+                group.addTask { (raw, await CatalogService.shared.coverForQuery(query)) }
+            }
+            var collected: [(String, URL)] = []
+            for await (raw, url) in group {
+                if let url { collected.append((raw, url)) }
+            }
+            return collected
+        }
+        for (raw, url) in found { covers[raw] = url }
     }
 
     private var header: some View {
@@ -96,6 +121,7 @@ struct WaveSettingsView: View {
                     WaveOptionCard(
                         title: L("wave.\(keyPrefix).\(option.rawValue)", option[keyPath: titleFor]),
                         style: .forOption(option.rawValue),
+                        coverURL: covers[option.rawValue],
                         isSelected: option == selection
                     ) {
                         onSelect(option)
@@ -155,6 +181,7 @@ private struct WaveOptionStyle {
 private struct WaveOptionCard: View {
     let title: String
     let style: WaveOptionStyle
+    var coverURL: URL?
     let isSelected: Bool
     let action: () -> Void
 
@@ -165,28 +192,36 @@ private struct WaveOptionCard: View {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.72)) { action() }
         } label: {
             ZStack(alignment: .bottomLeading) {
-                // Dark base with a soft wash of the option's colour rather
-                // than a full-bleed gradient — reads as part of the app, not
-                // a sticker.
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
                     .fill(LaxifyPalette.surface)
 
-                RadialGradient(
-                    colors: [tint.opacity(isSelected ? 0.5 : 0.28), .clear],
-                    center: .topTrailing, startRadius: 4, endRadius: 150
-                )
-
-                Image(systemName: style.symbol)
-                    .font(.system(size: 44, weight: .semibold))
-                    .foregroundStyle(tint.opacity(0.9))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                    .padding(14)
+                if let coverURL {
+                    CachedImage(url: coverURL, displaySize: 220, contentMode: .fill)
+                        .overlay(tint.opacity(0.35))
+                        .overlay(
+                            LinearGradient(
+                                colors: [.clear, .black.opacity(0.6)],
+                                startPoint: .center, endPoint: .bottom
+                            )
+                        )
+                } else {
+                    RadialGradient(
+                        colors: [tint.opacity(isSelected ? 0.5 : 0.28), .clear],
+                        center: .topTrailing, startRadius: 4, endRadius: 150
+                    )
+                    Image(systemName: style.symbol)
+                        .font(.system(size: 44, weight: .semibold))
+                        .foregroundStyle(tint.opacity(0.9))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                        .padding(14)
+                }
 
                 Text(title)
                     .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(LaxifyPalette.textPrimary)
+                    .foregroundStyle(coverURL == nil ? LaxifyPalette.textPrimary : .white)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
+                    .shadow(color: coverURL == nil ? .clear : .black.opacity(0.5), radius: 4, y: 1)
                     .padding(14)
             }
             .frame(height: 92)
