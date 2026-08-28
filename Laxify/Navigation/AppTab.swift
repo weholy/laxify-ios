@@ -6,6 +6,16 @@ enum AppTab: CaseIterable {
     case favorites
     case profile
 
+    /// Localization key; `title` is the Russian fallback.
+    var titleKey: String {
+        switch self {
+        case .home: "tab.home"
+        case .myWave: "tab.wave"
+        case .favorites: "tab.favorites"
+        case .profile: "tab.profile"
+        }
+    }
+
     var title: String {
         switch self {
         case .home: "Главная"

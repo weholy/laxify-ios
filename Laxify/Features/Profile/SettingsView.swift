@@ -13,6 +13,7 @@ struct SettingsView: View {
     @State private var isSigningOut = false
 
     private enum Page: String, Identifiable {
+        case language
         case privacy
         case about
         case account
@@ -22,8 +23,23 @@ struct SettingsView: View {
 
         var id: String { rawValue }
 
+        var titleKey: String {
+            switch self {
+            case .language: "settings.language"
+            case .privacy: "settings.privacy"
+            case .about: "settings.about"
+            case .account: "settings.account"
+            case .appearance: "settings.appearance"
+            case .export: "settings.export"
+            case .diagnostics: "settings.diagnostics"
+            }
+        }
+
+        var subtitleKey: String { titleKey + ".sub" }
+
         var title: String {
             switch self {
+            case .language: "Язык"
             case .privacy: "Конфиденциальность"
             case .about: "О себе"
             case .account: "Аккаунт"
@@ -35,6 +51,7 @@ struct SettingsView: View {
 
         var subtitle: String {
             switch self {
+            case .language: "Язык приложения"
             case .privacy: "Кто видит ваш профиль и что вы слушаете"
             case .about: "Пара строк для вашей страницы"
             case .account: "Почта, пароль, имя"
@@ -43,7 +60,6 @@ struct SettingsView: View {
             case .diagnostics: "Что не работает и почему"
             }
         }
-
     }
 
     @State private var page: Page?
@@ -53,11 +69,11 @@ struct SettingsView: View {
             LaxifyPalette.background.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                SettingsHeader(title: "Настройки", onBack: onClose)
+                SettingsHeader(title: L("settings.title", "Настройки"), onBack: onClose)
 
                 ScrollView {
                     VStack(spacing: 12) {
-                        ForEach([Page.privacy, .about, .account, .appearance]) { entry in
+                        ForEach([Page.language, .privacy, .about, .account, .appearance]) { entry in
                             entryRow(entry)
                         }
 
@@ -71,6 +87,8 @@ struct SettingsView: View {
         }
         .fullScreenCover(item: $page) { entry in
             switch entry {
+            case .language:
+                LanguageSettingsView { page = nil }
             case .privacy:
                 PrivacySettingsView { page = nil }
             case .about:
@@ -86,12 +104,12 @@ struct SettingsView: View {
             }
         }
         .confirmationDialog(
-            "Точно хотите выйти?",
+            L("settings.signout.confirm", "Точно хотите выйти?"),
             isPresented: $showsSignOutConfirmation,
             titleVisibility: .visible
         ) {
-            Button("Выйти", role: .destructive) { signOut() }
-            Button("Остаться", role: .cancel) {}
+            Button(L("settings.signout", "Выйти"), role: .destructive) { signOut() }
+            Button(L("settings.signout.stay", "Остаться"), role: .cancel) {}
         }
     }
 
@@ -101,11 +119,11 @@ struct SettingsView: View {
         } label: {
             HStack(spacing: 14) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(entry.title)
+                    Text(L(entry.titleKey, entry.title))
                         .font(.system(size: 16, weight: .medium))
                         .foregroundStyle(LaxifyPalette.textPrimary)
 
-                    Text(entry.subtitle)
+                    Text(L(entry.subtitleKey, entry.subtitle))
                         .font(LaxifyTypography.footnote)
                         .foregroundStyle(LaxifyPalette.textSecondary)
                         .lineLimit(1)

@@ -9,10 +9,51 @@ struct AppRootView: View {
     @Query private var dislikedTracks: [DislikedTrack]
 
     var session = SessionStore.shared
+    var localization = LocalizationManager.shared
 
     @State private var hasShownWelcome = false
 
     var body: some View {
+        Group {
+            if !localization.hasPicked {
+                LanguagePickerView()
+                    .transition(.opacity)
+            } else {
+                signedInFlow
+            }
+        }
+        .animation(.easeInOut(duration: 0.35), value: localization.hasPicked)
+        .animation(.easeInOut(duration: 0.35), value: session.state)
+        .task {
+            // Signing out has to be able to clear the on-device library, and
+            // only a view has the context to do it with.
+            session.modelContext = modelContext
+            AudioPlayerController.shared.modelContext = modelContext
+            await restore()
+
+            // Anything played while the server was out of reach goes up
+            // first, so the history that comes down includes it.
+            await PlaybackUploader.flush(context: modelContext)
+
+            // Bring the account's listening history down, so the figures the
+            // device works out are the same ones the server would.
+            await HistoryMirror.sync(context: modelContext)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            // Coming back to the app is the most likely moment for the
+            // network to have changed, and the moment a backlog is worth
+            // trying again.
+            guard phase == .active else { return }
+            Task { await PlaybackUploader.flush(context: modelContext) }
+        }
+        .onOpenURL { url in
+            guard !DeepLinkRouter.shared.handle(url) else { return }
+            AuthService.shared.handle(url: url)
+        }
+    }
+
+    @ViewBuilder
+    private var signedInFlow: some View {
         Group {
             switch session.state {
             case .unknown:
@@ -50,33 +91,6 @@ struct AppRootView: View {
                     .transition(.opacity)
                 }
             }
-        }
-        .animation(.easeInOut(duration: 0.35), value: session.state)
-        .task {
-            // Signing out has to be able to clear the on-device library, and
-            // only a view has the context to do it with.
-            session.modelContext = modelContext
-            AudioPlayerController.shared.modelContext = modelContext
-            await restore()
-
-            // Anything played while the server was out of reach goes up
-            // first, so the history that comes down includes it.
-            await PlaybackUploader.flush(context: modelContext)
-
-            // Bring the account's listening history down, so the figures the
-            // device works out are the same ones the server would.
-            await HistoryMirror.sync(context: modelContext)
-        }
-        .onChange(of: scenePhase) { _, phase in
-            // Coming back to the app is the most likely moment for the
-            // network to have changed, and the moment a backlog is worth
-            // trying again.
-            guard phase == .active else { return }
-            Task { await PlaybackUploader.flush(context: modelContext) }
-        }
-        .onOpenURL { url in
-            guard !DeepLinkRouter.shared.handle(url) else { return }
-            AuthService.shared.handle(url: url)
         }
     }
 

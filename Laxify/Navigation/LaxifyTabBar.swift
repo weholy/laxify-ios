@@ -55,7 +55,7 @@ struct LaxifyTabBar: View {
                     .symbolEffect(.bounce, options: .nonRepeating, value: isSelected)
 
                 if isSelected {
-                    Text(tab.title)
+                    Text(L(tab.titleKey, tab.title))
                         .font(LaxifyTypography.tabLabel)
                         .lineLimit(1)
                         .fixedSize()
