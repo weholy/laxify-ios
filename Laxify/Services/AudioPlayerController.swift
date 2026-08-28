@@ -27,6 +27,7 @@ final class AudioPlayerController {
     private var timeObserverToken: Any?
     private var endObserver: NSObjectProtocol?
     private var statusObservation: NSKeyValueObservation?
+    private var durationObservation: NSKeyValueObservation?
     private var didLogFirstTick = false
     private var sleepTimerTask: Task<Void, Never>?
     private var waveBatchId: String?
@@ -523,6 +524,21 @@ final class AudioPlayerController {
                 }
             }
         }
+
+        // The real asset duration, once the player knows it. Metadata from
+        // the source is an estimate — for some tracks wrong by enough that a
+        // bar bound to it reaches the end early or never gets there. It
+        // arrives late (and sometimes as `indefinite`), so an observer rather
+        // than a one-time read.
+        durationObservation = item.observe(\.duration, options: [.new, .initial]) { [weak self] observedItem, _ in
+            let seconds = observedItem.duration.seconds
+            Task { @MainActor in
+                guard let self, self.currentSong != nil else { return }
+                guard seconds.isFinite, seconds > 1, abs(self.duration - seconds) > 1 else { return }
+                self.duration = seconds
+                self.updateNowPlayingInfo()
+            }
+        }
     }
 
     private func handleDidFinishPlaying() {
@@ -605,6 +621,8 @@ final class AudioPlayerController {
         endObserver = nil
         statusObservation?.invalidate()
         statusObservation = nil
+        durationObservation?.invalidate()
+        durationObservation = nil
         player?.pause()
         player = nil
     }

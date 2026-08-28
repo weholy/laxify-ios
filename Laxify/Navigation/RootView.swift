@@ -4,6 +4,7 @@ struct RootView: View {
     @State private var selectedTab: AppTab = .home
     @State private var isSearchPresented = false
     @State private var isPlayerPresented = false
+    @Namespace private var playerZoom
     var router = DeepLinkRouter.shared
 
     var body: some View {
@@ -14,7 +15,7 @@ struct RootView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             VStack(spacing: 10) {
-                MiniPlayerBar {
+                MiniPlayerBar(zoomNamespace: playerZoom) {
                     isPlayerPresented = true
                 }
 
@@ -30,6 +31,7 @@ struct RootView: View {
         }
         .fullScreenCover(isPresented: $isPlayerPresented) {
             FullPlayerView { isPlayerPresented = false }
+                .navigationTransition(.zoom(sourceID: MiniPlayerBar.zoomID, in: playerZoom))
         }
         .fullScreenCover(isPresented: Binding(
             get: { router.pendingArtistId != nil },
