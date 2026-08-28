@@ -60,6 +60,8 @@ struct RootView: View {
         switch selectedTab {
         case .home:
             HomeView()
+        case .myWave:
+            MyWaveView()
         case .favorites:
             FavoritesView()
         case .profile:

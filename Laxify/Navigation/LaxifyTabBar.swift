@@ -57,6 +57,8 @@ struct LaxifyTabBar: View {
                 if isSelected {
                     Text(tab.title)
                         .font(LaxifyTypography.tabLabel)
+                        .lineLimit(1)
+                        .fixedSize()
                         .transition(.opacity.combined(with: .move(edge: .leading)))
                 }
             }

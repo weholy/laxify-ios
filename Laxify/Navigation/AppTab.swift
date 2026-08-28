@@ -2,12 +2,14 @@ import SwiftUI
 
 enum AppTab: CaseIterable {
     case home
+    case myWave
     case favorites
     case profile
 
     var title: String {
         switch self {
         case .home: "Главная"
+        case .myWave: "Моя волна"
         case .favorites: "Избранное"
         case .profile: "Профиль"
         }
@@ -16,6 +18,7 @@ enum AppTab: CaseIterable {
     var icon: String {
         switch self {
         case .home: "house.fill"
+        case .myWave: "dot.radiowaves.left.and.right"
         case .favorites: "heart.fill"
         case .profile: "person.fill"
         }
