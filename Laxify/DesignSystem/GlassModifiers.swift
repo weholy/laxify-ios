@@ -17,15 +17,15 @@ extension View {
         laxGlass(interactive: interactive, in: Circle())
     }
 
-    /// A properly proportioned glass capsule around a short text action
+    /// A chunky glass rounded-rectangle around a short text action
     /// (Готово, Отмена, …) — one consistent treatment everywhere.
     func glassPill() -> some View {
         self
             .font(.system(size: 16, weight: .semibold))
             .foregroundStyle(LaxifyPalette.textPrimary)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 9)
-            .glassEffect(.regular.interactive(), in: .capsule)
-            .contentShape(Capsule())
+            .padding(.horizontal, 20)
+            .padding(.vertical, 13)
+            .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 16))
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }

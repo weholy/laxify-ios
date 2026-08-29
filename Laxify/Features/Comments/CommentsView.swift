@@ -83,7 +83,7 @@ struct CommentsView: View {
             Spacer()
 
             // Balances the "Готово" pill so the title stays centred.
-            Color.clear.frame(width: 78, height: 1)
+            Color.clear.frame(width: 96, height: 1)
         }
         .padding(.horizontal, LaxifyMetrics.screenPadding)
         .padding(.vertical, 10)
@@ -180,7 +180,8 @@ struct CommentsView: View {
                     // Attach — photo or video. Glass circle, Telegram's paperclip.
                     PhotosPicker(selection: $photoItem, matching: .any(of: [.images, .videos])) {
                         Image(systemName: "paperclip")
-                            .font(.system(size: 18, weight: .semibold))
+                            .font(.system(size: 19, weight: .semibold))
+                            .rotationEffect(.degrees(-45))
                             .foregroundStyle(LaxifyPalette.textPrimary)
                             .frame(width: 42, height: 42)
                             .glassEffect(.regular.interactive(), in: .circle)
