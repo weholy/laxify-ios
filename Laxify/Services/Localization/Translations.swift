@@ -108,8 +108,10 @@ enum Translations {
         "home.more": "Ещё треки",
         "home.retryLoad": "Не удалось загрузить главную",
 
+        "library.title": "Медиатека",
         "library.tracks": "Треки",
         "library.playlists": "Плейлисты",
+        "library.playlist": "Плейлист",
         "library.newPlaylist": "Новый плейлист",
         "library.empty": "Создайте плейлист и складывайте в него треки —\nиз плеера или долгим нажатием на трек",
 
@@ -323,8 +325,10 @@ enum Translations {
         "home.more": "More tracks",
         "home.retryLoad": "Couldn't load Home",
 
+        "library.title": "Library",
         "library.tracks": "Tracks",
         "library.playlists": "Playlists",
+        "library.playlist": "Playlist",
         "library.newPlaylist": "New playlist",
         "library.empty": "Create a playlist and drop tracks into it —\nfrom the player or a long press on a track",
 
@@ -538,8 +542,10 @@ enum Translations {
         "home.more": "Más pistas",
         "home.retryLoad": "No se pudo cargar el Inicio",
 
+        "library.title": "Biblioteca",
         "library.tracks": "Pistas",
         "library.playlists": "Listas",
+        "library.playlist": "Lista",
         "library.newPlaylist": "Nueva lista",
         "library.empty": "Crea una lista y añade pistas —\ndesde el reproductor o con una pulsación larga",
 
@@ -753,8 +759,10 @@ enum Translations {
         "home.more": "更多歌曲",
         "home.retryLoad": "无法加载首页",
 
+        "library.title": "媒体库",
         "library.tracks": "歌曲",
         "library.playlists": "歌单",
+        "library.playlist": "歌单",
         "library.newPlaylist": "新建歌单",
         "library.empty": "创建歌单，把歌曲加进去 —\n可从播放器或长按歌曲添加",
 

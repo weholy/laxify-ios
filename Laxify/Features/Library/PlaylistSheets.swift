@@ -98,7 +98,9 @@ struct CreatePlaylistSheet: View {
 }
 
 /// Drop one or more tracks into a playlist — pick an existing one or make a
-/// new one on the spot. Used from the player overflow and a track long-press.
+/// new one on the spot. Modelled on Apple Music's "Add to a Playlist": what
+/// you're adding sits at the top, a clean "Новый плейлист" row, then the
+/// playlists with a checkmark as each one takes the track.
 struct AddToPlaylistSheet: View {
     let songs: [Song]
     var onDone: () -> Void
@@ -114,10 +116,11 @@ struct AddToPlaylistSheet: View {
 
             VStack(spacing: 0) {
                 header
+                nowAdding
 
                 ScrollView {
-                    VStack(spacing: 12) {
-                        newPlaylistButton
+                    VStack(spacing: 10) {
+                        newPlaylistRow
 
                         ForEach(store.playlists) { playlist in
                             row(playlist)
@@ -132,9 +135,15 @@ struct AddToPlaylistSheet: View {
                         }
                     }
                     .padding(.horizontal, LaxifyMetrics.screenPadding)
-                    .padding(.top, 6)
-                    .padding(.bottom, 40)
+                    .padding(.top, 8)
+                    .padding(.bottom, 120)
                 }
+                .scrollIndicators(.hidden)
+            }
+
+            VStack {
+                Spacer()
+                doneButton
             }
         }
         .task { await store.loadIfNeeded() }
@@ -147,9 +156,7 @@ struct AddToPlaylistSheet: View {
 
     private var header: some View {
         HStack {
-            Text(songs.count == 1
-                 ? L("playlist.addTo", "В плейлист")
-                 : "\(L("playlist.addTo", "В плейлист")) · \(songs.count)")
+            Text(L("playlist.addTo", "В плейлист"))
                 .font(.system(size: 22, weight: .heavy))
                 .foregroundStyle(LaxifyPalette.textPrimary)
 
@@ -166,19 +173,51 @@ struct AddToPlaylistSheet: View {
         }
         .padding(.horizontal, LaxifyMetrics.screenPadding)
         .padding(.top, 18)
-        .padding(.bottom, 16)
+        .padding(.bottom, 12)
     }
 
-    private var newPlaylistButton: some View {
+    /// What's being added — cover + title, or "N треков" for a batch.
+    @ViewBuilder
+    private var nowAdding: some View {
+        if let first = songs.first {
+            HStack(spacing: 12) {
+                AsyncCoverImage(url: first.coverURL, cornerRadius: 10, displaySize: 84)
+                    .frame(width: 40, height: 40)
+
+                if songs.count == 1 {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(first.title)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(LaxifyPalette.textPrimary)
+                            .lineLimit(1)
+                        Text(first.artistName)
+                            .font(.system(size: 12))
+                            .foregroundStyle(LaxifyPalette.textSecondary)
+                            .lineLimit(1)
+                    }
+                } else {
+                    Text("\(songs.count) \(PlaylistCard.tracksWord(songs.count))")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(LaxifyPalette.textPrimary)
+                }
+
+                Spacer()
+            }
+            .padding(.horizontal, LaxifyMetrics.screenPadding)
+            .padding(.bottom, 14)
+        }
+    }
+
+    private var newPlaylistRow: some View {
         Button {
             isCreatePresented = true
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: "plus")
-                    .font(.system(size: 18, weight: .bold))
+                    .font(.system(size: 20, weight: .bold))
                     .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
-                    .background(LaxifyPalette.accent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .frame(width: 52, height: 52)
+                    .background(LaxifyPalette.accent, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 
                 Text(L("library.newPlaylist", "Новый плейлист"))
                     .font(.system(size: 16, weight: .semibold))
@@ -186,20 +225,16 @@ struct AddToPlaylistSheet: View {
 
                 Spacer()
             }
-            .padding(12)
-            .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [6, 5]))
-                    .foregroundStyle(LaxifyPalette.separator)
-            }
+            .padding(10)
+            .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
 
     private func row(_ playlist: PlaylistDTO) -> some View {
-        Button {
+        let added = addedTo.contains(playlist.id)
+        return Button {
             add(to: playlist)
         } label: {
             HStack(spacing: 12) {
@@ -207,7 +242,7 @@ struct AddToPlaylistSheet: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(playlist.title)
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(LaxifyPalette.textPrimary)
                         .lineLimit(1)
                     Text("\(playlist.trackCount) \(PlaylistCard.tracksWord(playlist.trackCount))")
@@ -217,34 +252,48 @@ struct AddToPlaylistSheet: View {
 
                 Spacer()
 
-                Image(systemName: addedTo.contains(playlist.id) ? "checkmark.circle.fill" : "plus.circle")
+                Image(systemName: added ? "checkmark.circle.fill" : "plus.circle")
                     .font(.system(size: 22))
-                    .foregroundStyle(addedTo.contains(playlist.id) ? LaxifyPalette.accent : LaxifyPalette.textTertiary)
+                    .foregroundStyle(added ? LaxifyPalette.accent : LaxifyPalette.textTertiary)
                     .contentTransition(.symbolEffect)
             }
-            .padding(12)
-            .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .padding(10)
+            .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(addedTo.contains(playlist.id))
+        .disabled(added)
     }
 
     @ViewBuilder
     private func thumb(_ playlist: PlaylistDTO) -> some View {
         if let url = playlist.coverURL {
-            AsyncCoverImage(url: url, cornerRadius: 14, displaySize: 48)
-                .frame(width: 44, height: 44)
+            AsyncCoverImage(url: url, cornerRadius: 12, displaySize: 104)
+                .frame(width: 52, height: 52)
         } else {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(LaxifyPalette.surfaceElevated)
-                .frame(width: 44, height: 44)
+                .frame(width: 52, height: 52)
                 .overlay {
                     Image(systemName: "music.note.list")
-                        .font(.system(size: 16))
+                        .font(.system(size: 18))
                         .foregroundStyle(LaxifyPalette.textTertiary)
                 }
         }
+    }
+
+    private var doneButton: some View {
+        Button(action: onDone) {
+            Text(addedTo.isEmpty ? L("common.close", "Закрыть") : L("common.done", "Готово"))
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 16)
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.tint(LaxifyPalette.accent).interactive(), in: .capsule)
+        .padding(.horizontal, LaxifyMetrics.screenPadding)
+        .padding(.bottom, 16)
     }
 
     private func add(to playlist: PlaylistDTO) {
