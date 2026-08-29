@@ -19,7 +19,9 @@ struct RootView: View {
             VStack(spacing: 10) {
                 if appearance.needsRestart {
                     RestartBanner()
-                        .padding(.horizontal, LaxifyMetrics.screenPadding)
+                        // Telegram's undo toast sits 12pt from each screen edge; this
+                        // stack is already inset by screenPadding, so pull the extra back.
+                        .padding(.horizontal, 12 - LaxifyMetrics.screenPadding)
                 }
 
                 MiniPlayerBar(zoomNamespace: playerZoom) {

@@ -566,29 +566,32 @@ struct SettingsHeader: View {
     var onBack: () -> Void
 
     var body: some View {
-        HStack {
-            Button(action: onBack) {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 19, weight: .bold))
-                    .foregroundStyle(LaxifyPalette.textPrimary)
-                    .frame(width: 46, height: 46)
-                    .glassEffect(.regular.interactive(), in: .circle)
-            }
-            .buttonStyle(.plain)
-
-            Spacer()
-
+        ZStack {
             Text(title)
-                .font(.system(size: 18, weight: .semibold))
+                .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(LaxifyPalette.textPrimary)
 
-            Spacer()
+            HStack {
+                Button(action: onBack) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 20, weight: .semibold))
+                        Text(L("common.back", "Назад"))
+                            .font(.system(size: 17))
+                    }
+                    .foregroundStyle(LaxifyPalette.accent)
+                    .padding(.vertical, 8)
+                    .padding(.trailing, 12)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
 
-            // Balances the back button so the title sits centred.
-            Color.clear.frame(width: 46, height: 46)
+                Spacer()
+            }
         }
-        .padding(.horizontal, LaxifyMetrics.screenPadding)
-        .padding(.bottom, 14)
+        .padding(.horizontal, LaxifyMetrics.screenPadding - 4)
+        .padding(.top, 4)
+        .padding(.bottom, 12)
     }
 }
 

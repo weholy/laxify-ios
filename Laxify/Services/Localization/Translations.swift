@@ -26,6 +26,7 @@ enum Translations {
         "common.copy": "Скопировать",
         "common.more": "Ещё",
         "common.edit": "Изм.",
+        "common.back": "Назад",
         "profile.bg.change": "Сменить фон",
         "profile.bg.remove": "Убрать фон",
 
@@ -237,6 +238,7 @@ enum Translations {
         "common.copy": "Copy",
         "common.more": "More",
         "common.edit": "Edit",
+        "common.back": "Back",
         "profile.bg.change": "Change background",
         "profile.bg.remove": "Remove background",
 
@@ -448,6 +450,7 @@ enum Translations {
         "common.copy": "Copiar",
         "common.more": "Más",
         "common.edit": "Editar",
+        "common.back": "Atrás",
         "profile.bg.change": "Cambiar fondo",
         "profile.bg.remove": "Quitar fondo",
 
@@ -659,6 +662,7 @@ enum Translations {
         "common.copy": "复制",
         "common.more": "更多",
         "common.edit": "编辑",
+        "common.back": "返回",
         "profile.bg.change": "更换背景",
         "profile.bg.remove": "移除背景",
 
