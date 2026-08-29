@@ -178,6 +178,7 @@ struct SignInView: View {
             .background(LaxifyPalette.textPrimary, in: Capsule())
         }
         .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .capsule)
         .disabled(isSigningIn)
     }
 

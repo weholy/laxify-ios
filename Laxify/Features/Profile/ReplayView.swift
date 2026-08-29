@@ -85,10 +85,11 @@ struct ReplayView: View {
         HStack {
             Button(action: onClose) {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(palette.textColor)
-                    .frame(width: 38, height: 38)
+                    .frame(width: 44, height: 44)
                     .glassEffect(.regular.interactive(), in: .circle)
+                    .contentShape(Circle())
             }
             .buttonStyle(.plain)
 

@@ -49,6 +49,7 @@ struct LibraryView: View {
                         .foregroundStyle(LaxifyPalette.textPrimary)
                         .frame(width: 44, height: 44)
                         .glassEffect(.regular.interactive(), in: .circle)
+                        .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
             }
@@ -116,6 +117,15 @@ struct LibraryView: View {
         .refreshable { await store.reload() }
     }
 
+    private var recentFavoriteCovers: [URL] {
+        Array(
+            favorites
+                .sorted { $0.addedAt > $1.addedAt }
+                .compactMap(\.coverURL)
+                .prefix(4)
+        )
+    }
+
     private var likedTile: some View {
         Button {
             withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) {
@@ -123,19 +133,19 @@ struct LibraryView: View {
             }
         } label: {
             HStack(spacing: 14) {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [Color(hex: 0x7B5CFF), Color(hex: 0x3B7BFF)],
-                            startPoint: .topLeading, endPoint: .bottomTrailing
-                        )
+                CoverCollage(urls: recentFavoriteCovers, displaySize: 140) {
+                    LinearGradient(
+                        colors: [Color(hex: 0x7B5CFF), Color(hex: 0x3B7BFF)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
                     )
-                    .frame(width: 64, height: 64)
                     .overlay {
                         Image(systemName: "heart.fill")
                             .font(.system(size: 26, weight: .semibold))
                             .foregroundStyle(.white)
                     }
+                }
+                .frame(width: 64, height: 64)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(L("favorites.title", "Избранное"))
@@ -191,6 +201,7 @@ struct LibraryView: View {
 /// One playlist as a Spotify-style row: square cover, title, "Плейлист · N".
 struct PlaylistRow: View {
     let playlist: PlaylistDTO
+    var previews = PlaylistPreviewStore.shared
 
     var body: some View {
         HStack(spacing: 12) {
@@ -231,20 +242,26 @@ struct PlaylistRow: View {
         } else if let url = playlist.coverURL {
             AsyncCoverImage(url: url, cornerRadius: 12, displaySize: 120)
         } else {
-            let seed = playlist.id.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }
-            let hue = Double(seed % 360) / 360
-            LinearGradient(
-                colors: [
-                    Color(hue: hue, saturation: 0.55, brightness: 0.8),
-                    Color(hue: (hue + 0.1).truncatingRemainder(dividingBy: 1), saturation: 0.7, brightness: 0.45)
-                ],
-                startPoint: .topLeading, endPoint: .bottomTrailing
-            )
-            .overlay {
-                Image(systemName: "music.note.list")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.85))
+            CoverCollage(urls: previews.previews(for: playlist), displaySize: 120) {
+                gradientFallback
             }
+        }
+    }
+
+    private var gradientFallback: some View {
+        let seed = playlist.id.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }
+        let hue = Double(seed % 360) / 360
+        return LinearGradient(
+            colors: [
+                Color(hue: hue, saturation: 0.55, brightness: 0.8),
+                Color(hue: (hue + 0.1).truncatingRemainder(dividingBy: 1), saturation: 0.7, brightness: 0.45)
+            ],
+            startPoint: .topLeading, endPoint: .bottomTrailing
+        )
+        .overlay {
+            Image(systemName: "music.note.list")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.85))
         }
     }
 }

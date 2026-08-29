@@ -570,6 +570,9 @@ struct SettingsHeader: View {
                     .foregroundStyle(LaxifyPalette.textPrimary)
                     .frame(width: 46, height: 46)
                     .glassEffect(.regular.interactive(), in: .circle)
+                    // Interactive glass otherwise swallows taps that miss the
+                    // glyph; re-declare the whole circle as the hit region.
+                    .contentShape(Circle())
             }
             .buttonStyle(.plain)
 

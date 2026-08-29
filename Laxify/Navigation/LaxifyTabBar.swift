@@ -34,9 +34,12 @@ struct LaxifyTabBar: View {
                         .foregroundStyle(LaxifyPalette.textPrimary)
                         .symbolEffect(.bounce, options: .nonRepeating, value: searchBounce)
                         .frame(width: LaxifyMetrics.searchButtonDiameter, height: LaxifyMetrics.searchButtonDiameter)
+                        .laxGlassCircle(interactive: true)
+                        // Re-declare the hit region: interactive glass otherwise
+                        // eats taps that land off the glyph but inside the circle.
+                        .contentShape(Circle())
                 }
                 .buttonStyle(TabPressStyle())
-                .laxGlassCircle(interactive: true)
                 .sensoryFeedback(.impact(weight: .light), trigger: searchBounce)
             }
         }

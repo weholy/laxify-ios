@@ -94,9 +94,10 @@ struct WaveSettingsView: View {
                     .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(LaxifyPalette.textPrimary)
                     .frame(width: 44, height: 44)
+                    .laxGlassCircle(interactive: true)
+                    .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .laxGlassCircle(interactive: true)
         }
         .padding(.horizontal, LaxifyMetrics.screenPadding)
         .padding(.top, 18)
