@@ -32,7 +32,10 @@ struct NotificationsView: View {
                 }
             }
         }
-        .task { await store.load() }
+        .task {
+            await store.load()
+            await store.markAllRead()
+        }
     }
 
     private var header: some View {
@@ -76,7 +79,10 @@ struct AppNotification: Identifiable, Sendable, Hashable {
     let createdAt: Date
     var isRead: Bool
 
-    enum Kind: String, Sendable { case system, like, reply, build, monthReset }
+    enum Kind: String, Sendable {
+        case system, like, reply, build
+        case monthReset = "month_reset"
+    }
 
     var icon: String {
         switch kind {
@@ -139,6 +145,18 @@ struct NotificationRow: View {
     }
 }
 
+extension AppNotification {
+    init(dto: LaxifyAPI.NotificationDTO) {
+        id = dto.id
+        kind = Kind(rawValue: dto.kind) ?? .system
+        title = dto.title
+        body = dto.body
+        avatarURL = dto.actorAvatarUrl.flatMap(URL.init(string:))
+        createdAt = dto.createdAt
+        isRead = dto.isRead
+    }
+}
+
 @Observable
 @MainActor
 final class NotificationStore {
@@ -150,11 +168,19 @@ final class NotificationStore {
     private init() {}
 
     func load() async {
-        // TODO(backend): GET /notifications
+        async let list = LaxifyAPI.shared.notifications()
+        async let count = LaxifyAPI.shared.notificationsUnreadCount()
+        if let dtos = try? await list {
+            items = dtos.map(AppNotification.init(dto:))
+        }
+        if let c = try? await count {
+            unreadCount = c
+        }
     }
 
     func markAllRead() async {
-        // TODO(backend): POST /notifications/read
         unreadCount = 0
+        try? await LaxifyAPI.shared.markNotificationsRead()
+        for i in items.indices { items[i].isRead = true }
     }
 }

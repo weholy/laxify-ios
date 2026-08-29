@@ -96,8 +96,12 @@ actor GifService {
     static let shared = GifService()
 
     func search(_ query: String) async -> [GifItem] {
-        // TODO(backend): GET /gif/search?q= (or /gif/trending when q is empty),
-        // Tenor or Giphy behind an env key.
-        []
+        guard let dtos = try? await LaxifyAPI.shared.searchGifs(query) else { return [] }
+        return dtos.compactMap { dto in
+            guard let url = URL(string: dto.url), let preview = URL(string: dto.previewUrl) else {
+                return nil
+            }
+            return GifItem(id: dto.id, url: url, previewURL: preview)
+        }
     }
 }
