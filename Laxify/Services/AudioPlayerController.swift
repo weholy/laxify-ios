@@ -41,6 +41,14 @@ final class AudioPlayerController {
     /// (stalls, buffering) and the bar sticks. Re-push on a short interval.
     private var lastNowPlayingPush: Date = .distantPast
     private var sleepTimerTask: Task<Void, Never>?
+
+    // Crossfade: a second player fades in over the tail of the current one.
+    private var crossfadePlayer: AVPlayer?
+    private var crossfadeTask: Task<Void, Never>?
+    private var isCrossfading = false
+    /// So the tail-of-track check only fires the fade once per song.
+    private var crossfadeArmedForTrackId: String?
+
     private var waveBatchId: String?
     private var artworkTrackId: String?
     private var artworkTask: Task<Void, Never>?
@@ -133,8 +141,10 @@ final class AudioPlayerController {
         guard let player else { return }
         if isPlaying {
             player.pause()
+            crossfadePlayer?.pause()
         } else {
             player.rate = Float(playbackRate)
+            crossfadePlayer?.play()
         }
         isPlaying.toggle()
         updateNowPlayingInfo()
@@ -173,6 +183,12 @@ final class AudioPlayerController {
     }
 
     func seek(to time: TimeInterval) {
+        // Scrubbing back into the track cancels a fade that had already begun.
+        if isCrossfading {
+            cancelCrossfade()
+            crossfadeArmedForTrackId = nil
+            player?.volume = 1
+        }
         currentTime = time
         player?.seek(to: CMTime(seconds: time, preferredTimescale: 600))
         updateNowPlayingInfo()
@@ -242,6 +258,18 @@ final class AudioPlayerController {
         repeatMode = repeatMode.next
     }
 
+    enum CrossfadeDuration: Int, CaseIterable, Identifiable, Sendable {
+        case off = 0, s4 = 4, s6 = 6, s9 = 9, s12 = 12
+        var id: Int { rawValue }
+        var seconds: Double { Double(rawValue) }
+    }
+
+    var crossfadeDuration: CrossfadeDuration =
+        CrossfadeDuration(rawValue: UserDefaults.standard.integer(forKey: "laxify.player.crossfade")) ?? .off
+    {
+        didSet { UserDefaults.standard.set(crossfadeDuration.rawValue, forKey: "laxify.player.crossfade") }
+    }
+
     private var unplayableTrackIds: Set<String> = []
 
     /// Feeds the current item. Kept alive for as long as it is playing.
@@ -271,6 +299,7 @@ final class AudioPlayerController {
     /// Used when the account changes: leaving the previous person's track
     /// playing, and their queue behind it, is both a surprise and a leak.
     func stopAndClear() {
+        cancelCrossfade()
         teardownPlayer()
         queue = []
         currentIndex = 0
@@ -287,6 +316,7 @@ final class AudioPlayerController {
 
     private func loadAndPlayCurrent() {
         guard queue.indices.contains(currentIndex) else { return }
+        cancelCrossfade()
         let song = queue[currentIndex]
         AppLogger.log("play: start id=\(song.id) title=\(song.title)")
         CrashReporter.breadcrumb("play start \(song.id)")
@@ -511,6 +541,7 @@ final class AudioPlayerController {
                     ListeningStatsService.shared.recordPlayback(seconds: delta)
                 }
                 self.currentTime = time.seconds
+                self.maybeStartCrossfade()
 
                 // Keep the lock-screen / Control Center scrubber honest — it
                 // otherwise runs on its own clock between the sparse
@@ -568,7 +599,97 @@ final class AudioPlayerController {
         }
     }
 
+    // MARK: - Crossfade
+
+    private func cancelCrossfade() {
+        crossfadeTask?.cancel()
+        crossfadeTask = nil
+        crossfadePlayer?.pause()
+        crossfadePlayer = nil
+        isCrossfading = false
+    }
+
+    /// Called every tick. Once the current track is within the fade window of
+    /// its end, start the next one on a second player and cross the volumes.
+    private func maybeStartCrossfade() {
+        let window = crossfadeDuration.seconds
+        guard window > 0,
+              !isCrossfading,
+              isPlaying,
+              repeatMode != .one,
+              hasNext,
+              duration > window + 2,
+              currentTime >= duration - window,
+              crossfadeArmedForTrackId != currentSong?.id
+        else { return }
+
+        crossfadeArmedForTrackId = currentSong?.id
+        isCrossfading = true
+        let nextSong = queue[currentIndex + 1]
+
+        crossfadeTask = Task { [weak self] in
+            guard let self else { return }
+            guard let (item, loader) = try? await Self.streamingItem(for: nextSong.id) else {
+                self.isCrossfading = false
+                return
+            }
+            await self.runCrossfade(to: nextSong, item: item, loader: loader, over: window)
+        }
+    }
+
+    private func runCrossfade(
+        to song: Song, item: AVPlayerItem, loader: StreamLoader?, over window: Double
+    ) async {
+        let outgoing = player
+        let incoming = AVPlayer(playerItem: item)
+        incoming.volume = 0
+        incoming.automaticallyWaitsToMinimizeStalling = true
+        incoming.play()
+        incoming.rate = Float(playbackRate)
+        crossfadePlayer = incoming
+
+        let steps = max(Int(window / 0.05), 1)
+        for step in 0...steps {
+            if Task.isCancelled { incoming.pause(); return }
+            let t = Float(step) / Float(steps)
+            outgoing?.volume = 1 - t
+            incoming.volume = t
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        if Task.isCancelled { incoming.pause(); return }
+
+        // The old track played to its natural end — count it, don't skip-log it.
+        reportPlaybackToAccount(completed: true)
+        reportWaveFinished()
+
+        teardownPlayer()          // stops + releases the outgoing player and its observers
+        player = incoming
+        crossfadePlayer = nil
+        streamLoader = loader
+        incoming.volume = 1
+
+        currentIndex += 1
+        currentSong = song
+        currentTime = 0
+        duration = song.duration
+        isPlaying = true
+        isLoading = false
+        crossfadeArmedForTrackId = nil
+        isCrossfading = false
+
+        attachObservers(to: item)
+        extendWaveQueueIfNeeded()
+        reportWaveStart(for: song)
+        prefetchNext()
+        updateNowPlayingInfo()
+        loadArtworkIfNeeded(for: song)
+    }
+
     private func handleDidFinishPlaying() {
+        // A crossfade already advanced the queue; the end-of-item on the old
+        // player is nothing to act on.
+        if isCrossfading { return }
+
         reportPlaybackToAccount(completed: true)
         reportWaveFinished()
 

@@ -156,6 +156,22 @@ struct FullPlayerView: View {
             }
 
             Menu {
+                ForEach(AudioPlayerController.CrossfadeDuration.allCases) { option in
+                    Button {
+                        player.crossfadeDuration = option
+                    } label: {
+                        if player.crossfadeDuration == option {
+                            Label(crossfadeLabel(option), systemImage: "checkmark")
+                        } else {
+                            Text(crossfadeLabel(option))
+                        }
+                    }
+                }
+            } label: {
+                Label(L("player.crossfade", "Кроссфейд"), systemImage: "waveform.path")
+            }
+
+            Menu {
                 ForEach(SleepTimerOption.allCases) { option in
                     Button(option.label) {
                         player.setSleepTimer(minutes: option.minutes)
@@ -216,6 +232,10 @@ struct FullPlayerView: View {
                 .frame(width: 40, height: 40)
         }
         .padding(.horizontal, 6)
+    }
+
+    private func crossfadeLabel(_ option: AudioPlayerController.CrossfadeDuration) -> String {
+        option == .off ? L("player.crossfade.off", "Выкл") : "\(option.rawValue) \(L("unit.sec", "с"))"
     }
 
     private func glyphButton(_ systemName: String, action: @escaping () -> Void) -> some View {
