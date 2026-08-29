@@ -970,6 +970,61 @@ actor LaxifyAPI {
         try await send("/gif/search?q=\(escaped(query))&limit=\(limit)", method: "GET")
     }
 
+    // MARK: Profile likes & linked accounts
+
+    struct ProfileLikeDTO: Decodable, Sendable {
+        let likedByMe: Bool
+        let likeCount: Int?
+    }
+
+    func profileLikes(userId: String) async throws -> ProfileLikeDTO {
+        try await send("/users/\(escaped(userId))/likes", method: "GET")
+    }
+
+    @discardableResult
+    func likeProfile(userId: String) async throws -> ProfileLikeDTO {
+        try await send("/users/\(escaped(userId))/like", method: "POST")
+    }
+
+    @discardableResult
+    func unlikeProfile(userId: String) async throws -> ProfileLikeDTO {
+        try await send("/users/\(escaped(userId))/like", method: "DELETE")
+    }
+
+    func setHideProfileLikes(_ hidden: Bool) async throws {
+        let _: MessageResponse = try await send(
+            "/users/me/hide-likes?hidden=\(hidden)", method: "POST"
+        )
+    }
+
+    struct LinkedMethodsDTO: Decodable, Sendable {
+        let primary: String
+        let googleLinked: Bool
+        let telegramLinked: Bool
+        let emailLinked: Bool
+    }
+
+    func linkedMethods() async throws -> LinkedMethodsDTO {
+        try await send("/auth/linked", method: "GET")
+    }
+
+    @discardableResult
+    func linkGoogle(idToken: String) async throws -> LinkedMethodsDTO {
+        struct Body: Encodable { let idToken: String }
+        return try await send("/auth/link/google", method: "POST", body: Body(idToken: idToken))
+    }
+
+    @discardableResult
+    func linkTelegram(payload: [String: String]) async throws -> LinkedMethodsDTO {
+        struct Body: Encodable { let payload: [String: String] }
+        return try await send("/auth/link/telegram", method: "POST", body: Body(payload: payload))
+    }
+
+    @discardableResult
+    func unlink(provider: String) async throws -> LinkedMethodsDTO {
+        try await send("/auth/unlink/\(provider)", method: "POST")
+    }
+
     struct MediaUploadDTO: Decodable, Sendable { let url: String }
 
     /// A photo/clip for a comment, or a new avatar. Multipart, so it builds

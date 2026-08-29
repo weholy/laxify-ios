@@ -2,13 +2,14 @@ import SwiftUI
 import PhotosUI
 
 struct ProfileView: View {
-    var session = SessionStore.shared
+    @State private var session = SessionStore.shared
     var background = ProfileBackgroundStore.shared
 
     @State private var isSettingsPresented = false
     @State private var isReplayPresented = false
     @State private var avatarPalette: ArtworkPalette = .neutral
     @State private var backgroundPick: PhotosPickerItem?
+    @State private var likeCount: Int?
 
     private var user: BackendUser? { session.user }
 
@@ -39,6 +40,9 @@ struct ProfileView: View {
         .task {
             await session.refreshUser()
             avatarPalette = await PaletteExtractor.shared.palette(for: session.user?.avatarURL)
+            if let id = session.user?.id {
+                likeCount = (try? await LaxifyAPI.shared.profileLikes(userId: id))?.likeCount
+            }
         }
         .onChange(of: backgroundPick) { _, item in
             guard let item else { return }
@@ -163,6 +167,17 @@ struct ProfileView: View {
                 Text("@\(user.username)")
                     .font(LaxifyTypography.subheadline)
                     .foregroundStyle(LaxifyPalette.textSecondary)
+
+                if let likeCount, likeCount > 0 {
+                    HStack(spacing: 4) {
+                        Image(systemName: "heart.fill").foregroundStyle(.red)
+                        Text("\(likeCount)")
+                            .monospacedDigit()
+                            .foregroundStyle(LaxifyPalette.textSecondary)
+                    }
+                    .font(.system(size: 13, weight: .semibold))
+                    .padding(.top, 3)
+                }
             }
         }
         .frame(maxWidth: .infinity)

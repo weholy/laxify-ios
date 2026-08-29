@@ -4,7 +4,7 @@ import PhotosUI
 struct EditProfileView: View {
     var onClose: () -> Void
 
-    private var session = SessionStore.shared
+    @State private var session = SessionStore.shared
     private var downloads = DownloadManager.shared
 
     @State private var name: String

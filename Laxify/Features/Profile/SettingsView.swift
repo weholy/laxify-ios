@@ -331,6 +331,8 @@ struct AccountSettingsView: View {
                 }
             }
 
+            LinkedAccountsCard()
+
             SettingsCard {
                 SettingsRow(
                     title: L("settings.signout", "Выйти из аккаунта"),
