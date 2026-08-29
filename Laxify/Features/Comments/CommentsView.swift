@@ -108,7 +108,7 @@ struct CommentsView: View {
 
     @ViewBuilder
     private func thread(_ comment: TrackComment) -> some View {
-        let kids = replies(comment.id)
+        let kids = replies(of: comment.id)
 
         VStack(alignment: .leading, spacing: 0) {
             CommentCell(comment: comment, isReply: false) { onReply(comment) } onLike: {

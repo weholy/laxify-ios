@@ -14,6 +14,7 @@ struct FullPlayerView: View {
     @State private var isAddToPlaylistPresented = false
     @State private var isCommentsPresented = false
     @State private var selectedArtistId: String?
+    @State private var palette: ArtworkPalette = .neutral
 
     var downloads = DownloadManager.shared
 
@@ -54,6 +55,9 @@ struct FullPlayerView: View {
             .padding(.top, 8)
             .padding(.bottom, 18)
         }
+        .task(id: player.currentSong?.id) {
+            palette = await PaletteExtractor.shared.palette(for: player.currentSong?.coverURL)
+        }
         .sheet(isPresented: $isLyricsPresented) {
             LyricsView()
         }
@@ -85,6 +89,12 @@ struct FullPlayerView: View {
         Color.black
             .overlay {
                 BlurredBackdrop(url: player.currentSong?.coverURL, blur: 55)
+            }
+            .overlay {
+                // The record's colour, slowly breathing behind the controls.
+                LivingMeshBackground(palette: palette)
+                    .opacity(0.5)
+                    .blendMode(.plusLighter)
             }
             .overlay(alignment: .top) {
                 GeometryReader { geo in
@@ -193,7 +203,7 @@ struct FullPlayerView: View {
 
             Spacer()
 
-            glyphButton("bubble.left.and.bubble.right") { isCommentsPresented = true }
+            glyphButton("text.bubble") { isCommentsPresented = true }
 
             Spacer()
 
