@@ -94,8 +94,8 @@ struct LanguagePickerView: View {
                     .foregroundStyle(LaxifyPalette.textTertiary)
             }
             .padding(16)
-            .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-            .contentShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+            .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: LaxifyMetrics.cardCornerRadius, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: LaxifyMetrics.cardCornerRadius, style: .continuous))
         }
         .buttonStyle(LanguageRowPressStyle())
     }
@@ -146,9 +146,9 @@ struct LanguageSettingsView: View {
                 }
             }
             .padding(16)
-            .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: LaxifyMetrics.cardCornerRadius, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                RoundedRectangle(cornerRadius: LaxifyMetrics.cardCornerRadius, style: .continuous)
                     .stroke(isSelected ? LaxifyPalette.selectionOutline : .clear, lineWidth: isSelected ? 2 : 0)
             }
             .contentShape(Rectangle())

@@ -1,7 +1,9 @@
 import Foundation
 
 enum AppLanguage: String, CaseIterable, Identifiable, Sendable {
-    case en, ru, es, zh
+    // Russian and English only — the machine-translated ES/ZH passes were
+    // pulled until a native review.
+    case en, ru
 
     var id: String { rawValue }
 
@@ -9,8 +11,6 @@ enum AppLanguage: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .en: "English"
         case .ru: "Русский"
-        case .es: "Español"
-        case .zh: "中文"
         }
     }
 
@@ -18,8 +18,6 @@ enum AppLanguage: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .en: "English"
         case .ru: "Russian"
-        case .es: "Spanish"
-        case .zh: "Chinese"
         }
     }
 
@@ -27,8 +25,6 @@ enum AppLanguage: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .en: "🇬🇧"
         case .ru: "🇷🇺"
-        case .es: "🇪🇸"
-        case .zh: "🇨🇳"
         }
     }
 

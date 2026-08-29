@@ -97,7 +97,7 @@ struct CategoryTracksView: View {
             .padding(16)
         }
         .frame(height: 200)
-        .clipShape(RoundedRectangle(cornerRadius: 38, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: LaxifyMetrics.cardCornerRadius, style: .continuous))
         .padding(.horizontal, LaxifyMetrics.screenPadding)
         .overlay(alignment: .topTrailing) {
             Button(action: onClose) {

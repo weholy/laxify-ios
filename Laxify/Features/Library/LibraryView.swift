@@ -276,7 +276,7 @@ struct PlaylistCard: View {
             cover
                 .frame(maxWidth: .infinity)
                 .aspectRatio(1, contentMode: .fit)
-                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: LaxifyMetrics.cardCornerRadius, style: .continuous))
 
             Text(playlist.title)
                 .font(.system(size: 15, weight: .semibold))

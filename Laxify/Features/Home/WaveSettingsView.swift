@@ -193,7 +193,7 @@ private struct WaveOptionCard: View {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.72)) { action() }
         } label: {
             ZStack(alignment: .bottomLeading) {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                RoundedRectangle(cornerRadius: LaxifyMetrics.cardCornerRadius, style: .continuous)
                     .fill(LaxifyPalette.surface)
 
                 if let coverURL {
@@ -226,9 +226,9 @@ private struct WaveOptionCard: View {
                     .padding(14)
             }
             .frame(height: 92)
-            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: LaxifyMetrics.cardCornerRadius, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                RoundedRectangle(cornerRadius: LaxifyMetrics.cardCornerRadius, style: .continuous)
                     .stroke(
                         isSelected ? LaxifyPalette.accent : LaxifyPalette.separator,
                         lineWidth: isSelected ? 1.5 : 1
@@ -243,7 +243,7 @@ private struct WaveOptionCard: View {
                         .transition(.scale.combined(with: .opacity))
                 }
             }
-            .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: LaxifyMetrics.cardCornerRadius, style: .continuous))
         }
         .buttonStyle(WaveCardPressStyle())
     }

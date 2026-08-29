@@ -260,7 +260,7 @@ struct ReplayView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 16)
-        .glassEffect(.regular, in: .rect(cornerRadius: 32))
+        .glassEffect(.regular, in: .rect(cornerRadius: LaxifyMetrics.cardCornerRadius))
     }
 
     private func artistsSection(_ artists: [ReplayArtist]) -> some View {
@@ -311,7 +311,7 @@ struct ReplayView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .frame(width: 168, height: 210)
-        .clipShape(RoundedRectangle(cornerRadius: 38, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: LaxifyMetrics.cardCornerRadius, style: .continuous))
     }
 
     private func tracksSection(_ tracks: [ReplayTrack]) -> some View {

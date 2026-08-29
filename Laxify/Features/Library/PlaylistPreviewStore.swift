@@ -63,8 +63,8 @@ final class PlaylistPreviewStore {
     }
 }
 
-/// A 2×2 (or 1-up) grid of cover art, clipped to `shape`. Falls back to
-/// `placeholder` when there is nothing to show.
+/// The cover of the newest track in a playlist (or the newest liked track),
+/// falling back to `placeholder` when there is nothing to show.
 struct CoverCollage<Placeholder: View>: View {
     let urls: [URL]
     var displaySize: CGFloat = 120
@@ -72,32 +72,14 @@ struct CoverCollage<Placeholder: View>: View {
 
     var body: some View {
         GeometryReader { geo in
-            let side = geo.size.width
-            if urls.isEmpty {
-                placeholder()
-            } else if urls.count < 4 {
-                AsyncCoverImage(url: urls[0], cornerRadius: 0, displaySize: displaySize)
-                    .frame(width: side, height: side)
+            if let first = urls.first {
+                AsyncCoverImage(url: first, cornerRadius: 0, displaySize: displaySize)
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .clipped()
             } else {
-                let half = side / 2
-                VStack(spacing: 0) {
-                    HStack(spacing: 0) {
-                        tile(urls[0], half)
-                        tile(urls[1], half)
-                    }
-                    HStack(spacing: 0) {
-                        tile(urls[2], half)
-                        tile(urls[3], half)
-                    }
-                }
+                placeholder()
             }
         }
         .aspectRatio(1, contentMode: .fit)
-    }
-
-    private func tile(_ url: URL, _ side: CGFloat) -> some View {
-        AsyncCoverImage(url: url, cornerRadius: 0, displaySize: displaySize / 2)
-            .frame(width: side, height: side)
-            .clipped()
     }
 }

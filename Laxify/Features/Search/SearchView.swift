@@ -457,7 +457,7 @@ private struct CategoryCard: View {
                 .padding(14)
         }
         .frame(height: 92)
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: LaxifyMetrics.cardCornerRadius, style: .continuous))
         .contentShape(Rectangle())
     }
 

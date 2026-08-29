@@ -136,7 +136,7 @@ struct UserPlaylistView: View {
 
             collage
                 .frame(width: 200, height: 200)
-                .clipShape(RoundedRectangle(cornerRadius: 34, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: LaxifyMetrics.cardCornerRadius, style: .continuous))
                 .shadow(color: .black.opacity(0.3), radius: 22, y: 12)
                 .frame(maxWidth: .infinity)
 

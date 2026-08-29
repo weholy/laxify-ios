@@ -71,6 +71,7 @@ private struct TelegramLoginWebView: UIViewRepresentable {
 
         let web = WKWebView(frame: .zero, configuration: config)
         web.navigationDelegate = context.coordinator
+        web.uiDelegate = context.coordinator
         web.isOpaque = false
         web.backgroundColor = .clear
         web.scrollView.backgroundColor = .clear
@@ -80,7 +81,7 @@ private struct TelegramLoginWebView: UIViewRepresentable {
 
     func updateUIView(_ uiView: WKWebView, context: Context) {}
 
-    final class Coordinator: NSObject, WKNavigationDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         private let onPayload: ([String: String]) -> Void
         private let onLoadingChange: (Bool) -> Void
         private let onFailure: () -> Void
@@ -142,6 +143,21 @@ private struct TelegramLoginWebView: UIViewRepresentable {
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
             onFailure()
+        }
+
+        // Telegram's widget opens its confirm step with `window.open`. WKWebView
+        // drops that unless we handle it — load the popup URL in the same view,
+        // so the flow finishes and the `laxify://` redirect lands back here.
+        func webView(
+            _ webView: WKWebView,
+            createWebViewWith configuration: WKWebViewConfiguration,
+            for navigationAction: WKNavigationAction,
+            windowFeatures: WKWindowFeatures
+        ) -> WKWebView? {
+            if navigationAction.targetFrame == nil || navigationAction.targetFrame?.isMainFrame == false {
+                webView.load(navigationAction.request)
+            }
+            return nil
         }
     }
 }

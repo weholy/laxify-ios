@@ -495,9 +495,9 @@ private struct ThemePreview: View {
             }
         }
         .frame(width: 42, height: 42)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: LaxifyMetrics.cardCornerRadius, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: LaxifyMetrics.cardCornerRadius, style: .continuous)
                 .stroke(LaxifyPalette.separator, lineWidth: 1)
         }
     }

@@ -19,38 +19,22 @@ _TG_LOGIN_TEMPLATE = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark light">
-<title>Вход в Laxify</title>
+<title>Laxify</title>
 <style>
   :root {{ color-scheme: dark; }}
   * {{ box-sizing: border-box; }}
-  html, body {{ margin: 0; height: 100%; }}
+  html, body {{ margin: 0; height: 100%; overflow-x: hidden; }}
   body {{
-    background: #000; color: #fff;
-    font: 400 16px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    background: #000;
     display: flex; align-items: center; justify-content: center;
-    padding: 24px; text-align: center;
+    padding: 20px;
   }}
-  .card {{ width: 100%; max-width: 360px; }}
-  .logo {{
-    width: 64px; height: 64px; margin: 0 auto 22px;
-    border-radius: 20px; background: #0A84FF;
-    display: flex; align-items: center; justify-content: center;
-    font: 800 34px/1 -apple-system, system-ui, sans-serif;
-  }}
-  h1 {{ font-size: 22px; font-weight: 700; margin: 0 0 10px; }}
-  p {{ color: #98989F; margin: 0 0 26px; }}
-  .err {{ color: #FF6B6B; margin-top: 18px; min-height: 1.2em; }}
-  #tg {{ display: flex; justify-content: center; min-height: 46px; }}
+  #tg {{ display: flex; justify-content: center; align-items: center; width: 100%; }}
+  #tg iframe {{ max-width: 100% !important; }}
 </style>
 </head>
 <body>
-  <div class="card">
-    <div class="logo">L</div>
-    <h1>Вход через Telegram</h1>
-    <p>Telegram передаст приложению только имя, юзернейм и аватар.</p>
-    <div id="tg"></div>
-    <p class="err" id="err"></p>
-  </div>
+  <div id="tg"></div>
 
   <script async src="https://telegram.org/js/telegram-widget.js?22"
     data-telegram-login="{bot_username}"
@@ -61,17 +45,13 @@ _TG_LOGIN_TEMPLATE = """<!doctype html>
 
   <script>
     function onTelegramAuth(user) {{
-      try {{
-        var parts = [];
-        for (var key in user) {{
-          if (Object.prototype.hasOwnProperty.call(user, key) && user[key] != null) {{
-            parts.push(encodeURIComponent(key) + "=" + encodeURIComponent(user[key]));
-          }}
+      var parts = [];
+      for (var key in user) {{
+        if (Object.prototype.hasOwnProperty.call(user, key) && user[key] != null) {{
+          parts.push(encodeURIComponent(key) + "=" + encodeURIComponent(user[key]));
         }}
-        window.location.href = "laxify://auth/telegram?" + parts.join("&");
-      }} catch (e) {{
-        document.getElementById("err").textContent = "Ошибка: " + e;
       }}
+      window.location.href = "laxify://auth/telegram?" + parts.join("&");
     }}
   </script>
 </body>
