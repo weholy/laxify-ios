@@ -188,41 +188,36 @@ struct FullPlayerView: View {
     }
 
     private var bottomIconRow: some View {
-        HStack(spacing: 24) {
-            Button {
-                isLyricsPresented = true
-            } label: {
-                Image(systemName: "text.alignleft")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.75))
-                    .frame(width: 36, height: 36)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(player.currentSong == nil)
+        HStack(spacing: 0) {
+            glyphButton("text.alignleft") { isLyricsPresented = true }
 
-            Button {
-                isCommentsPresented = true
-            } label: {
-                Image(systemName: "bubble.left.and.bubble.right")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.75))
-                    .frame(width: 36, height: 36)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(player.currentSong == nil)
+            Spacer()
+
+            glyphButton("bubble.left.and.bubble.right") { isCommentsPresented = true }
 
             Spacer()
 
             AirPlayRouteButton()
-                .frame(width: 36, height: 36)
+                .frame(width: 40, height: 40)
 
             Spacer()
 
             RepeatButton()
+                .frame(width: 40, height: 40)
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 6)
+    }
+
+    private func glyphButton(_ systemName: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.75))
+                .frame(width: 40, height: 40)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(player.currentSong == nil)
     }
 
     private var titleBlock: some View {

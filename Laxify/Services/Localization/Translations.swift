@@ -175,9 +175,10 @@ enum Translations {
 
         "comments.title": "Комментарии",
         "comments.empty": "Пока нет комментариев",
+        "comments.beFirst": "Будьте первым",
         "comments.write": "Написать комментарий…",
         "comments.reply": "Ответить",
-        "comments.soon": "Комментарии подключим совсем скоро",
+        "comments.replyingTo": "Ответ",
         "notifications.title": "Уведомления",
         "notifications.empty": "Пока пусто",
 
@@ -400,9 +401,10 @@ enum Translations {
 
         "comments.title": "Comments",
         "comments.empty": "No comments yet",
+        "comments.beFirst": "Be the first",
         "comments.write": "Write a comment…",
         "comments.reply": "Reply",
-        "comments.soon": "Comments are coming very soon",
+        "comments.replyingTo": "Replying to",
         "notifications.title": "Notifications",
         "notifications.empty": "Nothing yet",
 

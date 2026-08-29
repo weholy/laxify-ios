@@ -6,6 +6,7 @@ struct TrackComment: Identifiable, Sendable, Hashable {
     let trackId: String
     let parentId: String?
     let authorName: String
+    let authorHandle: String?
     let authorAvatarURL: URL?
     let text: String
     let mediaURL: URL?
