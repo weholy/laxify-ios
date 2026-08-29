@@ -12,8 +12,8 @@ enum LaxifyMetrics {
     static let artworkCornerRadius: CGFloat = 14
     static let groupedCornerRadius: CGFloat = 11
     static let toastCornerRadius: CGFloat = 25
-    /// Each settings entry is its own free-standing pill-ish card now.
-    static let settingsCardCornerRadius: CGFloat = 24
+    /// Each settings entry is its own free-standing, heavily-rounded card.
+    static let settingsCardCornerRadius: CGFloat = 30
 
     static let tabBarHeight: CGFloat = 58
     static let tabBarBottomInset: CGFloat = 12

@@ -40,19 +40,6 @@ struct SettingsView: View {
 
         var subtitleKey: String { titleKey + ".sub" }
 
-        var icon: String {
-            switch self {
-            case .language: "globe"
-            case .info: "paperplane.fill"
-            case .privacy: "lock.fill"
-            case .about: "person.text.rectangle.fill"
-            case .account: "person.crop.circle.fill"
-            case .appearance: "paintbrush.fill"
-            case .export: "square.and.arrow.up"
-            case .diagnostics: "stethoscope"
-            }
-        }
-
         var title: String {
             switch self {
             case .language: "Язык"
@@ -141,11 +128,6 @@ struct SettingsView: View {
             page = entry
         } label: {
             HStack(spacing: 14) {
-                Image(systemName: entry.icon)
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(LaxifyPalette.textPrimary)
-                    .frame(width: 26, alignment: .center)
-
                 VStack(alignment: .leading, spacing: 3) {
                     Text(L(entry.titleKey, entry.title))
                         .font(.system(size: 16, weight: .semibold))
@@ -164,7 +146,7 @@ struct SettingsView: View {
                     .foregroundStyle(LaxifyPalette.textTertiary)
             }
             .padding(.horizontal, 18)
-            .padding(.vertical, 18)
+            .padding(.vertical, 17)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -581,32 +563,29 @@ struct SettingsHeader: View {
     var onBack: () -> Void
 
     var body: some View {
-        ZStack {
+        HStack {
+            Button(action: onBack) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 19, weight: .bold))
+                    .foregroundStyle(LaxifyPalette.textPrimary)
+                    .frame(width: 46, height: 46)
+                    .glassEffect(.regular.interactive(), in: .circle)
+            }
+            .buttonStyle(.plain)
+
+            Spacer()
+
             Text(title)
-                .font(.system(size: 17, weight: .semibold))
+                .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(LaxifyPalette.textPrimary)
 
-            HStack {
-                Button(action: onBack) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 20, weight: .semibold))
-                        Text(L("common.back", "Назад"))
-                            .font(.system(size: 17))
-                    }
-                    .foregroundStyle(LaxifyPalette.accent)
-                    .padding(.vertical, 8)
-                    .padding(.trailing, 12)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
+            Spacer()
 
-                Spacer()
-            }
+            // Balances the back button so the title sits centred.
+            Color.clear.frame(width: 46, height: 46)
         }
-        .padding(.horizontal, LaxifyMetrics.screenPadding - 4)
-        .padding(.top, 4)
-        .padding(.bottom, 12)
+        .padding(.horizontal, LaxifyMetrics.screenPadding)
+        .padding(.bottom, 14)
     }
 }
 
