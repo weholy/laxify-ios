@@ -20,11 +20,7 @@ struct GifPickerView: View {
             VStack(spacing: 0) {
                 HStack {
                     Button(action: { dismiss() }) {
-                        Text(L("common.cancel", "Отмена"))
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(LaxifyPalette.textPrimary)
-                            .padding(.horizontal, 14).padding(.vertical, 7)
-                            .glassEffect(.regular.interactive(), in: .capsule)
+                        Text(L("common.cancel", "Отмена")).glassPill()
                     }
                     .buttonStyle(.plain)
                     Spacer()
