@@ -12,7 +12,6 @@ struct FullPlayerView: View {
 
     @State private var isLyricsPresented = false
     @State private var isAddToPlaylistPresented = false
-    @State private var artworkDragOffset: CGFloat = 0
     @State private var selectedArtistId: String?
 
     var downloads = DownloadManager.shared
@@ -31,33 +30,28 @@ struct FullPlayerView: View {
         ZStack(alignment: .top) {
             background
 
-            ScrollView {
-                VStack(spacing: 0) {
-                    topBar
-                        .padding(.bottom, 28)
+            VStack(spacing: 0) {
+                topBar
 
-                    artwork
-                        .padding(.bottom, 32)
+                Spacer(minLength: 12)
 
-                    titleBlock
-                        .padding(.bottom, 24)
+                titleBlock
+                    .padding(.bottom, 20)
 
-                    PlayerScrubber()
-                        .padding(.bottom, 24)
+                PlayerScrubber()
+                    .padding(.bottom, 20)
 
-                    controls
-                        .padding(.bottom, 24)
+                controls
+                    .padding(.bottom, 22)
 
-                    PlayerVolumeRow()
-                        .padding(.bottom, 24)
+                PlayerVolumeRow()
+                    .padding(.bottom, 18)
 
-                    bottomIconRow
-                        .padding(.bottom, 16)
-                }
-                .padding(.horizontal, LaxifyMetrics.screenPadding)
-                .padding(.top, 16)
+                bottomIconRow
             }
-            .scrollBounceBehavior(.basedOnSize)
+            .padding(.horizontal, LaxifyMetrics.screenPadding)
+            .padding(.top, 8)
+            .padding(.bottom, 18)
         }
         .sheet(isPresented: $isLyricsPresented) {
             LyricsView()
@@ -77,15 +71,37 @@ struct FullPlayerView: View {
         }
     }
 
+    /// The immersive backdrop, in the Yandex mould: the real cover fills the
+    /// top of the screen edge-to-edge and fades, over its own heavy blur which
+    /// carries the rest of the screen behind the controls.
     @ViewBuilder
     private var background: some View {
         Color.black
             .overlay {
-                BlurredBackdrop(url: player.currentSong?.coverURL, blur: 60)
+                BlurredBackdrop(url: player.currentSong?.coverURL, blur: 55)
             }
-            .overlay(Color.black.opacity(0.55))
+            .overlay(alignment: .top) {
+                GeometryReader { geo in
+                    AsyncCoverImage(url: player.currentSong?.coverURL, cornerRadius: 0, displaySize: 720)
+                        .frame(width: geo.size.width, height: geo.size.height * 0.56)
+                        .clipped()
+                        .mask(
+                            LinearGradient(
+                                stops: [
+                                    .init(color: .black, location: 0),
+                                    .init(color: .black, location: 0.80),
+                                    .init(color: .clear, location: 1.0)
+                                ],
+                                startPoint: .top, endPoint: .bottom
+                            )
+                        )
+                }
+                .ignoresSafeArea()
+            }
+            .overlay(Color.black.opacity(0.28))
             .clipped()
             .ignoresSafeArea()
+            .animation(.easeInOut(duration: 0.35), value: player.currentSong?.id)
     }
 
     private var topBar: some View {
@@ -163,37 +179,6 @@ struct FullPlayerView: View {
                 .contentShape(Rectangle())
         }
         .disabled(player.currentSong == nil)
-    }
-
-    private var artwork: some View {
-        AsyncCoverImage(url: player.currentSong?.coverURL, cornerRadius: 38, displaySize: 360)
-            .frame(width: 280, height: 280)
-            .overlay(alignment: .bottomTrailing) {
-                if let song = player.currentSong, downloads.isDownloaded(song.id) {
-                    Image(systemName: "arrow.down.circle.fill")
-                        .font(.system(size: 20))
-                        .foregroundStyle(.white, LaxifyPalette.accent)
-                        .padding(10)
-                        .transition(.scale.combined(with: .opacity))
-                }
-            }
-            .shadow(color: .black.opacity(0.4), radius: 30, y: 20)
-            .offset(y: artworkDragOffset)
-            .gesture(
-                DragGesture()
-                    .onChanged { value in
-                        guard value.translation.height < 0 else { return }
-                        artworkDragOffset = value.translation.height
-                    }
-                    .onEnded { value in
-                        if value.translation.height < -60 {
-                            isLyricsPresented = true
-                        }
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                            artworkDragOffset = 0
-                        }
-                    }
-            )
     }
 
     private var bottomIconRow: some View {
