@@ -16,6 +16,7 @@ struct CommentsView: View {
     @State private var draft = ""
     @State private var replyingTo: TrackComment?
     @State private var photoItem: PhotosPickerItem?
+    @State private var isGifPickerPresented = false
     @FocusState private var composerFocused: Bool
 
     private var all: [TrackComment] { store.comments(for: track.id) }
@@ -71,10 +72,19 @@ struct CommentsView: View {
             }
 
             HStack {
-                Button(L("common.done", "Готово"), action: onClose)
-                    .font(.system(size: 17))
-                    .foregroundStyle(LaxifyPalette.accent)
+                Button(action: onClose) {
+                    Text(L("common.done", "Готово"))
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(LaxifyPalette.textPrimary)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .glassEffect(.regular.interactive(), in: .capsule)
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+
                 Spacer()
+
                 if !topLevel.isEmpty {
                     Text("\(all.count)")
                         .font(.system(size: 15, weight: .semibold))
@@ -173,55 +183,68 @@ struct CommentsView: View {
                 .padding(.vertical, 8)
             }
 
-            HStack(alignment: .bottom, spacing: 10) {
+            HStack(alignment: .bottom, spacing: 8) {
+                // Attach — photo or video. Glass circle, like Telegram's paperclip.
                 PhotosPicker(selection: $photoItem, matching: .any(of: [.images, .videos])) {
-                    Image(systemName: "photo")
-                        .font(.system(size: 19, weight: .semibold))
-                        .foregroundStyle(LaxifyPalette.textSecondary)
-                        .frame(height: 38)
+                    Image(systemName: "paperclip")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(LaxifyPalette.textPrimary)
+                        .frame(width: 40, height: 40)
+                        .glassEffect(.regular.interactive(), in: .circle)
+                        .contentShape(Circle())
                 }
 
-                Button {} label: {
-                    Text("GIF")
-                        .font(.system(size: 12, weight: .heavy))
-                        .foregroundStyle(LaxifyPalette.textSecondary)
-                        .padding(.horizontal, 7)
-                        .frame(height: 22)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(LaxifyPalette.textSecondary, lineWidth: 1.4)
-                        )
-                        .frame(height: 38)
+                // The field, a glass capsule, with GIF tucked on the right.
+                HStack(alignment: .bottom, spacing: 8) {
+                    TextField(L("comments.write", "Сообщение"), text: $draft, axis: .vertical)
+                        .font(.system(size: 15))
+                        .lineLimit(1...5)
+                        .focused($composerFocused)
+
+                    Button {
+                        isGifPickerPresented = true
+                    } label: {
+                        Image(systemName: "rectangle.on.rectangle.angled")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(LaxifyPalette.textSecondary)
+                            .frame(height: 22)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
+                .padding(.leading, 16)
+                .padding(.trailing, 12)
+                .padding(.vertical, 9)
+                .glassEffect(.regular, in: .capsule)
 
-                TextField(L("comments.write", "Написать комментарий…"), text: $draft, axis: .vertical)
-                    .font(.system(size: 15))
-                    .lineLimit(1...5)
-                    .focused($composerFocused)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 9)
-                    .background(LaxifyPalette.surface, in: Capsule())
-
+                // Send — glass circle. (The reference shows a mic; Laxify has
+                // no voice comments, so this is the send affordance.)
                 Button {
                     send()
                 } label: {
                     Image(systemName: "arrow.up")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 34, height: 34)
-                        .background(LaxifyPalette.accent, in: Circle())
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(isDraftEmpty ? LaxifyPalette.textTertiary : LaxifyPalette.textPrimary)
+                        .frame(width: 40, height: 40)
+                        .glassEffect(.regular.interactive(), in: .circle)
+                        .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
                 .disabled(isDraftEmpty)
-                .opacity(isDraftEmpty ? 0.4 : 1)
+                .animation(.easeOut(duration: 0.15), value: isDraftEmpty)
             }
             .padding(.horizontal, LaxifyMetrics.screenPadding)
             .padding(.top, 8)
-            .padding(.bottom, 8)
+            .padding(.bottom, 10)
         }
         .background(.ultraThinMaterial)
         .overlay(alignment: .top) { Divider().overlay(LaxifyPalette.separator) }
+        .sheet(isPresented: $isGifPickerPresented) {
+            GifPickerView { url in
+                isGifPickerPresented = false
+                Task { await store.post(trackId: track.id, text: "", parentId: replyingTo?.id, gifURL: url) }
+                replyingTo = nil
+            }
+        }
     }
 
     private var isDraftEmpty: Bool {

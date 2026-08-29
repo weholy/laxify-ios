@@ -41,9 +41,16 @@ struct NotificationsView: View {
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(LaxifyPalette.textPrimary)
             HStack {
-                Button(L("common.done", "Готово"), action: onClose)
-                    .font(.system(size: 17))
-                    .foregroundStyle(LaxifyPalette.accent)
+                Button(action: onClose) {
+                    Text(L("common.done", "Готово"))
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(LaxifyPalette.textPrimary)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .glassEffect(.regular.interactive(), in: .capsule)
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
                 Spacer()
             }
         }
