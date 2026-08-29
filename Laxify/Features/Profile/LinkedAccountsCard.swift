@@ -15,6 +15,7 @@ struct LinkedAccountsCard: View {
         ) {
             row(
                 title: "Google",
+                logo: AnyView(GoogleLogoView(size: 20)),
                 linked: linked?.googleLinked ?? false,
                 isPrimary: linked?.primary == "google",
                 onLink: linkGoogle
@@ -22,6 +23,10 @@ struct LinkedAccountsCard: View {
             SettingsDivider()
             row(
                 title: "Telegram",
+                logo: AnyView(
+                    TelegramLogoView(size: 22, color: Color(hex: 0x2AABEE))
+                        .padding(1)
+                ),
                 linked: linked?.telegramLinked ?? false,
                 isPrimary: linked?.primary == "telegram",
                 onLink: { isTelegramSheetPresented = true }
@@ -40,8 +45,14 @@ struct LinkedAccountsCard: View {
     }
 
     @ViewBuilder
-    private func row(title: String, linked isLinked: Bool, isPrimary: Bool, onLink: @escaping () -> Void) -> some View {
+    private func row(
+        title: String, logo: AnyView, linked isLinked: Bool,
+        isPrimary: Bool, onLink: @escaping () -> Void
+    ) -> some View {
         HStack(spacing: 12) {
+            logo
+                .frame(width: 24, height: 24)
+
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.system(size: 16, weight: .medium))

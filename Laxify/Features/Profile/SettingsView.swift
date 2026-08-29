@@ -297,18 +297,22 @@ struct AccountSettingsView: View {
 
     var body: some View {
         SettingsPage(title: L("settings.account", "Аккаунт"), status: status, onBack: onBack) {
-            SettingsCard {
+            SettingsGroup(header: L("account.profile", "Профиль")) {
                 Button {
                     UIPasteboard.general.string = user?.username
                     flash(L("account.copied", "Скопировано"))
                 } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "at")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(LaxifyPalette.textSecondary)
+                            .frame(width: 24)
+                        VStack(alignment: .leading, spacing: 2) {
                             Text(L("account.username", "Имя пользователя"))
                                 .font(.system(size: 16, weight: .medium))
                                 .foregroundStyle(LaxifyPalette.textPrimary)
                             Text("@\(user?.username ?? "")")
-                                .font(LaxifyTypography.footnote)
+                                .font(LaxifyTypography.caption)
                                 .foregroundStyle(LaxifyPalette.textSecondary)
                         }
                         Spacer()
@@ -323,17 +327,35 @@ struct AccountSettingsView: View {
 
                 SettingsDivider()
 
-                SettingsRow(
-                    title: L("account.name", "Имя и фото"),
-                    description: user?.displayName ?? "—"
-                ) {
-                    isEditPresented = true
+                Button { isEditPresented = true } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "person.crop.circle")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(LaxifyPalette.textSecondary)
+                            .frame(width: 24)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(L("account.name", "Имя и фото"))
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundStyle(LaxifyPalette.textPrimary)
+                            Text(user?.displayName ?? "—")
+                                .font(LaxifyTypography.caption)
+                                .foregroundStyle(LaxifyPalette.textSecondary)
+                                .lineLimit(1)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(LaxifyPalette.textTertiary)
+                    }
+                    .padding(16)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
             }
 
             LinkedAccountsCard()
 
-            SettingsCard {
+            SettingsGroup(header: L("account.sessions", "Сессии")) {
                 SettingsRow(
                     title: L("settings.signout", "Выйти из аккаунта"),
                     description: L("account.signout.sub", "На этом устройстве"),
