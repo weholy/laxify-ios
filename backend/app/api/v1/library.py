@@ -8,6 +8,7 @@ from app.api.deps import CurrentUser, SessionDep
 from app.models import DislikedTrack, Favorite
 from app.schemas.common import MessageOut, Page
 from app.schemas.library import DislikeIn, FavoriteAdd, FavoriteBulkAdd, FavoriteOut
+from app.services import authenticity
 from app.services.tracks import upsert_track, upsert_tracks
 
 router = APIRouter(prefix="/me", tags=["library"])
@@ -36,6 +37,13 @@ async def list_favorites(
             .offset(offset)
         )
     ).all()
+
+    # Hide favourites credited to an uploader the reference catalogue does not
+    # know — a track whose "artist" is a reposter, not the artist.
+    rows = await authenticity.filter_by_reference(
+        session, list(rows), lambda fav: fav.track.artist_name if fav.track else "", guard=False
+    )
+
     return Page(
         items=[FavoriteOut.model_validate(row) for row in rows],
         total=total,

@@ -17,6 +17,7 @@ from app.models import (
     User,
 )
 from app.schemas.common import MessageOut, Page
+from app.services import authenticity
 from app.schemas.library import (
     InviteCreate,
     InviteOut,
@@ -83,7 +84,8 @@ async def _recount(session: AsyncSession, playlist: Playlist) -> None:
     playlist.total_duration_seconds = float(totals[1] or 0)
 
 
-def _detail(playlist: Playlist, can_edit: bool) -> PlaylistDetailOut:
+def _detail(playlist: Playlist, can_edit: bool, items=None) -> PlaylistDetailOut:
+    source = playlist.items if items is None else items
     return PlaylistDetailOut(
         **PlaylistOut.model_validate(playlist).model_dump(),
         items=[
@@ -94,10 +96,20 @@ def _detail(playlist: Playlist, can_edit: bool) -> PlaylistDetailOut:
                 "added_by_id": item.added_by_id,
                 "created_at": item.created_at,
             }
-            for item in playlist.items
+            for item in source
         ],
         collaborators=[],
         can_edit=can_edit,
+    )
+
+
+async def _visible_items(session, playlist: Playlist) -> list:
+    """Playlist tracks minus the ones credited to an unknown uploader."""
+    return await authenticity.filter_by_reference(
+        session,
+        list(playlist.items),
+        lambda it: it.track.artist_name if it.track else "",
+        guard=False,
     )
 
 
@@ -172,7 +184,11 @@ async def read_playlist(
 ) -> PlaylistDetailOut:
     playlist = await _load(session, playlist_id)
     _ensure_visible(playlist, viewer)
-    return _detail(playlist, can_edit=await _can_edit(session, playlist, viewer))
+    return _detail(
+        playlist,
+        can_edit=await _can_edit(session, playlist, viewer),
+        items=await _visible_items(session, playlist),
+    )
 
 
 @router.get("/shared/{share_slug}", response_model=PlaylistDetailOut)
@@ -184,7 +200,11 @@ async def read_shared_playlist(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Плейлист не найден")
     loaded = await _load(session, playlist.id)
     _ensure_visible(loaded, viewer)
-    return _detail(loaded, can_edit=await _can_edit(session, loaded, viewer))
+    return _detail(
+        loaded,
+        can_edit=await _can_edit(session, loaded, viewer),
+        items=await _visible_items(session, loaded),
+    )
 
 
 @router.patch("/playlists/{playlist_id}", response_model=PlaylistOut)

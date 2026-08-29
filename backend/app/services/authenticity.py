@@ -250,6 +250,40 @@ def credited_name(raw: dict) -> str:
     return (raw.get("user") or {}).get("username") or ""
 
 
+async def known_names(session, names: set[str]) -> set[str]:
+    """Of `names`, the normalised forms the reference catalogue recognises."""
+    keys = {normalise(n) for n in names if n}
+    if not keys:
+        return set()
+    rows = await session.scalars(
+        select(ReferenceArtist.normalised).where(ReferenceArtist.normalised.in_(keys))
+    )
+    return set(rows.all())
+
+
+async def filter_by_reference(session, items: list, name_of, *, guard: bool = True) -> list:
+    """Generic version of `filter_tracks` for the library.
+
+    `name_of(item)` returns the credited artist name. Keeps only items whose
+    artist the reference catalogue knows. `guard=True` keeps the two
+    safety nets (list too small, filter too aggressive); the library
+    listings pass `guard=False` — a favourite by an unknown uploader is
+    exactly what the user asked to hide, even if it hides most of them.
+    """
+    if not items or session is None:
+        return items
+    if await reference_size(session) < MIN_REFERENCE_SIZE:
+        return items
+
+    known = await known_names(session, {name_of(i) for i in items})
+    kept = [i for i in items if normalise(name_of(i)) in known]
+
+    if guard and len(kept) < len(items) * MIN_SURVIVING_SHARE:
+        logger.warning("Справочный фильтр оставил %s из %s — пропускаю", len(kept), len(items))
+        return items
+    return kept
+
+
 async def filter_tracks(session, tracks: list[dict]) -> list[dict]:
     """Hides tracks by artists the reference catalogue does not know.
 
