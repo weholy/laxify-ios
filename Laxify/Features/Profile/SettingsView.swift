@@ -9,6 +9,10 @@ import UIKit
 struct SettingsView: View {
     var onClose: () -> Void
 
+    @State private var session = SessionStore.shared
+    @State private var showsSignOutConfirmation = false
+    @State private var isSigningOut = false
+
     private enum Page: String, Identifiable {
         case language
         case info
@@ -79,12 +83,23 @@ struct SettingsView: View {
                         ForEach(entries) { entry in
                             SettingsCard { entryRow(entry) }
                         }
+
+                        signOutButton
+                            .padding(.top, 8)
                     }
                     .padding(.horizontal, LaxifyMetrics.screenPadding)
                     .padding(.top, 4)
                     .padding(.bottom, 120)
                 }
             }
+        }
+        .confirmationDialog(
+            L("settings.signout.confirm", "Точно хотите выйти?"),
+            isPresented: $showsSignOutConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button(L("settings.signout", "Выйти"), role: .destructive) { signOut() }
+            Button(L("settings.signout.stay", "Остаться"), role: .cancel) {}
         }
         .fullScreenCover(item: $page) { entry in
             switch entry {
@@ -105,6 +120,36 @@ struct SettingsView: View {
             case .diagnostics:
                 DiagnosticsView { page = nil }
             }
+        }
+    }
+
+    private var signOutButton: some View {
+        Button {
+            showsSignOutConfirmation = true
+        } label: {
+            HStack(spacing: 8) {
+                if isSigningOut {
+                    ProgressView().tint(.red)
+                }
+                Text(isSigningOut
+                     ? L("settings.signingOut", "Выходим…")
+                     : L("settings.signout", "Выйти из аккаунта"))
+                    .font(.system(size: 16, weight: .semibold))
+            }
+            .foregroundStyle(.red)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+            .glassEffect(.regular.tint(.red.opacity(0.12)).interactive(), in: .capsule)
+        }
+        .buttonStyle(.plain)
+        .disabled(isSigningOut)
+    }
+
+    private func signOut() {
+        isSigningOut = true
+        Task {
+            await session.signOut()
+            isSigningOut = false
         }
     }
 
@@ -290,7 +335,6 @@ struct AccountSettingsView: View {
     @State private var session = SessionStore.shared
     @State private var isEditPresented = false
     @State private var showsLogoutAll = false
-    @State private var showsSignOut = false
     @State private var status: String?
 
     private var user: BackendUser? { session.user }
@@ -357,16 +401,6 @@ struct AccountSettingsView: View {
 
             SettingsGroup(header: L("account.sessions", "Сессии")) {
                 SettingsRow(
-                    title: L("settings.signout", "Выйти из аккаунта"),
-                    description: L("account.signout.sub", "На этом устройстве"),
-                    showsChevron: false
-                ) {
-                    showsSignOut = true
-                }
-
-                SettingsDivider()
-
-                SettingsRow(
                     title: L("account.logoutAll", "Выйти на всех устройствах"),
                     description: L("account.logoutAll.sub", "Завершит все сессии, включая эту"),
                     showsChevron: false
@@ -377,16 +411,6 @@ struct AccountSettingsView: View {
         }
         .fullScreenCover(isPresented: $isEditPresented) {
             EditProfileView { isEditPresented = false }
-        }
-        .confirmationDialog(
-            L("settings.signout.confirm", "Точно хотите выйти?"),
-            isPresented: $showsSignOut,
-            titleVisibility: .visible
-        ) {
-            Button(L("settings.signout", "Выйти"), role: .destructive) {
-                Task { await session.signOut() }
-            }
-            Button(L("common.cancel", "Отмена"), role: .cancel) {}
         }
         .confirmationDialog(
             L("account.logoutAll", "Выйти на всех устройствах"),
