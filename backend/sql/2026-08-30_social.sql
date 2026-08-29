@@ -64,3 +64,12 @@ CREATE TABLE IF NOT EXISTS notifications (
 );
 CREATE INDEX IF NOT EXISTS ix_notifications_user_id ON notifications (user_id);
 CREATE INDEX IF NOT EXISTS ix_notifications_user_time ON notifications (user_id, created_at);
+
+-- Run as the postgres superuser, so the new tables end up owned by postgres
+-- and the app's `laxify` role cannot touch them. Hand them over.
+ALTER TABLE track_comments     OWNER TO laxify;
+ALTER TABLE comment_reactions  OWNER TO laxify;
+ALTER TABLE profile_likes      OWNER TO laxify;
+ALTER TABLE notifications      OWNER TO laxify;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO laxify;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO laxify;

@@ -249,20 +249,7 @@ struct PlaylistRow: View {
     }
 
     private var gradientFallback: some View {
-        let seed = playlist.id.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }
-        let hue = Double(seed % 360) / 360
-        return LinearGradient(
-            colors: [
-                Color(hue: hue, saturation: 0.55, brightness: 0.8),
-                Color(hue: (hue + 0.1).truncatingRemainder(dividingBy: 1), saturation: 0.7, brightness: 0.45)
-            ],
-            startPoint: .topLeading, endPoint: .bottomTrailing
-        )
-        .overlay {
-            Image(systemName: "music.note.list")
-                .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.85))
-        }
+        LaxifyPalette.surfaceElevated
     }
 }
 

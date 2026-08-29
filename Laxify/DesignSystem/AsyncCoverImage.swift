@@ -28,11 +28,8 @@ struct AsyncCoverImage: View {
                         .resizable()
                         .scaledToFill()
                         .transition(.opacity)
-                } else if url == nil {
-                    Image(systemName: "music.note")
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(LaxifyPalette.textTertiary)
                 }
+                // No cover: just the flat surface — never a placeholder glyph.
             }
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .task(id: url) {

@@ -113,9 +113,10 @@ def main():
             fh.write(sql)
         sh(client, f"sudo -u postgres psql laxify -v ON_ERROR_STOP=1 -f {sftp_sql} && rm {sftp_sql}")
 
-        with sftp.open(f"{REMOTE}/alembic/versions/20260830_social.py", "w") as fh:
-            fh.write(MIG.format(head=head))
-        sh(client, f"cd {REMOTE} && .venv/bin/alembic stamp 20260830_social 2>&1 | tail -3")
+        # Schema is managed by the idempotent SQL above, not alembic — the
+        # existing alembic chain on this box is already inconsistent. Leave
+        # its version table alone rather than fighting it.
+        _ = (MIG, head)
 
         sh(client, "systemctl restart laxify-api && sleep 5 && systemctl is-active laxify-api")
         sh(client, "curl -s http://127.0.0.1:8100/health")

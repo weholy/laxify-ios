@@ -35,6 +35,7 @@ enum Translations {
         "account.copied": "Скопировано",
         "account.logoutAll": "Выйти на всех устройствах",
         "account.logoutAll.sub": "Завершит все сессии, включая эту",
+        "account.signout.sub": "На этом устройстве",
         "account.logoutAll.confirm": "Выйти везде",
 
         "language.title": "Выберите язык",
@@ -263,6 +264,7 @@ enum Translations {
         "account.copied": "Copied",
         "account.logoutAll": "Sign out everywhere",
         "account.logoutAll.sub": "Ends every session, including this one",
+        "account.signout.sub": "On this device",
         "account.logoutAll.confirm": "Sign out everywhere",
 
         "language.title": "Choose your language",

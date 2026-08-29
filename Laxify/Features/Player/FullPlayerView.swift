@@ -203,7 +203,7 @@ struct FullPlayerView: View {
 
             Spacer()
 
-            glyphButton("text.bubble") { isCommentsPresented = true }
+            glyphButton("message.fill") { isCommentsPresented = true }
 
             Spacer()
 
