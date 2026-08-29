@@ -34,7 +34,12 @@ final class AudioPlayerController {
     private var endObserver: NSObjectProtocol?
     private var statusObservation: NSKeyValueObservation?
     private var durationObservation: NSKeyValueObservation?
+    private var timeControlObservation: NSKeyValueObservation?
     private var didLogFirstTick = false
+    /// Control Center extrapolates the scrubber from the last published
+    /// elapsed time + rate; if it is only pushed on play/pause/seek it drifts
+    /// (stalls, buffering) and the bar sticks. Re-push on a short interval.
+    private var lastNowPlayingPush: Date = .distantPast
     private var sleepTimerTask: Task<Void, Never>?
     private var waveBatchId: String?
     private var artworkTrackId: String?
@@ -506,7 +511,22 @@ final class AudioPlayerController {
                     ListeningStatsService.shared.recordPlayback(seconds: delta)
                 }
                 self.currentTime = time.seconds
+
+                // Keep the lock-screen / Control Center scrubber honest — it
+                // otherwise runs on its own clock between the sparse
+                // play/pause/seek pushes and visibly lags after a stall or a
+                // track change.
+                if Date().timeIntervalSince(self.lastNowPlayingPush) > 1.5 {
+                    self.updateNowPlayingInfo()
+                }
             }
+        }
+
+        // A stall or an automatic wait must show as rate 0 immediately, and a
+        // resume as rate 1 — otherwise the system card keeps advancing the bar
+        // through silence.
+        timeControlObservation = player?.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
+            Task { @MainActor in self?.updateNowPlayingInfo() }
         }
 
         endObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
@@ -721,6 +741,8 @@ final class AudioPlayerController {
         statusObservation = nil
         durationObservation?.invalidate()
         durationObservation = nil
+        timeControlObservation?.invalidate()
+        timeControlObservation = nil
         player?.pause()
         player = nil
     }
@@ -733,12 +755,22 @@ final class AudioPlayerController {
     private func updateNowPlayingInfo() {
         guard let song = currentSong else { return }
 
+        lastNowPlayingPush = Date()
+
+        // Never hand the system a nonsense duration — a zero or an infinity
+        // makes the scrubber jump to an end it never reaches.
+        let safeDuration = (duration.isFinite && duration > 0) ? duration : max(currentTime, 1)
+        let safeElapsed = min(max(currentTime, 0), safeDuration)
+        // Rate 0 whenever the player is not actually producing sound, so the
+        // bar stops instead of drifting on through a stall.
+        let liveRate = (isPlaying && player?.timeControlStatus == .playing) ? playbackRate : 0
+
         var info: [String: Any] = [
             MPMediaItemPropertyTitle: song.title,
             MPMediaItemPropertyArtist: song.artistName,
-            MPMediaItemPropertyPlaybackDuration: duration,
-            MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTime,
-            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? playbackRate : 0
+            MPMediaItemPropertyPlaybackDuration: safeDuration,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: safeElapsed,
+            MPNowPlayingInfoPropertyPlaybackRate: liveRate
         ]
         if let albumTitle = song.albumTitle {
             info[MPMediaItemPropertyAlbumTitle] = albumTitle

@@ -2,6 +2,9 @@ import SwiftUI
 import UIKit
 
 struct SignInView: View {
+    /// Telegram sign-in ships but stays hidden until the user wants it live.
+    static let telegramSignInEnabled = false
+
     var onSignedIn: (AuthenticatedGoogleUser) async -> Void
 
     @State private var isSigningIn = false
@@ -95,7 +98,12 @@ struct SignInView: View {
 
             VStack(spacing: 12) {
                 googleButton
-                telegramButton
+
+                // Telegram sign-in is finished but hidden until the user asks
+                // for it back. Flip this to show the button again.
+                if Self.telegramSignInEnabled {
+                    telegramButton
+                }
 
                 if serverUnreachable {
                     guestButton

@@ -173,6 +173,14 @@ enum Translations {
         "player.downloadCancel": "Отменить загрузку",
         "player.queue": "Очередь",
 
+        "comments.title": "Комментарии",
+        "comments.empty": "Пока нет комментариев",
+        "comments.write": "Написать комментарий…",
+        "comments.reply": "Ответить",
+        "comments.soon": "Комментарии подключим совсем скоро",
+        "notifications.title": "Уведомления",
+        "notifications.empty": "Пока пусто",
+
         "lyrics.sizeSmall": "Мелкий",
         "lyrics.sizeRegular": "Обычный",
         "lyrics.sizeLarge": "Крупный",
@@ -389,6 +397,14 @@ enum Translations {
         "player.downloadRemove": "Remove download",
         "player.downloadCancel": "Cancel download",
         "player.queue": "Queue",
+
+        "comments.title": "Comments",
+        "comments.empty": "No comments yet",
+        "comments.write": "Write a comment…",
+        "comments.reply": "Reply",
+        "comments.soon": "Comments are coming very soon",
+        "notifications.title": "Notifications",
+        "notifications.empty": "Nothing yet",
 
         "lyrics.sizeSmall": "Small",
         "lyrics.sizeRegular": "Regular",

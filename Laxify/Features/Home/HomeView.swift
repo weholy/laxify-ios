@@ -4,7 +4,9 @@ import SwiftData
 struct HomeView: View {
     @State private var viewModel = HomeViewModel()
     @State private var isSearchPresented = false
+    @State private var isNotificationsPresented = false
     @Query private var dislikedTracks: [DislikedTrack]
+    private var notifications = NotificationStore.shared
 
     private var recommendedTracks: [Song] {
         guard let content = viewModel.content else { return [] }
@@ -15,7 +17,7 @@ struct HomeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: LaxifyMetrics.sectionSpacing) {
-                searchField
+                topRow
                 homeContent
             }
             .padding(.top, 12)
@@ -24,10 +26,40 @@ struct HomeView: View {
         .background(LaxifyPalette.background)
         .task {
             await viewModel.loadIfNeeded()
+            await notifications.load()
         }
         .fullScreenCover(isPresented: $isSearchPresented) {
             SearchView { isSearchPresented = false }
         }
+        .sheet(isPresented: $isNotificationsPresented) {
+            NotificationsView { isNotificationsPresented = false }
+        }
+    }
+
+    private var topRow: some View {
+        HStack(spacing: 10) {
+            searchField
+
+            Button {
+                isNotificationsPresented = true
+            } label: {
+                Image(systemName: "bell")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(LaxifyPalette.textPrimary)
+                    .frame(width: LaxifyMetrics.searchButtonDiameter, height: LaxifyMetrics.searchButtonDiameter)
+                    .laxGlassCircle(interactive: true)
+                    .overlay(alignment: .topTrailing) {
+                        if notifications.unreadCount > 0 {
+                            Circle().fill(LaxifyPalette.accent)
+                                .frame(width: 9, height: 9)
+                                .offset(x: -6, y: 6)
+                        }
+                    }
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, LaxifyMetrics.screenPadding)
     }
 
     /// Opens the search screen — Home does not search inline any more, this is
@@ -50,7 +82,6 @@ struct HomeView: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, LaxifyMetrics.screenPadding)
     }
 
     @ViewBuilder

@@ -12,6 +12,7 @@ struct FullPlayerView: View {
 
     @State private var isLyricsPresented = false
     @State private var isAddToPlaylistPresented = false
+    @State private var isCommentsPresented = false
     @State private var selectedArtistId: String?
 
     var downloads = DownloadManager.shared
@@ -55,6 +56,11 @@ struct FullPlayerView: View {
         }
         .sheet(isPresented: $isLyricsPresented) {
             LyricsView()
+        }
+        .sheet(isPresented: $isCommentsPresented) {
+            if let song = player.currentSong {
+                CommentsView(track: song) { isCommentsPresented = false }
+            }
         }
         .sheet(isPresented: $isAddToPlaylistPresented) {
             if let song = player.currentSong {
@@ -182,7 +188,7 @@ struct FullPlayerView: View {
     }
 
     private var bottomIconRow: some View {
-        HStack {
+        HStack(spacing: 24) {
             Button {
                 isLyricsPresented = true
             } label: {
@@ -190,6 +196,19 @@ struct FullPlayerView: View {
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.75))
                     .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(player.currentSong == nil)
+
+            Button {
+                isCommentsPresented = true
+            } label: {
+                Image(systemName: "bubble.left.and.bubble.right")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.75))
+                    .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(player.currentSong == nil)
