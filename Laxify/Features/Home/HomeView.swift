@@ -23,6 +23,7 @@ struct HomeView: View {
             .padding(.top, 12)
             .padding(.bottom, LaxifyMetrics.tabBarHeight + LaxifyMetrics.miniPlayerHeight + 40)
         }
+        .tracksBottomBarHiding()
         .background(LaxifyPalette.background)
         .task {
             await viewModel.loadIfNeeded()

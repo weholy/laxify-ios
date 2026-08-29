@@ -35,6 +35,7 @@ struct ProfileView: View {
                 .padding(.top, 12)
                 .padding(.bottom, LaxifyMetrics.tabBarHeight + LaxifyMetrics.miniPlayerHeight + 40)
             }
+            .tracksBottomBarHiding()
         }
         .background(profileBackground)
         .task {

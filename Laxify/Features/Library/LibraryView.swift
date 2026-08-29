@@ -114,6 +114,7 @@ struct LibraryView: View {
             .padding(.bottom, LaxifyMetrics.tabBarHeight + LaxifyMetrics.miniPlayerHeight + 40)
         }
         .scrollIndicators(.hidden)
+        .tracksBottomBarHiding()
         .refreshable { await store.reload() }
     }
 

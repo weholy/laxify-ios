@@ -2,6 +2,8 @@ import SwiftUI
 
 struct LaxifyTabBar: View {
     @Binding var selectedTab: AppTab
+    /// Set while the active tab is scrolling down — the bar drops its labels.
+    var forceCompact: Bool = false
     var onSearchTap: () -> Void
 
     @Namespace private var selectionNamespace
@@ -9,7 +11,9 @@ struct LaxifyTabBar: View {
     /// the destination is a cover rather than a state change.
     @State private var searchBounce = 0
 
-    private var hideLabels: Bool { AppearanceSettings.shared.hideTabLabelsApplied }
+    private var hideLabels: Bool {
+        forceCompact || AppearanceSettings.shared.hideTabLabelsApplied
+    }
 
     var body: some View {
         GlassEffectContainer(spacing: 16) {

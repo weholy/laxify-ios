@@ -8,6 +8,7 @@ struct RootView: View {
     var router = DeepLinkRouter.shared
     var announcements = AnnouncementService.shared
     var appearance = AppearanceSettings.shared
+    var scrollHide = ScrollHideMonitor.shared
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -28,9 +29,14 @@ struct RootView: View {
                     isPlayerPresented = true
                 }
 
-                LaxifyTabBar(selectedTab: $selectedTab) {
+                LaxifyTabBar(selectedTab: $selectedTab, forceCompact: scrollHide.isCollapsed) {
                     isSearchPresented = true
                 }
+                // Scrolling down slides the bar down and dims it — it steps
+                // out of the way, the mini player stays put.
+                .scaleEffect(scrollHide.isCollapsed ? 0.9 : 1, anchor: .bottom)
+                .opacity(scrollHide.isCollapsed ? 0.5 : 1)
+                .offset(y: scrollHide.isCollapsed ? 14 : 0)
             }
             .padding(.horizontal, LaxifyMetrics.screenPadding)
             .padding(.bottom, LaxifyMetrics.tabBarBottomInset)
