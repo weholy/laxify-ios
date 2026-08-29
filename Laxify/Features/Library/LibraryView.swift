@@ -132,40 +132,40 @@ struct LibraryView: View {
                 showsFavorites = true
             }
         } label: {
-            HStack(spacing: 14) {
-                CoverCollage(urls: recentFavoriteCovers, displaySize: 140) {
+            HStack(spacing: 12) {
+                CoverCollage(urls: recentFavoriteCovers, displaySize: 120) {
                     LinearGradient(
                         colors: [Color(hex: 0x7B5CFF), Color(hex: 0x3B7BFF)],
                         startPoint: .topLeading, endPoint: .bottomTrailing
                     )
                     .overlay {
                         Image(systemName: "heart.fill")
-                            .font(.system(size: 26, weight: .semibold))
+                            .font(.system(size: 20, weight: .semibold))
                             .foregroundStyle(.white)
                     }
                 }
-                .frame(width: 64, height: 64)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .frame(width: 46, height: 46)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text(L("favorites.title", "Избранное"))
-                        .font(.system(size: 17, weight: .bold))
+                        .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(LaxifyPalette.textPrimary)
                     Text("\(favorites.count) \(Self.tracksWord(favorites.count))")
-                        .font(LaxifyTypography.footnote)
+                        .font(LaxifyTypography.caption)
                         .foregroundStyle(LaxifyPalette.textSecondary)
                 }
 
                 Spacer()
 
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(LaxifyPalette.textTertiary)
             }
-            .padding(12)
+            .padding(10)
             .background(
                 LaxifyPalette.surface,
-                in: RoundedRectangle(cornerRadius: 22, style: .continuous)
+                in: RoundedRectangle(cornerRadius: LaxifyMetrics.cardCornerRadius, style: .continuous)
             )
             .contentShape(Rectangle())
         }
@@ -206,10 +206,10 @@ struct PlaylistRow: View {
     var body: some View {
         HStack(spacing: 12) {
             cover
-                .frame(width: 56, height: 56)
+                .frame(width: 46, height: 46)
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(playlist.title)
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(LaxifyPalette.textPrimary)
@@ -230,7 +230,7 @@ struct PlaylistRow: View {
         .padding(10)
         .background(
             LaxifyPalette.surface,
-            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+            in: RoundedRectangle(cornerRadius: LaxifyMetrics.cardCornerRadius, style: .continuous)
         )
         .contentShape(Rectangle())
     }

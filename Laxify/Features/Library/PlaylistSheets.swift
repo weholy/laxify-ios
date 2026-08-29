@@ -36,7 +36,7 @@ struct CreatePlaylistSheet: View {
                     .font(.system(size: 17))
                     .focused($focused)
                     .padding(16)
-                    .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: LaxifyMetrics.groupedCornerRadius, style: .continuous))
+                    .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: LaxifyMetrics.cardCornerRadius, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 7) {
                     Toggle(isOn: $isPublic) {
@@ -46,7 +46,7 @@ struct CreatePlaylistSheet: View {
                     }
                     .tint(LaxifyPalette.accent)
                     .padding(16)
-                    .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: LaxifyMetrics.groupedCornerRadius, style: .continuous))
+                    .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: LaxifyMetrics.cardCornerRadius, style: .continuous))
 
                     Text(L("playlist.public.sub", "Смогут увидеть другие по ссылке на ваш профиль"))
                         .font(.system(size: 12))
@@ -226,7 +226,7 @@ struct AddToPlaylistSheet: View {
                 Spacer()
             }
             .padding(10)
-            .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: LaxifyMetrics.cardCornerRadius, style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -258,7 +258,7 @@ struct AddToPlaylistSheet: View {
                     .contentTransition(.symbolEffect)
             }
             .padding(10)
-            .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: LaxifyMetrics.cardCornerRadius, style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
