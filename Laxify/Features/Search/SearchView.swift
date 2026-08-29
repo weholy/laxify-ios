@@ -3,6 +3,8 @@ import SwiftData
 
 struct SearchView: View {
     var onClose: () -> Void
+    /// The tab presentation has no chrome to dismiss, so it hides the ✕.
+    var showsCloseButton: Bool = true
 
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \SearchHistoryEntry.searchedAt, order: .reverse) private var history: [SearchHistoryEntry]
@@ -34,7 +36,7 @@ struct SearchView: View {
             }
             .padding(.horizontal, LaxifyMetrics.screenPadding)
             .padding(.top, 12)
-            .padding(.bottom, LaxifyMetrics.miniPlayerHeight + 40)
+            .padding(.bottom, 28)
         }
         .background(LaxifyPalette.background.ignoresSafeArea())
         .scrollDismissesKeyboard(.interactively)
@@ -68,7 +70,6 @@ struct SearchView: View {
                 selectedCategory = nil
             }
         }
-        .withMiniPlayer()
     }
 
     private var header: some View {
@@ -79,7 +80,9 @@ struct SearchView: View {
 
             Spacer()
 
-            LaxifyCloseButton(action: onClose)
+            if showsCloseButton {
+                LaxifyCloseButton(action: onClose)
+            }
         }
     }
 

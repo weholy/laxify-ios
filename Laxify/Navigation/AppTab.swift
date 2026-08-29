@@ -1,10 +1,15 @@
 import SwiftUI
 
-enum AppTab: CaseIterable {
+enum AppTab: Hashable, CaseIterable {
     case home
     case myWave
     case favorites
     case profile
+    case search
+
+    /// The four that sit in the main tab strip; `search` is the trailing
+    /// search-role tab.
+    static var main: [AppTab] { [.home, .myWave, .favorites, .profile] }
 
     /// Localization key; `title` is the Russian fallback.
     var titleKey: String {
@@ -13,6 +18,7 @@ enum AppTab: CaseIterable {
         case .myWave: "tab.wave"
         case .favorites: "tab.favorites"
         case .profile: "tab.profile"
+        case .search: "search.title"
         }
     }
 
@@ -22,6 +28,7 @@ enum AppTab: CaseIterable {
         case .myWave: "Моя волна"
         case .favorites: "Избранное"
         case .profile: "Профиль"
+        case .search: "Поиск"
         }
     }
 
@@ -31,6 +38,7 @@ enum AppTab: CaseIterable {
         case .myWave: "dot.radiowaves.left.and.right"
         case .favorites: "heart.fill"
         case .profile: "person.fill"
+        case .search: "magnifyingglass"
         }
     }
 }

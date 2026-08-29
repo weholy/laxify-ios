@@ -63,7 +63,7 @@ struct FavoritesView: View {
                 }
             }
             .padding(.top, 12)
-            .padding(.bottom, LaxifyMetrics.tabBarHeight + LaxifyMetrics.miniPlayerHeight + 40)
+            .padding(.bottom, 28)
         }
         .background(LaxifyPalette.background)
         .task {
