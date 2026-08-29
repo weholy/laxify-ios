@@ -38,6 +38,13 @@ class Settings(BaseSettings):
     # How old a widget payload's auth_date may be before it is rejected.
     telegram_login_ttl_seconds: int = 86400
 
+    # Comment attachments go to Catbox; a userhash ties uploads to an account
+    # (optional — anonymous uploads work without it). Litterbox is the
+    # fallback when Catbox is down.
+    catbox_userhash: str | None = None
+    # GIF search proxy. Empty means the picker returns nothing.
+    tenor_api_key: str | None = None
+
     # Mail relay. Unset means codes are logged instead of sent, so the server
     # runs without a mail account configured.
     smtp_host: str | None = None

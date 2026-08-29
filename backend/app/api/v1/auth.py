@@ -60,6 +60,7 @@ async def sign_in_with_google(
             username=username,
             google_avatar_url=identity.picture,
             is_admin=identity.sub in settings.admin_google_subs,
+            primary_auth_method="google",
         )
         session.add(user)
         await session.flush()
@@ -126,6 +127,7 @@ async def sign_in_with_telegram(
             telegram_username=identity.username,
             telegram_photo_url=identity.photo_url,
             avatar_url=identity.photo_url,
+            primary_auth_method="telegram",
         )
         session.add(user)
         await session.flush()
@@ -221,3 +223,101 @@ async def logout_everywhere(user: CurrentUser, session: SessionDep) -> MessageOu
     for device in devices:
         device.revoked_at = now
     return MessageOut(detail="Вы вышли на всех устройствах")
+
+
+# --- Linking a second way in to one account -------------------------------
+#
+# You sign in one way, then attach the other from settings, so both open the
+# same account. The method you first joined with (`primary_auth_method`)
+# can't be unlinked — that would be a way to lock yourself out.
+
+
+class LinkedMethodsOut(MessageOut):
+    detail: str = "ok"
+    primary: str
+    google_linked: bool
+    telegram_linked: bool
+    email_linked: bool
+
+
+def _methods(user: User) -> LinkedMethodsOut:
+    return LinkedMethodsOut(
+        primary=user.primary_auth_method,
+        google_linked=user.google_sub is not None,
+        telegram_linked=user.telegram_id is not None,
+        email_linked=user.password_hash is not None,
+    )
+
+
+@router.get("/linked", response_model=LinkedMethodsOut)
+async def linked_methods(user: CurrentUser) -> LinkedMethodsOut:
+    return _methods(user)
+
+
+@router.post("/link/google", response_model=LinkedMethodsOut)
+async def link_google(
+    payload: GoogleSignInRequest, user: CurrentUser, session: SessionDep, ip: ClientIP
+) -> LinkedMethodsOut:
+    try:
+        identity = await verify_id_token(payload.id_token)
+    except GoogleAuthError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+
+    taken = await session.scalar(select(User).where(User.google_sub == identity.sub))
+    if taken is not None and taken.id != user.id:
+        raise HTTPException(status_code=409, detail="Этот Google уже привязан к другому аккаунту")
+
+    user.google_sub = identity.sub
+    if identity.picture and not user.google_avatar_url:
+        user.google_avatar_url = identity.picture
+    if not user.email:
+        user.email = identity.email
+    session.add(AuditLog(actor_id=user.id, action="auth.link.google", ip=ip))
+    await session.commit()
+    return _methods(user)
+
+
+@router.post("/link/telegram", response_model=LinkedMethodsOut)
+async def link_telegram(
+    payload: TelegramSignInRequest, user: CurrentUser, session: SessionDep, ip: ClientIP
+) -> LinkedMethodsOut:
+    try:
+        identity = verify_login(payload.payload)
+    except TelegramAuthError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+
+    taken = await session.scalar(select(User).where(User.telegram_id == identity.id))
+    if taken is not None and taken.id != user.id:
+        raise HTTPException(status_code=409, detail="Этот Telegram уже привязан к другому аккаунту")
+
+    user.telegram_id = identity.id
+    user.telegram_username = identity.username
+    if identity.photo_url:
+        user.telegram_photo_url = identity.photo_url
+    session.add(AuditLog(actor_id=user.id, action="auth.link.telegram", ip=ip))
+    await session.commit()
+    return _methods(user)
+
+
+@router.post("/unlink/{provider}", response_model=LinkedMethodsOut)
+async def unlink(
+    provider: str, user: CurrentUser, session: SessionDep, ip: ClientIP
+) -> LinkedMethodsOut:
+    if provider not in ("google", "telegram"):
+        raise HTTPException(status_code=404, detail="Неизвестный способ входа")
+    if provider == user.primary_auth_method:
+        raise HTTPException(
+            status_code=400,
+            detail="Нельзя отвязать способ, которым вы вошли в аккаунт",
+        )
+
+    if provider == "google":
+        user.google_sub = None
+    else:
+        user.telegram_id = None
+        user.telegram_username = None
+        user.telegram_photo_url = None
+
+    session.add(AuditLog(actor_id=user.id, action=f"auth.unlink.{provider}", ip=ip))
+    await session.commit()
+    return _methods(user)

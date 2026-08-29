@@ -19,6 +19,12 @@ from app.models.library import (
     PlaylistItem,
     TrackSnapshot,
 )
+from app.models.social import (
+    CommentReaction,
+    Notification,
+    ProfileLike,
+    TrackComment,
+)
 from app.models.user import Device, EmailVerification, Follow, PushToken, User
 
 __all__ = [
@@ -27,8 +33,12 @@ __all__ = [
     "ClientLog",
     "AuditLog",
     "ClientReport",
+    "CommentReaction",
     "Device",
     "EmailVerification",
+    "Notification",
+    "ProfileLike",
+    "TrackComment",
     "DislikedTrack",
     "Download",
     "Favorite",

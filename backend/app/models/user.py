@@ -31,6 +31,11 @@ class User(Base, UUIDMixin, TimestampMixin):
 
     is_profile_public: Mapped[bool] = mapped_column(Boolean, default=True)
     is_stats_public: Mapped[bool] = mapped_column(Boolean, default=False)
+    # How this account first signed in — "google" | "telegram" | "email".
+    # Cannot be unlinked; the others can.
+    primary_auth_method: Mapped[str] = mapped_column(String(16), default="google")
+    # When true the profile-like count is hidden from everyone but the owner.
+    hide_profile_likes: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # Email/password is a second way in, added so the app works where
     # Google's sign-in is unreachable. Google accounts start with no password.

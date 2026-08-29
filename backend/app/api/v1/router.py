@@ -5,14 +5,17 @@ from app.api.v1 import (
     admin,
     auth,
     catalog,
+    comments,
     diagnostics,
     discover,
     email_auth,
     library,
     lyrics,
     music,
+    notifications,
     playlists,
     replay,
+    social,
     telemetry,
     users,
     wave,
@@ -34,3 +37,6 @@ api_router.include_router(telemetry.router)
 api_router.include_router(catalog.router)
 api_router.include_router(discover.router)
 api_router.include_router(wave.router)
+api_router.include_router(comments.router)
+api_router.include_router(notifications.router)
+api_router.include_router(social.router)
