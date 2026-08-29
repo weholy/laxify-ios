@@ -185,6 +185,35 @@ actor LaxifyAPI {
         return response
     }
 
+    /// `payload` is the raw Telegram Login Widget field set (hash included),
+    /// exactly as the widget produced it — the server re-checks the signature.
+    func signInWithTelegram(payload: [String: String], deviceName: String) async throws -> BackendSessionResponse {
+        struct Body: Encodable {
+            let payload: [String: String]
+            let device: Device
+            struct Device: Encodable {
+                let name: String
+                let model: String?
+                let appVersion: String?
+            }
+        }
+
+        let body = Body(
+            payload: payload,
+            device: .init(
+                name: deviceName,
+                model: nil,
+                appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+            )
+        )
+
+        let response: BackendSessionResponse = try await send(
+            "/auth/telegram", method: "POST", body: body, authenticated: false
+        )
+        store(response.tokens)
+        return response
+    }
+
     func signOut() async {
         if let refresh = KeychainStore.read(.refreshToken) {
             struct Body: Encodable { let refreshToken: String }

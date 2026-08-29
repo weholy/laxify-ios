@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct SignInView: View {
     var onSignedIn: (AuthenticatedGoogleUser) async -> Void
@@ -9,6 +10,7 @@ struct SignInView: View {
     @State private var buttonAppear = false
     @State private var coverSongs: [Song] = CoverArtCache.load()
     @State private var showsTerms = false
+    @State private var showsTelegram = false
     @State private var serverUnreachable = false
     private var session: SessionStore { SessionStore.shared }
 
@@ -35,6 +37,12 @@ struct SignInView: View {
         }
         .sheet(isPresented: $showsTerms) {
             TermsView { showsTerms = false }
+        }
+        .sheet(isPresented: $showsTelegram) {
+            TelegramLoginSheet(
+                onResult: { params in handleTelegram(params) },
+                onCancel: { showsTelegram = false }
+            )
         }
         .onAppear {
             withAnimation(.easeOut(duration: 0.7).delay(0.15)) {
@@ -87,6 +95,7 @@ struct SignInView: View {
 
             VStack(spacing: 12) {
                 googleButton
+                telegramButton
 
                 if serverUnreachable {
                     guestButton
@@ -188,6 +197,47 @@ struct SignInView: View {
                     errorMessage = L("signin.error", "Не удалось войти. Попробуйте ещё раз")
                 }
                 AppLogger.log("auth: sign-in failed \(error)")
+            }
+        }
+    }
+
+    private var telegramButton: some View {
+        Button {
+            withAnimation { errorMessage = nil }
+            showsTelegram = true
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "paperplane.fill")
+                    .font(.system(size: 17, weight: .semibold))
+                Text(L("signin.telegram", "Продолжить с Telegram"))
+                    .font(.system(size: 17, weight: .semibold))
+            }
+            .foregroundStyle(LaxifyPalette.textPrimary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+            .glassEffect(.regular.tint(Color(hex: 0x27A7E7).opacity(0.16)).interactive(), in: .capsule)
+        }
+        .buttonStyle(.plain)
+        .disabled(isSigningIn)
+    }
+
+    /// The Telegram widget signed the user in on the web page; hand the
+    /// payload to the backend and let SessionStore drive the screen swap.
+    private func handleTelegram(_ params: [String: String]) {
+        showsTelegram = false
+        guard !params.isEmpty else { return }
+        withAnimation { errorMessage = nil }
+        isSigningIn = true
+        Task {
+            let ok = await session.signInWithTelegram(
+                payload: params, deviceName: UIDevice.current.name
+            )
+            isSigningIn = false
+            if !ok {
+                withAnimation {
+                    errorMessage = session.lastError
+                        ?? L("signin.error", "Не удалось войти. Попробуйте ещё раз")
+                }
             }
         }
     }

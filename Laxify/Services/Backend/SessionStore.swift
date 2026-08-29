@@ -142,6 +142,29 @@ final class SessionStore {
         }
     }
 
+    func signInWithTelegram(payload: [String: String], deviceName: String) async -> Bool {
+        isBusy = true
+        lastError = nil
+        defer { isBusy = false }
+
+        do {
+            let session = try await LaxifyAPI.shared.signInWithTelegram(
+                payload: payload, deviceName: deviceName
+            )
+            let user = try await LaxifyAPI.shared.currentUser()
+            self.user = user
+            cache(user)
+            needsLocalMigration = session.needsLocalMigration
+            state = session.needsOnboarding ? .needsOnboarding : .signedIn
+            await SyncOutbox.shared.flush()
+            return true
+        } catch {
+            lastError = (error as? LocalizedError)?.errorDescription ?? "Не удалось войти"
+            AppLogger.log("auth: telegram sign-in failed \(error)")
+            return false
+        }
+    }
+
     func completeOnboarding(
         displayName: String,
         username: String,

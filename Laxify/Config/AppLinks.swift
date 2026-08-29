@@ -10,5 +10,10 @@ enum AppLinks {
     static let support = URL(string: "https://t.me/laxifyapp")!
 
     /// Bot used for Telegram sign-in and subscription confirmation (later).
-    static let telegramBot = "laxifyapp_bot"
+    static let telegramBot = "LaxifyAppBot"
+
+    /// The Telegram Login Widget bridge page. Must stay this exact host — it
+    /// is what @BotFather has registered for the bot via /setdomain, and the
+    /// widget refuses to load anywhere else.
+    static let telegramLoginPage = URL(string: "https://laxify.31-76-27-182.sslip.io/tg-login")!
 }
