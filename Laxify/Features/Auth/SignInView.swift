@@ -207,17 +207,17 @@ struct SignInView: View {
             showsTelegram = true
         } label: {
             HStack(spacing: 10) {
-                Image(systemName: "paperplane.fill")
-                    .font(.system(size: 17, weight: .semibold))
+                TelegramLogoView(size: 21)
                 Text(L("signin.telegram", "Продолжить с Telegram"))
                     .font(.system(size: 17, weight: .semibold))
             }
-            .foregroundStyle(LaxifyPalette.textPrimary)
+            .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
-            .glassEffect(.regular.tint(Color(hex: 0x27A7E7).opacity(0.16)).interactive(), in: .capsule)
+            .padding(.vertical, 17)
+            .background(Color(hex: 0x2AABEE), in: Capsule())
         }
         .buttonStyle(.plain)
+        .glassEffect(.regular.tint(Color(hex: 0x2AABEE)).interactive(), in: .capsule)
         .disabled(isSigningIn)
     }
 
