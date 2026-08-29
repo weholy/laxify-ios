@@ -47,6 +47,9 @@ struct PlayerScrubber: View {
                 .foregroundStyle(.white.opacity(0.7))
                 .monospacedDigit()
             }
+            // A fresh bar per track, so the fill never animates back from the
+            // end of one song to the start of the next.
+            .id(player.currentSong?.id)
         }
         .sensoryFeedback(.impact(weight: .light), trigger: isScrubbing)
     }
@@ -81,6 +84,10 @@ private struct PlayerProgressBar: View {
                 Capsule()
                     .fill(.white)
                     .frame(width: max(width * clamped, trackHeight), height: trackHeight)
+                    // Smooths the AVPlayer clock's small per-frame jitter into
+                    // steady motion — the way the system slider behaves. Off
+                    // under a finger so the fill tracks the touch exactly.
+                    .animation(isScrubbing ? nil : .linear(duration: 0.15), value: clamped)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .animation(.spring(response: 0.3, dampingFraction: 0.72), value: isScrubbing)

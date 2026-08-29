@@ -261,6 +261,7 @@ actor LaxifyAPI {
         displayName: String? = nil,
         username: String? = nil,
         bio: String? = nil,
+        avatarUrl: String? = nil,
         isProfilePublic: Bool? = nil,
         isStatsPublic: Bool? = nil,
         settings: [String: String]? = nil
@@ -269,6 +270,7 @@ actor LaxifyAPI {
             let displayName: String?
             let username: String?
             let bio: String?
+            let avatarUrl: String?
             let isProfilePublic: Bool?
             let isStatsPublic: Bool?
             let settings: [String: String]?
@@ -281,6 +283,7 @@ actor LaxifyAPI {
                 displayName: displayName,
                 username: username,
                 bio: bio,
+                avatarUrl: avatarUrl,
                 isProfilePublic: isProfilePublic,
                 isStatsPublic: isStatsPublic,
                 settings: settings
@@ -965,6 +968,48 @@ actor LaxifyAPI {
 
     func searchGifs(_ query: String, limit: Int = 24) async throws -> [GifDTO] {
         try await send("/gif/search?q=\(escaped(query))&limit=\(limit)", method: "GET")
+    }
+
+    struct MediaUploadDTO: Decodable, Sendable { let url: String }
+
+    /// A photo/clip for a comment, or a new avatar. Multipart, so it builds
+    /// its own request rather than going through `perform`. The server
+    /// forwards it to Catbox and returns the URL.
+    func uploadMedia(_ data: Data, filename: String, mimeType: String) async throws -> URL {
+        guard let token = KeychainStore.read(.accessToken) else { throw APIError.notAuthenticated }
+        guard let url = URL(string: baseURL.absoluteString + "/media/upload") else {
+            throw APIError.server(status: 0, detail: "Некорректный адрес запроса")
+        }
+
+        let boundary = "laxify-\(UUID().uuidString)"
+        var body = Data()
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append(
+            "Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n"
+                .data(using: .utf8)!
+        )
+        body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
+        body.append(data)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.httpBody = body
+
+        let (respData, response) = try await activeSession.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw APIError.server(
+                status: (response as? HTTPURLResponse)?.statusCode ?? 0,
+                detail: "Не удалось загрузить файл"
+            )
+        }
+        let dto = try decoder.decode(MediaUploadDTO.self, from: respData)
+        guard let out = URL(string: dto.url) else {
+            throw APIError.server(status: 0, detail: "Пустой ответ")
+        }
+        return out
     }
 
     // MARK: - Transport

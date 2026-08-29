@@ -1,5 +1,6 @@
 import SwiftUI
 import PhotosUI
+import UniformTypeIdentifiers
 
 /// Comments on a track, in the X / Telegram mould: an avatar, a name line,
 /// the text, an optional photo or GIF, then a quiet action row. Replies sit
@@ -54,7 +55,10 @@ struct CommentsView: View {
             }
         }
         .task { await store.load(trackId: track.id) }
-        .onChange(of: photoItem) { _, _ in /* upload wired with the backend */ }
+        .onChange(of: photoItem) { _, item in
+            guard let item else { return }
+            Task { await sendAttachment(item) }
+        }
     }
 
     // MARK: - Chrome
@@ -253,6 +257,23 @@ struct CommentsView: View {
         replyingTo = nil
         composerFocused = false
         Task { await store.post(trackId: track.id, text: text, parentId: parent) }
+    }
+
+    private func sendAttachment(_ item: PhotosPickerItem) async {
+        defer { photoItem = nil }
+        guard let data = try? await item.loadTransferable(type: Data.self), !data.isEmpty else {
+            return
+        }
+        let isVideo = (item.supportedContentTypes.contains { $0.conforms(to: .movie) })
+        guard let url = try? await LaxifyAPI.shared.uploadMedia(
+            data,
+            filename: isVideo ? "clip.mp4" : "photo.jpg",
+            mimeType: isVideo ? "video/mp4" : "image/jpeg"
+        ) else { return }
+
+        let parent = replyingTo?.id
+        replyingTo = nil
+        await store.post(trackId: track.id, text: "", parentId: parent, mediaURL: url)
     }
 }
 

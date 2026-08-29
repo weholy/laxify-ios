@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 
 struct EditProfileView: View {
     var onClose: () -> Void
@@ -10,6 +11,8 @@ struct EditProfileView: View {
     @State private var username: String
     @State private var errorMessage: String?
     @State private var isSaving = false
+    @State private var avatarItem: PhotosPickerItem?
+    @State private var isUploadingAvatar = false
 
     init(onClose: @escaping () -> Void) {
         self.onClose = onClose
@@ -44,7 +47,6 @@ struct EditProfileView: View {
 
                     saveButton
                     downloadsSection
-                    signOutButton
                 }
                 .padding(.horizontal, LaxifyMetrics.screenPadding)
                 .padding(.top, 12)
@@ -72,14 +74,55 @@ struct EditProfileView: View {
 
     private var avatarSection: some View {
         VStack(spacing: 10) {
-            avatarImage
-                .frame(width: 96, height: 96)
-                .clipShape(Circle())
-                .overlay { Circle().stroke(.white.opacity(0.15), lineWidth: 1) }
+            PhotosPicker(selection: $avatarItem, matching: .images) {
+                avatarImage
+                    .frame(width: 96, height: 96)
+                    .clipShape(Circle())
+                    .overlay { Circle().stroke(.white.opacity(0.15), lineWidth: 1) }
+                    .overlay(alignment: .bottomTrailing) {
+                        Image(systemName: "pencil.circle.fill")
+                            .font(.system(size: 26))
+                            .foregroundStyle(.white, LaxifyPalette.accent)
+                            .offset(x: 2, y: 2)
+                    }
+                    .overlay {
+                        if isUploadingAvatar {
+                            Circle().fill(.black.opacity(0.45))
+                            ProgressView().tint(.white)
+                        }
+                    }
+            }
+            .buttonStyle(.plain)
+            .disabled(isUploadingAvatar)
 
-            Text("Фото берётся из аккаунта Google")
+            Text(L("profile.photo.hint", "Нажмите, чтобы сменить фото"))
                 .font(LaxifyTypography.caption)
                 .foregroundStyle(LaxifyPalette.textTertiary)
+        }
+        .onChange(of: avatarItem) { _, item in
+            guard let item else { return }
+            Task { await uploadAvatar(item) }
+        }
+    }
+
+    private func uploadAvatar(_ item: PhotosPickerItem) async {
+        isUploadingAvatar = true
+        errorMessage = nil
+        defer { isUploadingAvatar = false; avatarItem = nil }
+
+        guard let data = try? await item.loadTransferable(type: Data.self), !data.isEmpty else {
+            withAnimation { errorMessage = "Не удалось прочитать фото" }
+            return
+        }
+        do {
+            let url = try await LaxifyAPI.shared.uploadMedia(
+                data, filename: "avatar.jpg", mimeType: "image/jpeg"
+            )
+            if let failure = await session.updateProfile(avatarURL: url.absoluteString) {
+                withAnimation { errorMessage = failure }
+            }
+        } catch {
+            withAnimation { errorMessage = "Не удалось загрузить фото" }
         }
     }
 
@@ -186,21 +229,6 @@ struct EditProfileView: View {
             .padding(16)
             .laxGlassCard()
         }
-    }
-
-    private var signOutButton: some View {
-        Button {
-            Task {
-                await session.signOut()
-                onClose()
-            }
-        } label: {
-            Text("Выйти из аккаунта")
-                .font(LaxifyTypography.subheadline)
-                .foregroundStyle(.red)
-        }
-        .buttonStyle(.plain)
-        .padding(.top, 8)
     }
 
     private func save() async {

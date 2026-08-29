@@ -197,6 +197,7 @@ final class SessionStore {
         displayName: String? = nil,
         username: String? = nil,
         bio: String? = nil,
+        avatarURL: String? = nil,
         isProfilePublic: Bool? = nil,
         isStatsPublic: Bool? = nil,
         settings: [String: String]? = nil
@@ -209,6 +210,7 @@ final class SessionStore {
                 displayName: displayName,
                 username: username,
                 bio: bio,
+                avatarUrl: avatarURL,
                 isProfilePublic: isProfilePublic,
                 isStatsPublic: isStatsPublic,
                 settings: settings

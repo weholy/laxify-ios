@@ -28,6 +28,7 @@ enum Translations {
         "common.edit": "Изм.",
         "common.back": "Назад",
         "profile.bg.change": "Сменить фон",
+        "profile.photo.hint": "Нажмите, чтобы сменить фото",
         "profile.bg.remove": "Убрать фон",
 
         "account.username": "Имя пользователя",
@@ -257,6 +258,7 @@ enum Translations {
         "common.edit": "Edit",
         "common.back": "Back",
         "profile.bg.change": "Change background",
+        "profile.photo.hint": "Tap to change your photo",
         "profile.bg.remove": "Remove background",
 
         "account.username": "Username",
