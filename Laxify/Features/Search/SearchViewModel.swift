@@ -41,8 +41,14 @@ final class SearchViewModel {
     }
 
     /// A banner cover per category, fetched in parallel. Best-effort — a
-    /// category with no cover falls back to its gradient tile.
+    /// category with no cover falls back to its gradient tile. Anything seen
+    /// before is on disk, so it paints instantly on the next visit.
     private func loadCategoryCovers() async {
+        let seeded = CategoryCoverCache.shared.seeded(keys: categories.map(\.id))
+        for (id, url) in seeded where categoryCovers[id] == nil {
+            categoryCovers[id] = url
+        }
+
         let pending = categories.filter { categoryCovers[$0.id] == nil }
         guard !pending.isEmpty else { return }
 
@@ -61,6 +67,7 @@ final class SearchViewModel {
 
         for (id, url) in found {
             categoryCovers[id] = url
+            CategoryCoverCache.shared.remember(key: id, url: url)
         }
     }
 

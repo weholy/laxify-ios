@@ -5,7 +5,7 @@ import SwiftUI
 /// one ringed and checked.
 struct WaveSettingsView: View {
     @State private var settings: WaveSettings
-    @State private var covers: [String: URL] = [:]
+    private var covers = CategoryCoverCache.shared
     private let onApply: (WaveSettings) -> Void
     private let onClose: () -> Void
 
@@ -58,22 +58,12 @@ struct WaveSettingsView: View {
             applyButton
         }
         .background(LaxifyPalette.background.ignoresSafeArea())
-        .task { await loadCovers() }
+        .onAppear { covers.prefetch(Array(Self.optionQueries.values)) }
     }
 
-    private func loadCovers() async {
-        guard covers.isEmpty else { return }
-        let found: [(String, URL)] = await withTaskGroup(of: (String, URL?).self) { group in
-            for (raw, query) in Self.optionQueries {
-                group.addTask { (raw, await CatalogService.shared.coverForQuery(query)) }
-            }
-            var collected: [(String, URL)] = []
-            for await (raw, url) in group {
-                if let url { collected.append((raw, url)) }
-            }
-            return collected
-        }
-        for (raw, url) in found { covers[raw] = url }
+    private func cover(for raw: String) -> URL? {
+        guard let query = Self.optionQueries[raw] else { return nil }
+        return covers.cover(for: query)
     }
 
     private var header: some View {
@@ -122,7 +112,7 @@ struct WaveSettingsView: View {
                     WaveOptionCard(
                         title: L("wave.\(keyPrefix).\(option.rawValue)", option[keyPath: titleFor]),
                         style: .forOption(option.rawValue),
-                        coverURL: covers[option.rawValue],
+                        coverURL: cover(for: option.rawValue),
                         isSelected: option == selection
                     ) {
                         onSelect(option)
