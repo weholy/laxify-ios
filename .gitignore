@@ -14,3 +14,7 @@ Config/Secrets.xcconfig
 backend/.venv/
 backend/.env
 backend/__pycache__/
+
+# local-only: marketing site + reference images (not part of the app)
+site/
+примеры/
