@@ -14,9 +14,16 @@ from app.core.security import (
     hash_refresh_token,
 )
 from app.models import AuditLog, Device, User
-from app.schemas.auth import GoogleSignInRequest, RefreshRequest, SessionOut, TokenPair
+from app.schemas.auth import (
+    GoogleSignInRequest,
+    RefreshRequest,
+    SessionOut,
+    TelegramSignInRequest,
+    TokenPair,
+)
 from app.schemas.common import MessageOut
 from app.services.google_auth import GoogleAuthError, verify_id_token
+from app.services.telegram_auth import TelegramAuthError, verify_login
 from app.services.users import generate_unique_username
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -85,6 +92,73 @@ async def sign_in_with_google(
             target_id=str(user.id),
             ip=ip,
             payload={"device": payload.device.model_dump()},
+        )
+    )
+
+    return SessionOut(
+        tokens=tokens,
+        is_new_user=is_new_user,
+        needs_onboarding=not user.has_completed_onboarding,
+        needs_local_migration=not user.has_migrated_local_data,
+    )
+
+
+@router.post("/telegram", response_model=SessionOut)
+async def sign_in_with_telegram(
+    payload: TelegramSignInRequest, session: SessionDep, ip: ClientIP
+) -> SessionOut:
+    try:
+        identity = verify_login(payload.payload)
+    except TelegramAuthError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+
+    user = await session.scalar(select(User).where(User.telegram_id == identity.id))
+    is_new_user = user is None
+
+    if user is None:
+        source = identity.username or identity.full_name or f"tg{identity.id}"
+        username = await generate_unique_username(session, source)
+        user = User(
+            email="",  # Telegram hands back no address.
+            display_name=identity.full_name or identity.username or username,
+            username=username,
+            telegram_id=identity.id,
+            telegram_username=identity.username,
+            telegram_photo_url=identity.photo_url,
+            avatar_url=identity.photo_url,
+        )
+        session.add(user)
+        await session.flush()
+    else:
+        if identity.username:
+            user.telegram_username = identity.username
+        if identity.photo_url:
+            user.telegram_photo_url = identity.photo_url
+
+    user.last_seen_at = datetime.now(UTC)
+
+    device = Device(
+        user_id=user.id,
+        name=payload.device.name,
+        model=payload.device.model,
+        app_version=payload.device.app_version,
+        refresh_token_hash="",
+        last_used_at=datetime.now(UTC),
+    )
+    session.add(device)
+    await session.flush()
+
+    tokens = _issue_tokens(user, device)
+    device.refresh_token_hash = hash_refresh_token(tokens.refresh_token)
+
+    session.add(
+        AuditLog(
+            actor_id=user.id,
+            action="auth.sign_up" if is_new_user else "auth.sign_in",
+            target_type="user",
+            target_id=str(user.id),
+            ip=ip,
+            payload={"method": "telegram", "device": payload.device.model_dump()},
         )
     )
 

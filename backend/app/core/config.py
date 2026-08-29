@@ -30,6 +30,14 @@ class Settings(BaseSettings):
 
     google_client_ids: list[str] = Field(default_factory=list)
 
+    # Telegram Login Widget. The bot is created in @BotFather and its domain
+    # is pointed (via /setdomain) at the host that serves /tg-login. Unset
+    # means the /auth/telegram endpoint refuses every request.
+    telegram_bot_token: str | None = None
+    telegram_bot_username: str = "LaxifyAppBot"
+    # How old a widget payload's auth_date may be before it is rejected.
+    telegram_login_ttl_seconds: int = 86400
+
     # Mail relay. Unset means codes are logged instead of sent, so the server
     # runs without a mail account configured.
     smtp_host: str | None = None

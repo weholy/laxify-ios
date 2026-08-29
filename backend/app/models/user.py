@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -13,6 +13,13 @@ class User(Base, UUIDMixin, TimestampMixin):
 
     # Null for accounts created with email + password.
     google_sub: Mapped[str | None] = mapped_column(String(64), unique=True, index=True, default=None)
+    # Null unless the account was created through the Telegram Login Widget.
+    # Telegram ids outgrow 32 bits, so BigInteger.
+    telegram_id: Mapped[int | None] = mapped_column(BigInteger, unique=True, index=True, default=None)
+    telegram_username: Mapped[str | None] = mapped_column(String(64), default=None)
+    telegram_photo_url: Mapped[str | None] = mapped_column(Text, default=None)
+    # Telegram accounts start with no address; empty string, not null, so the
+    # column stays non-nullable like every existing row.
     email: Mapped[str] = mapped_column(String(320), index=True)
     display_name: Mapped[str] = mapped_column(String(80))
     # Always stored lowercased, so the plain unique index gives

@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
+from app.api.pages import router as pages_router
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.db.session import SessionLocal, engine
@@ -69,3 +70,4 @@ async def health() -> dict[str, str]:
 
 
 app.include_router(api_router, prefix=settings.api_prefix)
+app.include_router(pages_router)

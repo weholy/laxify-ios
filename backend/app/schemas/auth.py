@@ -12,6 +12,13 @@ class GoogleSignInRequest(BaseModel):
     device: DeviceInfo = Field(default_factory=DeviceInfo)
 
 
+class TelegramSignInRequest(BaseModel):
+    # The raw field set from the Telegram Login Widget, `hash` included, exactly
+    # as the widget produced it — the server re-checks the signature itself.
+    payload: dict[str, str]
+    device: DeviceInfo = Field(default_factory=DeviceInfo)
+
+
 class RefreshRequest(BaseModel):
     refresh_token: str
 
