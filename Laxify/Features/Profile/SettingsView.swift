@@ -40,6 +40,19 @@ struct SettingsView: View {
 
         var subtitleKey: String { titleKey + ".sub" }
 
+        var icon: String {
+            switch self {
+            case .language: "globe"
+            case .info: "paperplane.fill"
+            case .privacy: "lock.fill"
+            case .about: "person.text.rectangle.fill"
+            case .account: "person.crop.circle.fill"
+            case .appearance: "paintbrush.fill"
+            case .export: "square.and.arrow.up"
+            case .diagnostics: "stethoscope"
+            }
+        }
+
         var title: String {
             switch self {
             case .language: "Язык"
@@ -77,19 +90,15 @@ struct SettingsView: View {
                 SettingsHeader(title: L("settings.title", "Настройки"), onBack: onClose)
 
                 ScrollView {
-                    VStack(spacing: 16) {
+                    VStack(spacing: 12) {
                         // .info is hidden for now — re-add to this list to show it.
                         let entries: [Page] = [.language, .privacy, .about, .account, .appearance]
-                        SettingsCard {
-                            ForEach(Array(entries.enumerated()), id: \.element) { index, entry in
-                                entryRow(entry)
-                                if index < entries.count - 1 {
-                                    SettingsDivider()
-                                }
-                            }
+                        ForEach(entries) { entry in
+                            SettingsCard { entryRow(entry) }
                         }
 
                         signOutButton
+                            .padding(.top, 8)
                     }
                     .padding(.horizontal, LaxifyMetrics.screenPadding)
                     .padding(.top, 4)
@@ -132,9 +141,14 @@ struct SettingsView: View {
             page = entry
         } label: {
             HStack(spacing: 14) {
+                Image(systemName: entry.icon)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(LaxifyPalette.textPrimary)
+                    .frame(width: 26, alignment: .center)
+
                 VStack(alignment: .leading, spacing: 3) {
                     Text(L(entry.titleKey, entry.title))
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(LaxifyPalette.textPrimary)
 
                     Text(L(entry.subtitleKey, entry.subtitle))
@@ -149,7 +163,8 @@ struct SettingsView: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(LaxifyPalette.textTertiary)
             }
-            .padding(16)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 18)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -604,7 +619,7 @@ struct SettingsCard<Content: View>: View {
         }
         .background(
             LaxifyPalette.surface,
-            in: RoundedRectangle(cornerRadius: LaxifyMetrics.groupedCornerRadius, style: .continuous)
+            in: RoundedRectangle(cornerRadius: LaxifyMetrics.settingsCardCornerRadius, style: .continuous)
         )
     }
 }
