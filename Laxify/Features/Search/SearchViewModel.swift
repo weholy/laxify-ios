@@ -14,6 +14,10 @@ final class SearchViewModel {
     private(set) var categoryCovers: [String: URL] = [:]
     private(set) var isLoadingBrowse = false
 
+    // Live completions for the half-typed field.
+    private(set) var suggestions: [String] = []
+    private var suggestTask: Task<Void, Never>?
+
     private let service: any MusicService
 
     init(service: any MusicService = CatalogService.shared) {
@@ -76,6 +80,7 @@ final class SearchViewModel {
         }
         isSearching = true
         hasError = false
+        suggestions = []
         do {
             results = try await service.search(query: trimmed)
         } catch {
@@ -85,9 +90,29 @@ final class SearchViewModel {
         isSearching = false
     }
 
+    /// Debounced completions while typing. Cleared as soon as the field is.
+    func updateSuggestions(for query: String) {
+        suggestTask?.cancel()
+
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count >= 2 else {
+            suggestions = []
+            return
+        }
+
+        suggestTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(220))
+            guard !Task.isCancelled, let self else { return }
+            let fresh = (try? await self.service.suggestions(for: trimmed)) ?? []
+            guard !Task.isCancelled else { return }
+            self.suggestions = fresh
+        }
+    }
 
     func clearResults() {
         results = nil
         hasError = false
+        suggestions = []
+        suggestTask?.cancel()
     }
 }
