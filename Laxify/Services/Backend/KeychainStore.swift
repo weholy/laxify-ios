@@ -13,6 +13,10 @@ enum KeychainStore {
     enum Key: String {
         case accessToken = "access_token"
         case refreshToken = "refresh_token"
+        /// Id of the last "what's new" card the person dismissed. In the
+        /// keychain rather than UserDefaults so reinstalling a build doesn't
+        /// resurrect a card they've already seen.
+        case announcementSeen = "announcement_seen"
     }
 
     static func save(_ value: String, for key: Key) {
