@@ -25,7 +25,11 @@ logger = logging.getLogger("laxify.sc_resolve")
 
 MISS_RECHECK = timedelta(days=7)
 _MATCH_THRESHOLD = 0.5
-_sem = asyncio.Semaphore(5)
+_sem = asyncio.Semaphore(12)
+
+# A whole search must not wait on the slowest lookup. Anything unresolved when
+# this expires is simply left out of the results.
+RESOLVE_BUDGET = 6.0
 
 
 def _score(cand, artist: str, title: str, duration_s: float) -> float:
@@ -65,12 +69,12 @@ async def _resolve_one(sp: dict) -> tuple[str, str | None]:
     primary = _PRIMARY_ARTIST.split(artist)[0].strip() or artist
     bare_title = _FEAT.sub("", title).strip() or title
 
-    # Several phrasings — SoundCloud uploads are titled every which way.
+    # Two phrasings, tried in order and stopped early on a confident hit. It
+    # used to try four, which quadrupled the wait on a search for no
+    # measurable gain in matches.
     queries = [
-        f"{artist} {title}",
         f"{primary} {bare_title}",
-        f"{primary} - {bare_title}",
-        bare_title if len(bare_title) > 6 else "",
+        f"{artist} {title}",
     ]
 
     best_overall = None
@@ -123,9 +127,14 @@ async def resolve(session, spotify_tracks: list[dict]) -> dict[str, str | None]:
             out[sp["spotify_id"]] = row.sc_track_id
 
     if todo:
-        results = await asyncio.gather(
-            *(_resolve_one(sp) for sp in todo), return_exceptions=True
-        )
+        try:
+            results = await asyncio.wait_for(
+                asyncio.gather(*(_resolve_one(sp) for sp in todo), return_exceptions=True),
+                timeout=RESOLVE_BUDGET,
+            )
+        except TimeoutError:
+            logger.warning("sc_resolve: budget exhausted for %d tracks", len(todo))
+            results = []
         now = datetime.now(UTC)
         to_store: list[dict] = []
         for res in results:

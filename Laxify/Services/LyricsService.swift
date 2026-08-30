@@ -9,6 +9,11 @@ struct LyricLine: Identifiable, Sendable {
 struct Lyrics: Sendable {
     let syncedLines: [LyricLine]
     let plainText: String?
+    /// True when the timings were spread evenly over the track rather than
+    /// supplied by the source. Good enough to follow along with, but not
+    /// accurate enough to fill words one by one — that reads as "the lyrics
+    /// are wrong" the moment it drifts.
+    var isApproximate: Bool = false
 
     /// One line is a title card, not something worth following.
     var isSynced: Bool { syncedLines.count > 1 }
@@ -49,11 +54,17 @@ enum LyricsService {
         // moving highlight and follow-along scroll. Approximate, but it reads
         // as the same feature everywhere else has.
         if let synthesised = synthesiseTiming(from: plain, duration: duration) {
-            return Lyrics(syncedLines: synthesised, plainText: plain)
+            return Lyrics(syncedLines: synthesised, plainText: plain, isApproximate: true)
         }
         return Lyrics(syncedLines: [], plainText: plain)
     }
 
+    /// Spreads plain lines over the track so there is something to follow.
+    ///
+    /// Weighted by line length rather than evenly: a one-word ad-lib and a
+    /// full bar do not take the same time to sing, and an even split drifts
+    /// badly by the second verse. Still an estimate — the result is marked
+    /// `isApproximate` so the view highlights lines rather than words.
     private static func synthesiseTiming(
         from plain: String, duration: TimeInterval
     ) -> [LyricLine]? {
@@ -62,15 +73,25 @@ enum LyricsService {
         let lines = plain
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map { $0.trimmingCharacters(in: .whitespaces) }
-        // Keep blank lines as breath marks, but need real content to bother.
         guard lines.filter({ !$0.isEmpty }).count >= 4 else { return nil }
 
-        let start = duration * 0.06
-        let end = duration * 0.94
-        let step = (end - start) / Double(max(lines.count - 1, 1))
+        // An empty line is a pause; every other line costs a base amount plus
+        // a little per syllable-ish unit.
+        let weights = lines.map { line -> Double in
+            line.isEmpty ? 0.45 : 1.0 + Double(line.count) / 26.0
+        }
+        let total = weights.reduce(0, +)
+        guard total > 0 else { return nil }
 
+        // Music usually starts a beat or two in and outros without words.
+        let start = duration * 0.05
+        let span = duration * 0.90
+
+        var elapsed = 0.0
         return lines.enumerated().map { index, text in
-            LyricLine(timestamp: start + step * Double(index), text: text)
+            let at = start + span * (elapsed / total)
+            elapsed += weights[index]
+            return LyricLine(timestamp: at, text: text)
         }
     }
 }

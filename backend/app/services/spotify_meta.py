@@ -15,28 +15,61 @@ and found no match.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
+import tempfile
 import unicodedata
+from pathlib import Path
 
 from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger("laxify.spotify_meta")
+
+# Nothing here may hold a request open. Every call is wrapped in this, and a
+# timeout is treated exactly like a failure: the caller falls back to what it
+# already had.
+CALL_TIMEOUT = 8.0
+
+
+async def _call(label: str, fn, default):
+    """Run a blocking scraper call off-thread, with a hard deadline."""
+    try:
+        return await asyncio.wait_for(run_in_threadpool(fn), timeout=CALL_TIMEOUT)
+    except TimeoutError:
+        logger.warning("spotify_meta.%s timed out", label)
+    except Exception:  # noqa: BLE001
+        logger.warning("spotify_meta.%s failed", label, exc_info=True)
+    return default
 
 _client = None
 _client_broken = False
 
 
 def _get_client():
-    """One shared client. The library refreshes its own token."""
+    """One shared client. The library refreshes its own token.
+
+    Backed by an on-disk cache of the token-free GraphQL responses: every one
+    of these calls is roughly a second over the network, and an artist page is
+    dozens of them, so serving repeats from disk is the difference between a
+    screen that appears and one that times out.
+    """
     global _client, _client_broken
     if _client is not None or _client_broken:
         return _client
     try:
-        from spotify_scraper import SpotifyClient
+        from spotify_scraper import CacheConfig, FileCache, SpotifyClient
+
+        cache = None
+        try:
+            store = FileCache(dir=Path(tempfile.gettempdir()) / "laxify-spotify-cache")
+            cache = CacheConfig(store=store, ttl_seconds=6 * 60 * 60)
+        except Exception:  # noqa: BLE001 — the cache is an optimisation only
+            logger.warning("spotify_meta: disk cache unavailable", exc_info=True)
 
         _client = SpotifyClient(
-            timeout=12.0,
+            timeout=10.0,
+            cache=cache,
             user_agent=(
                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                 "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
@@ -242,6 +275,8 @@ def _rank_artists(query: str, artists: list[dict]) -> list[dict]:
     return [{k: v for k, v in a.items() if k != "_w"} for a in ranked]
 
 
+
+
 async def search(query: str, limit: int = 12) -> dict:
     """Aggregate search: tracks / artists / albums / playlists as plain dicts."""
     client = _get_client()
@@ -262,11 +297,7 @@ async def search(query: str, limit: int = 12) -> dict:
             "playlists": _dedup_by_id([_playlist_dict(p) for p in (res.playlists or [])]),
         }
 
-    try:
-        return await run_in_threadpool(_run)
-    except Exception:  # noqa: BLE001
-        logger.warning("spotify_meta.search failed for %r", query, exc_info=True)
-        return empty
+    return await _call("search", _run, empty)
 
 
 async def match_track(artist: str, title: str, duration_s: float = 0) -> dict | None:
@@ -281,12 +312,7 @@ async def match_track(artist: str, title: str, duration_s: float = 0) -> dict | 
         res = client.search(query, types=("track",), limit=8)
         return [_track_dict(t) for t in (res.tracks or [])]
 
-    try:
-        cands = await run_in_threadpool(_run)
-    except Exception:  # noqa: BLE001
-        logger.warning("spotify_meta.match_track failed for %r", query, exc_info=True)
-        return None
-
+    cands = await _call("match_track", _run, [])
     if not cands:
         return None
     best = max(cands, key=lambda c: _score(c, artist, title, duration_s))
@@ -301,11 +327,7 @@ async def artist(spotify_id: str) -> dict | None:
     def _run():
         return _artist_dict(client.get_artist(f"https://open.spotify.com/artist/{spotify_id}"))
 
-    try:
-        return await run_in_threadpool(_run)
-    except Exception:  # noqa: BLE001
-        logger.warning("spotify_meta.artist failed for %s", spotify_id, exc_info=True)
-        return None
+    return await _call("artist", _run, None)
 
 
 async def artist_top_tracks(spotify_id: str) -> list[dict]:
@@ -317,10 +339,27 @@ async def artist_top_tracks(spotify_id: str) -> list[dict]:
         a = client.get_artist(f"https://open.spotify.com/artist/{spotify_id}")
         return [_track_dict(t) for t in (getattr(a, "top_tracks", None) or [])]
 
-    try:
-        return await run_in_threadpool(_run)
-    except Exception:  # noqa: BLE001
-        return []
+    return await _call("artist_top_tracks", _run, [])
+
+
+async def artist_overview(spotify_id: str) -> tuple[dict | None, list[dict]]:
+    """The artist and their top tracks from one request.
+
+    `artist()` and `artist_top_tracks()` each fetch the same page; asking for
+    both separately doubled the wait on the screen that needs them together.
+    """
+    client = _get_client()
+    if client is None or not spotify_id:
+        return None, []
+
+    def _run():
+        a = client.get_artist(f"https://open.spotify.com/artist/{spotify_id}")
+        return (
+            _artist_dict(a),
+            [_track_dict(t) for t in (getattr(a, "top_tracks", None) or [])],
+        )
+
+    return await _call("artist_overview", _run, (None, []))
 
 
 async def discography(spotify_id: str, limit: int = 30) -> list[dict]:
@@ -341,10 +380,7 @@ async def discography(spotify_id: str, limit: int = 30) -> list[dict]:
                 continue
         return out
 
-    try:
-        return await run_in_threadpool(_run)
-    except Exception:  # noqa: BLE001
-        return []
+    return await _call("discography", _run, [])
 
 
 async def album(spotify_id: str) -> dict | None:
@@ -358,11 +394,7 @@ async def album(spotify_id: str) -> dict | None:
         out["tracks"] = [_track_dict(t) for t in (getattr(al, "tracks", None) or [])]
         return out
 
-    try:
-        return await run_in_threadpool(_run)
-    except Exception:  # noqa: BLE001
-        logger.warning("spotify_meta.album failed for %s", spotify_id, exc_info=True)
-        return None
+    return await _call("album", _run, None)
 
 
 async def playlist(spotify_id: str) -> dict | None:
@@ -376,8 +408,4 @@ async def playlist(spotify_id: str) -> dict | None:
         out["tracks"] = [_track_dict(t) for t in (getattr(p, "tracks", None) or [])]
         return out
 
-    try:
-        return await run_in_threadpool(_run)
-    except Exception:  # noqa: BLE001
-        logger.warning("spotify_meta.playlist failed for %s", spotify_id, exc_info=True)
-        return None
+    return await _call("playlist", _run, None)

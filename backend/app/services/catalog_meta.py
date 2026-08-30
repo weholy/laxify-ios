@@ -29,6 +29,14 @@ RECHECK_AFTER = timedelta(days=14)
 # Never resolve more than this many new ids from one request's tail.
 _MAX_SCHEDULED = 40
 
+# How many of a listing's *first* rows to resolve before answering, and how
+# long to spend doing it. Without this the first time a wave or feed row is
+# built it renders the uploader's spelling and only looks right on a later
+# refresh; with it, the part of the list a person actually sees is already
+# correct. The rest is filled in the background as before.
+_EAGER_ROWS = 12
+_EAGER_BUDGET = 3.5
+
 _inflight: set[str] = set()
 
 _META_COLS = (
@@ -74,19 +82,21 @@ async def enrich(rows: list, *, name_of, id_of, apply, hide_unmatched: bool) -> 
     if not ids:
         return rows
 
-    try:
-        async with SessionLocal() as session:
-            found = {
-                m.sc_track_id: m
-                for m in (
-                    await session.scalars(
-                        select(TrackMeta).where(TrackMeta.sc_track_id.in_(ids))
-                    )
-                ).all()
-            }
-    except Exception:  # noqa: BLE001
-        logger.warning("catalog_meta.enrich: cache read failed", exc_info=True)
+    found = await _cached(ids)
+    if found is None:
         return rows
+
+    # Resolve the first few unknowns before answering, so the top of the list
+    # — the part actually on screen — carries clean names straight away.
+    eager = [
+        r for r in rows[: _EAGER_ROWS * 2]
+        if id_of(r) and id_of(r) not in found
+    ][:_EAGER_ROWS]
+    if eager:
+        await _resolve_now([(id_of(r), *name_of(r)) for r in eager])
+        refreshed = await _cached([id_of(r) for r in eager])
+        if refreshed:
+            found.update(refreshed)
 
     missing: list[tuple[str, str, str, float]] = []
     out: list = []
@@ -123,6 +133,40 @@ async def enrich(rows: list, *, name_of, id_of, apply, hide_unmatched: bool) -> 
     return out
 
 
+async def _cached(ids: list[str]) -> dict[str, TrackMeta] | None:
+    """The `track_meta` rows for these ids, or None if the read failed."""
+    if not ids:
+        return {}
+    try:
+        async with SessionLocal() as session:
+            return {
+                m.sc_track_id: m
+                for m in (
+                    await session.scalars(
+                        select(TrackMeta).where(TrackMeta.sc_track_id.in_(ids))
+                    )
+                ).all()
+            }
+    except Exception:  # noqa: BLE001
+        logger.warning("catalog_meta: cache read failed", exc_info=True)
+        return None
+
+
+async def _resolve_now(items: list[tuple[str, str, str, float]]) -> None:
+    """Resolve and persist, but never for longer than the eager budget."""
+    fresh = [i for i in items if i[0] and i[0] not in _inflight]
+    if not fresh:
+        return
+    for tid, *_ in fresh:
+        _inflight.add(tid)
+    try:
+        await asyncio.wait_for(_resolve_batch(fresh), timeout=_EAGER_BUDGET)
+    except TimeoutError:
+        logger.info("catalog_meta: eager resolve budget hit (%d rows)", len(fresh))
+    except Exception:  # noqa: BLE001
+        logger.warning("catalog_meta: eager resolve failed", exc_info=True)
+
+
 def _schedule(items: list[tuple[str, str, str, float]]) -> None:
     fresh = [i for i in items if i[0] not in _inflight]
     if not fresh:
@@ -134,14 +178,21 @@ def _schedule(items: list[tuple[str, str, str, float]]) -> None:
 
 async def _resolve_batch(items: list[tuple[str, str, str, float]]) -> None:
     now = datetime.now(UTC)
-    resolved: list[dict] = []
-    try:
-        for tid, artist, title, dur in items:
+    # In parallel: each lookup is about a second, and doing a dozen in series
+    # blew any budget a request could give it.
+    sem = asyncio.Semaphore(8)
+
+    async def one(entry: tuple[str, str, str, float]) -> dict | None:
+        tid, artist, title, dur = entry
+        async with sem:
             try:
-                match = await spotify_meta.match_track(artist, title, dur)
+                return _meta_row(tid, now, await spotify_meta.match_track(artist, title, dur))
             except Exception:  # noqa: BLE001
-                match = None
-            resolved.append(_meta_row(tid, now, match))
+                return None
+
+    try:
+        results = await asyncio.gather(*(one(i) for i in items), return_exceptions=True)
+        resolved = [r for r in results if isinstance(r, dict)]
 
         if resolved:
             async with SessionLocal() as session:

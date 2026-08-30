@@ -172,7 +172,8 @@ struct LyricsView: View {
                             line,
                             isActive: index == activeIndex,
                             isPast: activeIndex.map { index < $0 } ?? false,
-                            at: time
+                            at: time,
+                            wordByWord: !lyrics.isApproximate
                         )
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .id(index)
@@ -199,11 +200,16 @@ struct LyricsView: View {
 
     @ViewBuilder
     private func lineView(
-        _ line: LyricLine, isActive: Bool, isPast: Bool, at time: TimeInterval
+        _ line: LyricLine,
+        isActive: Bool,
+        isPast: Bool,
+        at time: TimeInterval,
+        wordByWord: Bool
     ) -> some View {
         let text = line.text.isEmpty ? "♪" : line.text
 
-        if isActive {
+        if isActive && wordByWord {
+            // Real timestamps from the source: safe to fill word by word.
             let words = text.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
             let progress = viewModel.lineProgress(at: time)
             let spoken = progress * Double(words.count)
@@ -219,6 +225,15 @@ struct LyricsView: View {
                         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSung)
                 }
             }
+        } else if isActive {
+            // Estimated timings: highlight the whole line and let it breathe.
+            // Filling word by word off an estimate looks like the lyrics are
+            // simply wrong as soon as it drifts.
+            Text(text)
+                .font(.system(size: 26 * fontScale, weight: .bold))
+                .foregroundStyle(.white)
+                .shadow(color: .white.opacity(0.22), radius: 12)
+                .transition(.opacity)
         } else {
             Text(text)
                 .font(.system(size: 21 * fontScale, weight: .semibold))

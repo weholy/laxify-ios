@@ -640,16 +640,22 @@ def _credits(track: dict, artist_id: str) -> bool:
     return track.get("artist_id") == artist_id
 
 
-async def _spotify_artist_catalogue(artist_id: str) -> list[dict]:
+async def _spotify_artist_catalogue(artist_id: str, *, albums: int = 40) -> list[dict]:
     """Every track the artist is credited on — top tracks first, then each
-    album's tracks, flattened, filtered to this artist and de-duped. Cached:
-    it is a few dozen requests to assemble."""
+    album's tracks, flattened, filtered to this artist and de-duped.
+
+    Assembling this is one request per album, so it is only ever built for the
+    "all tracks" screen, never for the artist page itself, and the result is
+    cached. `albums` caps how deep to go for a first page.
+    """
     hit = _sp_artist_cache.get(artist_id)
-    if hit and time.monotonic() - hit[1] < _SP_ARTIST_TTL:
+    if hit and time.monotonic() - hit[1] < _SP_ARTIST_TTL and len(hit[0]) > 0:
         return hit[0]
 
-    top = await spotify_meta.artist_top_tracks(artist_id)
-    albums = await spotify_meta.discography(artist_id, limit=40)
+    top, discography = await asyncio.gather(
+        spotify_meta.artist_top_tracks(artist_id),
+        spotify_meta.discography(artist_id, limit=albums),
+    )
 
     seen: set[str] = set()
     pool: list[dict] = []
@@ -663,14 +669,16 @@ async def _spotify_artist_catalogue(artist_id: str) -> list[dict]:
 
     take(top)
 
-    sem = asyncio.Semaphore(4)
+    sem = asyncio.Semaphore(8)
 
     async def one(al: dict) -> list[dict]:
         async with sem:
             full = await spotify_meta.album(al["id"])
         return (full or {}).get("tracks", []) or []
 
-    for tracks in await asyncio.gather(*(one(a) for a in albums), return_exceptions=True):
+    for tracks in await asyncio.gather(
+        *(one(a) for a in discography), return_exceptions=True
+    ):
         if isinstance(tracks, list):
             take(tracks)
 
@@ -679,9 +687,15 @@ async def _spotify_artist_catalogue(artist_id: str) -> list[dict]:
 
 
 async def _spotify_artist_detail(session, artist_id: str) -> ArtistDetailResponse:
-    sp, catalogue, albums = await asyncio.gather(
-        spotify_meta.artist(artist_id),
-        _spotify_artist_catalogue(artist_id),
+    """The artist screen: two upstream requests, not forty.
+
+    Building the whole catalogue here took about eleven seconds — an album
+    fetch each — which is why artist pages often never appeared. Top tracks
+    and the release list are all this screen shows; the full catalogue is
+    assembled only when someone opens "all tracks".
+    """
+    (sp, top), albums = await asyncio.gather(
+        spotify_meta.artist_overview(artist_id),
         spotify_meta.discography(artist_id, limit=30),
     )
     if not sp:
@@ -691,9 +705,9 @@ async def _spotify_artist_detail(session, artist_id: str) -> ArtistDetailRespons
         id=sp["id"], name=sp["name"], avatar_url=sp.get("image_url"),
         followers=sp.get("followers"), is_verified=True,
     )
-    # "Популярные" — the first slice of the catalogue, which leads with the
-    # artist's actual top tracks.
-    top_tracks = await _catalog_from_spotify_tracks(session, catalogue[:12])
+    top_tracks = await _catalog_from_spotify_tracks(
+        session, [t for t in top if _credits(t, artist_id)][:12]
+    )
     releases = [
         CatalogPlaylist(
             id=a["id"], title=a["title"], artwork_url=a.get("cover_url"),
@@ -708,10 +722,15 @@ async def _spotify_artist_detail(session, artist_id: str) -> ArtistDetailRespons
     # date, so sorting by year would put everything in one bucket and scramble
     # the order Spotify already returns them in (newest first).
 
+    # An honest lower bound without paying for the whole catalogue: the count
+    # is only used to decide whether to offer "show all".
+    cached = _sp_artist_cache.get(artist_id)
+    total = len(cached[0]) if cached else sum(a.get("total_tracks") or 1 for a in albums)
+
     return ArtistDetailResponse(
         artist=artist_obj,
         top_tracks=top_tracks[:10],
-        total_track_count=len(catalogue),
+        total_track_count=max(total, len(top_tracks)),
         releases=releases,
         similar_artists=[],
     )
