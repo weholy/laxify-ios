@@ -193,14 +193,69 @@ def _tokens(text: str) -> set[str]:
     return set(_norm(text).split())
 
 
+# Russian acts are usually spelled in Latin on Spotify — Баста is "Basta",
+# Макан is "MACAN" — so a Cyrillic query and its Latin listing share no
+# characters at all. Both sides are transliterated before comparison.
+_TRANSLIT = {
+    "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ж": "zh",
+    "з": "z", "и": "i", "й": "i", "к": "k", "л": "l", "м": "m", "н": "n",
+    "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u", "ф": "f",
+    "х": "h", "ц": "c", "ч": "ch", "ш": "sh", "щ": "sch", "ъ": "", "ы": "y",
+    "ь": "", "э": "e", "ю": "yu", "я": "ya",
+}
+
+
+_CYRILLIC_RE = re.compile(r"[а-яё]", re.IGNORECASE)
+
+
+def _has_cyrillic(text: str) -> bool:
+    return bool(_CYRILLIC_RE.search(text or ""))
+
+
+def _latin(text: str) -> str:
+    """A normalised name reduced to Latin letters, for cross-script matching."""
+    return "".join(_TRANSLIT.get(ch, ch) for ch in _norm(text))
+
+
+def _similarity(a: str, b: str) -> float:
+    """How alike two names are once both are Latin.
+
+    Transliteration is never exact — "Макан" gives *makan* against Spotify's
+    *MACAN* — so this is a character-level ratio rather than an equality test.
+    """
+    from difflib import SequenceMatcher
+
+    la, lb = _latin(a), _latin(b)
+    if not la or not lb:
+        return 0.0
+    if la == lb:
+        return 1.0
+    return SequenceMatcher(None, la, lb).ratio()
+
+
+def _pair(a: str, b: str, *, subset: bool = False) -> float:
+    """How alike two names are, across scripts as well as within one.
+
+    A SoundCloud upload spells an artist in Cyrillic where Spotify spells them
+    in Latin (and the other way round), so a word comparison alone scores
+    those at zero. Whichever measure is kinder wins — being generous here
+    costs a wrong match now and then; being strict costs the whole Russian
+    catalogue.
+    """
+    ta, tb = _tokens(a), _tokens(b)
+    word = 0.0
+    if ta and tb:
+        word = len(ta & tb) / (min(len(ta), len(tb)) if subset else len(ta | tb))
+    return max(word, _similarity(a, b))
+
+
 def _score(cand: dict, artist: str, title: str, duration_s: float) -> float:
-    ct, ca = _tokens(cand["title"]), _tokens(cand["artist_name"])
-    wt, wa = _tokens(title), _tokens(artist)
-    if not ct or not wt:
+    ct, wt = _tokens(cand["title"]), _tokens(title)
+    if (not ct and not _norm(cand["title"])) or (not wt and not _norm(title)):
         return 0.0
 
-    title_overlap = len(ct & wt) / len(ct | wt)
-    artist_overlap = len(ca & wa) / max(len(wa or ca), 1) if (ca and wa) else 0.0
+    title_overlap = _pair(cand["title"], title)
+    artist_overlap = _pair(cand["artist_name"], artist, subset=True)
 
     score = title_overlap * 0.6 + artist_overlap * 0.3
     if duration_s and cand.get("duration_ms"):
@@ -248,10 +303,27 @@ def _rank_artists(query: str, artists: list[dict]) -> list[dict]:
     q_tokens = _tokens(query)
     q_norm = _norm(query)
 
-    def overlap(a_tokens: set[str]) -> float:
+    q_cyrillic = _has_cyrillic(query)
+
+    def relevance(name: str) -> float:
+        """0…1, and deliberately measured two different ways.
+
+        Within one script, whole words: "the weeknd" and "The Weekending"
+        share a word but are not the same act. Across scripts there are no
+        words in common to compare, so it falls back to how alike the
+        transliterations are — which is the only way "Баста" reaches "Basta".
+        """
+        a_tokens = _tokens(name)
+        if q_cyrillic != _has_cyrillic(name):
+            return _similarity(query, name)
         if not (q_tokens and a_tokens):
             return 0.0
         return len(q_tokens & a_tokens) / len(q_tokens | a_tokens)
+
+    def threshold(name: str) -> float:
+        # A transliteration is never exact, so the cross-script bar is a
+        # character ratio and has to sit lower than the whole-word one.
+        return 0.72 if q_cyrillic != _has_cyrillic(name) else 0.5
 
     best: dict[str, dict] = {}
     for a in artists:
@@ -259,10 +331,7 @@ def _rank_artists(query: str, artists: list[dict]) -> list[dict]:
         key = _norm(name)
         if not key:
             continue
-        a_tokens = _tokens(name)
-        # Not the same artist unless the name is the query, or shares most of
-        # its words with it. "the weeknd" must not keep "The Weekending".
-        if key != q_norm and overlap(a_tokens) < 0.5:
+        if key != q_norm and relevance(name) < threshold(name):
             continue
         prev = best.get(key)
         weight = (len(a.get("image_url") or "") > 0, a.get("followers") or 0)
@@ -270,10 +339,10 @@ def _rank_artists(query: str, artists: list[dict]) -> list[dict]:
             best[key] = {**a, "_w": weight}
 
     def score(a: dict) -> tuple:
-        key = _norm(a.get("name") or "")
+        name = a.get("name") or ""
         return (
-            key == q_norm,
-            overlap(_tokens(a.get("name") or "")),
+            _norm(name) == q_norm,
+            relevance(name),
             bool(a.get("image_url")),
             a.get("followers") or 0,
         )

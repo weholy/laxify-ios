@@ -19,7 +19,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from app.api.v1.catalog import normalise_track
 from app.models import SpotifyLink
 from app.services.soundcloud import SoundCloudError, soundcloud
-from app.services.spotify_meta import _norm, _tokens
+from app.services.spotify_meta import _norm, _pair, _tokens
 
 logger = logging.getLogger("laxify.sc_resolve")
 
@@ -33,12 +33,12 @@ RESOLVE_BUDGET = 6.0
 
 
 def _score(cand, artist: str, title: str, duration_s: float) -> float:
-    ct, ca = _tokens(cand.title), _tokens(cand.artist_name)
-    wt, wa = _tokens(title), _tokens(artist)
-    if not ct or not wt:
+    # Cross-script aware: a SoundCloud upload titled in Cyrillic has no words
+    # in common with Spotify's Latin spelling, and vice versa.
+    if not _norm(cand.title) or not _norm(title):
         return 0.0
-    title_overlap = len(ct & wt) / len(ct | wt)
-    artist_overlap = len(ca & wa) / max(len(wa or ca), 1) if (ca and wa) else 0.0
+    title_overlap = _pair(cand.title, title)
+    artist_overlap = _pair(cand.artist_name, artist, subset=True)
     score = title_overlap * 0.6 + artist_overlap * 0.3
     if duration_s and cand.duration_seconds:
         gap = abs(cand.duration_seconds - duration_s)
