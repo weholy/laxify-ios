@@ -90,6 +90,11 @@ async def enrich(rows: list, *, name_of, id_of, apply, hide_unmatched: bool) -> 
 
     missing: list[tuple[str, str, str, float]] = []
     out: list = []
+    # Two different SoundCloud uploads of the same song both resolve to one
+    # Spotify track, and after enrichment they render as identical rows. Keep
+    # the first and drop the rest.
+    seen_spotify: set[str] = set()
+
     for row in rows:
         tid = id_of(row)
         meta = found.get(tid)
@@ -102,6 +107,10 @@ async def enrich(rows: list, *, name_of, id_of, apply, hide_unmatched: bool) -> 
             continue
 
         if meta.matched:
+            if meta.spotify_id:
+                if meta.spotify_id in seen_spotify:
+                    continue
+                seen_spotify.add(meta.spotify_id)
             apply(row, meta)
             out.append(row)
         elif not hide_unmatched:

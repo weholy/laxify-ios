@@ -44,6 +44,7 @@ from app.models import (
     TrackSnapshot,
     WaveSession,
 )
+from app.services import catalog_meta
 from app.services.playability import filter_playable
 from app.services.soundcloud import SoundCloudError, soundcloud
 
@@ -524,7 +525,12 @@ async def _shape(
     fresh = _spread_artists(fresh)
     fresh = await filter_playable(fresh, want)
 
-    return [t for t in (normalise_track(raw) for raw in fresh) if t][:want]
+    tracks = [t for t in (normalise_track(raw) for raw in fresh) if t][:want]
+
+    # Clean Spotify names / covers, and drop the duplicates that two uploads
+    # of one song produce. Never hides here: a wave that empties itself is
+    # worse than a wave with an uploader's spelling in it.
+    return await catalog_meta.enrich_catalog_tracks(tracks, hide_unmatched=False)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1072,6 +1078,13 @@ async def home_feed(user: CurrentUser, session: SessionDep) -> FeedResponse:
                     subtitle="Подобрано под ваш вкус", tracks=one_shot.tracks,
                 )
             )
+
+    # Every row shows Spotify names and covers, and no row repeats a song.
+    for block in ordered:
+        block.tracks = await catalog_meta.enrich_catalog_tracks(
+            block.tracks, hide_unmatched=False
+        )
+    ordered = [b for b in ordered if b.tracks]
 
     return FeedResponse(blocks=ordered, generated_at=datetime.now(UTC))
 
