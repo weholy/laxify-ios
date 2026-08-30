@@ -809,27 +809,32 @@ async def change_settings(
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-@router.get("", response_model=WaveResponse)
-async def personal_wave(
-    user: CurrentUser,
-    session: SessionDep,
-    limit: int = Query(40, ge=5, le=80),
-    exclude_recent: bool = Query(True),
-    mood: str = Query("all", pattern="^(all|fun|active|calm|sad)$"),
-    diversity: str = Query("default", pattern="^(default|favorite|popular|discover)$"),
-    language: str = Query("any", pattern="^(any|russian|not-russian)$"),
-    activity: str = Query("none", pattern="^(none|sleep|workout|commute|focus)$"),
-    seed: str | None = Query(None, max_length=64),
+async def build_wave(
+    session,
+    user_id,
+    *,
+    limit: int = 40,
+    exclude_recent: bool = True,
+    mood: str = "all",
+    diversity: str = "default",
+    language: str = "any",
+    activity: str = "none",
+    seed: str | None = None,
 ) -> WaveResponse:
-    """A one-shot wave with no session behind it. The app uses the /start and
-    /next pair now; this stays for the home-screen preview and old builds."""
-    seeds = [seed] if seed else await _seed_track_ids(session, user.id)
-    exclude = await _excluded_track_ids(session, user.id) if exclude_recent else set()
-    taste_artists = await _taste_artist_ids(session, user.id)
+    """A one-shot wave, as a plain function.
+
+    Kept separate from the route: calling the route from inside the module
+    passes FastAPI's `Query(...)` markers through as values, and `Query(None)`
+    is truthy — so the feed's fallback wave was seeding its stations with a
+    `Query` object instead of a track id.
+    """
+    seeds = [seed] if seed else await _seed_track_ids(session, user_id)
+    exclude = await _excluded_track_ids(session, user_id) if exclude_recent else set()
+    taste_artists = await _taste_artist_ids(session, user_id)
 
     pool = await _station_pool(seeds, limit * 3)
     if len({str(r.get("id")) for r in pool} - exclude) < limit:
-        pool += await _discovery_tracks(limit * 2, genres=await _taste_genres(session, user.id))
+        pool += await _discovery_tracks(limit * 2, genres=await _taste_genres(session, user_id))
 
     if not pool:
         raise HTTPException(
@@ -837,7 +842,7 @@ async def personal_wave(
             detail="Не удалось собрать волну, попробуйте позже",
         )
 
-    rng = random.Random(f"{user.id}:{int(time.time() // 900)}")
+    rng = random.Random(f"{user_id}:{int(time.time() // 900)}")
     tracks = await _shape(
         pool,
         settings={
@@ -857,6 +862,33 @@ async def personal_wave(
         tracks=tracks,
         seed_track_ids=seeds,
         is_personalised=bool(seeds),
+    )
+
+
+@router.get("", response_model=WaveResponse)
+async def personal_wave(
+    user: CurrentUser,
+    session: SessionDep,
+    limit: int = Query(40, ge=5, le=80),
+    exclude_recent: bool = Query(True),
+    mood: str = Query("all", pattern="^(all|fun|active|calm|sad)$"),
+    diversity: str = Query("default", pattern="^(default|favorite|popular|discover)$"),
+    language: str = Query("any", pattern="^(any|russian|not-russian)$"),
+    activity: str = Query("none", pattern="^(none|sleep|workout|commute|focus)$"),
+    seed: str | None = Query(None, max_length=64),
+) -> WaveResponse:
+    """A one-shot wave with no session behind it. The app uses the /start and
+    /next pair now; this stays for the home-screen preview and old builds."""
+    return await build_wave(
+        session,
+        user.id,
+        limit=limit,
+        exclude_recent=exclude_recent,
+        mood=mood,
+        diversity=diversity,
+        language=language,
+        activity=activity,
+        seed=seed,
     )
 
 
@@ -1070,7 +1102,7 @@ async def home_feed(user: CurrentUser, session: SessionDep) -> FeedResponse:
         if chart:
             ordered.append(chart)
     if not ordered:
-        one_shot = await personal_wave(user=user, session=session, limit=40)
+        one_shot = await build_wave(session, user.id, limit=40)
         if one_shot.tracks:
             ordered.append(
                 FeedBlock(
@@ -1102,7 +1134,7 @@ async def home(
     charts = (by_id.get("chart") or [])[:limit]
 
     if not wave:
-        one_shot = await personal_wave(user=user, session=session, limit=limit)
+        one_shot = await build_wave(session, user.id, limit=limit)
         wave = one_shot.tracks
 
     return HomeResponse(wave=wave, for_you=for_you, charts=charts)
