@@ -42,6 +42,7 @@ from app.models import (
     DislikedTrack,
     Favorite,
     ListeningEvent,
+    TrackMeta,
     TrackSnapshot,
     WaveSession,
 )
@@ -368,6 +369,44 @@ async def _discovery_tracks(limit: int, genres: list[str] | None = None) -> list
     return collected[:limit]
 
 
+async def _known_pool(session, user_id, want: int, exclude: set[str]) -> list[dict]:
+    """A pool built from tracks we already hold, for when the source is out.
+
+    SoundCloud throttles, and when it does every station, chart and genre
+    listing fails at once — which used to mean the wave simply refused to
+    build. These are tracks already in the catalogue, so their ids still
+    play; the ones the proper catalogue recognises come first.
+    """
+    rows = (
+        await session.scalars(
+            select(TrackSnapshot)
+            .outerjoin(TrackMeta, TrackMeta.sc_track_id == TrackSnapshot.track_id)
+            .where(TrackSnapshot.track_id.not_in(exclude) if exclude else True)
+            .order_by(desc(TrackMeta.matched), desc(TrackSnapshot.created_at))
+            .limit(want * 3)
+        )
+    ).all()
+
+    # Shaped like a raw SoundCloud track, since that is what the pipeline
+    # downstream expects.
+    return [
+        {
+            "kind": "track",
+            "id": row.track_id,
+            "title": row.title,
+            "genre": row.genre,
+            "tag_list": "",
+            "duration": (row.duration_seconds or 0) * 1000,
+            "full_duration": (row.duration_seconds or 0) * 1000,
+            "artwork_url": row.cover_url,
+            "playback_count": None,
+            "user": {"id": row.artist_id or "", "username": row.artist_name or ""},
+            "publisher_metadata": {"artist": row.artist_name or ""},
+        }
+        for row in rows
+    ]
+
+
 async def _station_pool(seeds: list[str], want: int, *, budget: float = 3.0) -> list[dict]:
     """Raw SoundCloud tracks from the stations of several seeds at once.
 
@@ -611,6 +650,8 @@ async def _fill(
     pool = await _station_pool(seeds, want * 3)
     if len({str(r.get("id")) for r in pool} - exclude) < want:
         pool += await _discovery_tracks(want * 2, genres=await _taste_genres(db, user_id))
+    if len({str(r.get("id")) for r in pool} - exclude) < want:
+        pool += await _known_pool(db, user_id, want, exclude)
 
     rng = random.Random(f"{user_id}:{len(sess.served or [])}:{int(time.time() // 900)}")
     tracks = await _shape(
@@ -855,6 +896,11 @@ async def build_wave(
     pool = await _station_pool(seeds, limit * 3)
     if len({str(r.get("id")) for r in pool} - exclude) < limit:
         pool += await _discovery_tracks(limit * 2, genres=await _taste_genres(session, user_id))
+
+    if len({str(r.get("id")) for r in pool} - exclude) < limit:
+        # The source is throttling or down. Build from what is already in the
+        # catalogue rather than refusing — the ids still play.
+        pool += await _known_pool(session, user_id, limit, exclude)
 
     if not pool:
         raise HTTPException(
@@ -1279,8 +1325,11 @@ async def home_feed(user: CurrentUser, session: SessionDep) -> FeedResponse:
         if chart := await _block_charts():
             ordered.append(chart)
     if not ordered:
-        one_shot = await build_wave(session, user.id, limit=40)
-        if one_shot.tracks:
+        try:
+            one_shot = await build_wave(session, user.id, limit=40)
+        except HTTPException:
+            one_shot = None
+        if one_shot and one_shot.tracks:
             ordered.append(
                 FeedBlock(
                     id="wave", type="playlist", title="Волна",
