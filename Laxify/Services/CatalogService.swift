@@ -100,15 +100,20 @@ struct CatalogService: MusicService {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return SearchResults() }
 
-        // Our server does this better — it filters out the accounts borrowing
-        // famous names — but only when it can be reached. Asking one that
-        // cannot costs a full timeout before the source is tried at all,
-        // which is why searching took half a minute.
-        if await LaxifyAPI.shared.isServerReachable,
-           let viaServer = try? await searchThroughServer(trimmed) {
-            return viaServer
+        // The server answers with the proper catalogue — real artist names,
+        // artist photos, albums, playlists. Whatever it says goes, including
+        // "nothing found": falling through to the source on an empty result
+        // is what made a search occasionally come back full of uploader
+        // spellings instead.
+        if await LaxifyAPI.shared.isServerReachable {
+            if let viaServer = try? await searchThroughServer(trimmed) {
+                return viaServer
+            }
         }
 
+        // Only when the server cannot be reached at all. Asking one that
+        // cannot costs a full timeout before the source is tried, which is
+        // why searching used to take half a minute.
         let direct = try await SoundCloudDirect.shared.search(trimmed, limit: 30)
         return SearchResults(
             tracks: direct.tracks,

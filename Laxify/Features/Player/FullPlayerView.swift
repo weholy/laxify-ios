@@ -316,12 +316,16 @@ struct FullPlayerView: View {
                             guard !artist.id.isEmpty else { return }
                             selectedArtistId = artist.id
                         } label: {
+                            // No underline: the name reads as a name, and a
+                            // slightly brighter fill plus a generous tap
+                            // target is enough to say it is tappable.
                             Text(artist.name)
                                 .font(LaxifyTypography.playerArtist)
-                                .foregroundStyle(.white.opacity(0.75))
-                                .underline(!artist.id.isEmpty, pattern: .solid)
+                                .foregroundStyle(.white.opacity(artist.id.isEmpty ? 0.6 : 0.9))
+                                .padding(.vertical, 6)
+                                .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(ArtistLinkButtonStyle())
                         .disabled(artist.id.isEmpty)
 
                         if index < artists.count - 1 {
@@ -419,6 +423,17 @@ private struct PlayerGlyphButtonStyle: ButtonStyle {
             .opacity(configuration.isPressed ? 0.55 : 1)
             .scaleEffect(configuration.isPressed ? 0.88 : 1)
             .animation(.spring(response: 0.28, dampingFraction: 0.6), value: configuration.isPressed)
+    }
+}
+
+/// An artist name in the player. Says "tappable" by dimming and shrinking
+/// under the finger, rather than by wearing an underline.
+private struct ArtistLinkButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.5 : 1)
+            .scaleEffect(configuration.isPressed ? 0.94 : 1, anchor: .leading)
+            .animation(.spring(response: 0.26, dampingFraction: 0.7), value: configuration.isPressed)
     }
 }
 

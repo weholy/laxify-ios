@@ -99,53 +99,59 @@ struct WelcomeView: View {
         return trimmed.isEmpty ? L("welcome.friend", "рады видеть") : trimmed
     }
 
-    // A single committed palette — a near-black field warmed slightly, and an
-    // off-white ink that never sits on the orb's brightest part.
-    private static let ground = Color(hex: 0x08070C)
-    private static let ink = Color(hex: 0xF4F1FF)
+    // A single committed palette — a near-black field with a trace of blue in
+    // it, and an off-white ink that never sits on the orb's brightest part.
+    private static let ground = Color(hex: 0x04070F)
+    private static let ink = Color(hex: 0xEDF4FF)
 }
 
 /// A soft column of light that expands and contracts like a slow breath.
 ///
 /// Concentric radial gradients rather than one blurred circle: layering them
 /// gives the dense, glowing core and the long falloff that a single blur
-/// cannot, and it costs nothing to animate.
+/// cannot, and it costs nothing to animate. Each ring drifts on its own slow
+/// cycle, so the shape swims rather than pulsing in place.
 private struct BreathingOrb: View {
     let appeared: Bool
 
-    private let core = Color(hex: 0x2E6BFF)
-    private let mid = Color(hex: 0x7B5CFF)
-    private let halo = Color(hex: 0xFF6FB1)
+    // One hue, lit from a bright cyan-white centre out to deep blue — the
+    // orb should read as a single body of light, not as three colours stacked.
+    private let centre = Color(hex: 0x9BD6FF)
+    private let core = Color(hex: 0x1E7BFF)
+    private let mid = Color(hex: 0x0B4FE0)
+    private let halo = Color(hex: 0x0A2E8C)
 
     var body: some View {
         TimelineView(.animation) { timeline in
             let t = timeline.date.timeIntervalSinceReferenceDate
-            // One breath every ~5.5s, plus a slower drift so it never repeats
+            // One breath every ~6s, plus a slower drift so it never repeats
             // exactly the same shape.
-            let breath = 1 + 0.075 * sin(t * (2 * .pi / 5.5))
-            let drift = CGSize(width: sin(t * 0.21) * 14, height: cos(t * 0.17) * 18)
+            let breath = 1 + 0.08 * sin(t * (2 * .pi / 6.0))
 
             GeometryReader { geo in
                 let side = min(geo.size.width, geo.size.height)
 
                 ZStack {
-                    ring(halo.opacity(0.30), side: side * 2.05, blur: 70)
-                    ring(mid.opacity(0.42), side: side * 1.45, blur: 44)
-                    ring(core.opacity(0.62), side: side * 0.92, blur: 26)
-                    ring(.white.opacity(0.30), side: side * 0.36, blur: 30)
+                    ring(halo.opacity(0.55), side: side * 2.10, blur: 76,
+                         drift: CGSize(width: sin(t * 0.13) * 26, height: cos(t * 0.11) * 30))
+                    ring(mid.opacity(0.62), side: side * 1.50, blur: 50,
+                         drift: CGSize(width: cos(t * 0.19) * 20, height: sin(t * 0.16) * 24))
+                    ring(core.opacity(0.72), side: side * 0.98, blur: 30,
+                         drift: CGSize(width: sin(t * 0.24) * 14, height: cos(t * 0.21) * 16))
+                    ring(centre.opacity(0.60), side: side * 0.42, blur: 34,
+                         drift: CGSize(width: cos(t * 0.31) * 9, height: sin(t * 0.27) * 11))
                 }
                 .frame(width: geo.size.width, height: geo.size.height)
                 .scaleEffect(breath)
-                .offset(drift)
                 // Keeps the glow off the very edges so the text below always
                 // has a dark ground to sit on.
-                .position(x: geo.size.width * 0.52, y: geo.size.height * 0.38)
+                .position(x: geo.size.width * 0.52, y: geo.size.height * 0.36)
             }
         }
         .allowsHitTesting(false)
     }
 
-    private func ring(_ color: Color, side: CGFloat, blur: CGFloat) -> some View {
+    private func ring(_ color: Color, side: CGFloat, blur: CGFloat, drift: CGSize) -> some View {
         Circle()
             .fill(
                 RadialGradient(
@@ -157,6 +163,7 @@ private struct BreathingOrb: View {
             )
             .frame(width: side, height: side)
             .blur(radius: blur)
+            .offset(drift)
             .blendMode(.plusLighter)
     }
 }

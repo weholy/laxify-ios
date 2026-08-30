@@ -2,16 +2,22 @@ import SwiftUI
 
 /// Progress bar and time labels, isolated from the rest of the player.
 ///
+/// Built on the system `Slider` with its thumb hidden — the same thing Apple
+/// Music does. That buys the whole interaction for free: the bar swells under
+/// a finger, the touch target is generous, dragging is rubber-banded at the
+/// ends, and the haptics are the system's. Ours was hand-rolled from a
+/// `DragGesture` and had none of that.
+///
 /// The playback clock ticks ten times a second and hops to the main actor on
-/// the way, so a bar bound to it visibly steps and trails the audio. This
-/// reads the player's own clock through a display-linked timeline instead, so
-/// the fill glides at screen rate — and because the view is small, a frame
-/// redraws a capsule and two labels rather than the whole player.
+/// the way, so a bar bound to it visibly steps. This reads the player's own
+/// clock through a display-linked timeline instead, so the fill glides at
+/// screen rate — and because the view is small, a frame redraws a slider and
+/// two labels rather than the whole player.
 struct PlayerScrubber: View {
     var player = AudioPlayerController.shared
 
     @State private var isScrubbing = false
-    @State private var scrubFraction: Double = 0
+    @State private var scrubTime: TimeInterval = 0
 
     private var duration: TimeInterval { max(player.duration, 0.1) }
 
@@ -19,29 +25,34 @@ struct PlayerScrubber: View {
         // Paused only while a finger is down: playback progress needs the
         // timeline, a held scrub does not.
         TimelineView(.animation(paused: isScrubbing)) { _ in
-            let fraction = isScrubbing
-                ? scrubFraction
-                : min(max(player.preciseTime / duration, 0), 1)
+            let elapsed = isScrubbing
+                ? scrubTime
+                : min(max(player.preciseTime, 0), duration)
 
-            VStack(spacing: 8) {
-                PlayerProgressBar(
-                    fraction: fraction,
-                    isScrubbing: isScrubbing,
-                    onScrubChanged: { value in
-                        isScrubbing = true
-                        scrubFraction = value
-                    },
-                    onScrubEnded: { value in
-                        scrubFraction = value
-                        isScrubbing = false
-                        player.seek(to: value * duration)
+            VStack(spacing: 6) {
+                Slider(
+                    value: Binding(
+                        get: { min(max(elapsed, 0), duration) },
+                        set: { scrubTime = $0 }
+                    ),
+                    in: 0...duration,
+                    onEditingChanged: { editing in
+                        if editing {
+                            scrubTime = elapsed
+                            isScrubbing = true
+                        } else {
+                            isScrubbing = false
+                            player.seek(to: scrubTime)
+                        }
                     }
                 )
+                .sliderThumbVisibility(.hidden)
+                .tint(.white)
 
                 HStack {
-                    Text(Self.format(fraction * duration))
+                    Text(Self.format(elapsed))
                     Spacer()
-                    Text("-" + Self.format(max(duration - fraction * duration, 0)))
+                    Text("-" + Self.format(max(duration - elapsed, 0)))
                 }
                 .font(LaxifyTypography.caption)
                 .foregroundStyle(.white.opacity(0.7))
@@ -60,57 +71,6 @@ struct PlayerScrubber: View {
     }
 }
 
-/// The bar itself, in the Apple Music mould: a thin capsule that swells under
-/// a touch, no knob until then, a generous invisible hit area so a slim bar
-/// is still easy to catch.
-private struct PlayerProgressBar: View {
-    let fraction: Double
-    let isScrubbing: Bool
-    let onScrubChanged: (Double) -> Void
-    let onScrubEnded: (Double) -> Void
-
-    private var trackHeight: CGFloat { isScrubbing ? 10 : 5 }
-
-    var body: some View {
-        GeometryReader { geo in
-            let width = geo.size.width
-            let clamped = min(max(fraction, 0), 1)
-
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(.white.opacity(0.24))
-                    .frame(height: trackHeight)
-
-                Capsule()
-                    .fill(.white)
-                    .frame(width: max(width * clamped, trackHeight), height: trackHeight)
-                    // Smooths the AVPlayer clock's small per-frame jitter into
-                    // steady motion — the way the system slider behaves. Off
-                    // under a finger so the fill tracks the touch exactly.
-                    .animation(isScrubbing ? nil : .linear(duration: 0.15), value: clamped)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .animation(.spring(response: 0.3, dampingFraction: 0.72), value: isScrubbing)
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { gesture in
-                        onScrubChanged(progress(at: gesture.location.x, width: width))
-                    }
-                    .onEnded { gesture in
-                        onScrubEnded(progress(at: gesture.location.x, width: width))
-                    }
-            )
-        }
-        .frame(height: 32)
-    }
-
-    private func progress(at x: CGFloat, width: CGFloat) -> Double {
-        guard width > 0 else { return 0 }
-        return min(max(Double(x / width), 0), 1)
-    }
-}
-
 /// Volume row, isolated for the same reason: it observes the volume
 /// controller, which the rest of the player has no reason to redraw for.
 struct PlayerVolumeRow: View {
@@ -120,16 +80,18 @@ struct PlayerVolumeRow: View {
         HStack(spacing: 12) {
             Image(systemName: "speaker.fill")
 
-            LaxifySlider(
+            // Writes through on every change, not only when the finger lifts —
+            // the old slider staged the value and applied it on release, so
+            // dragging did nothing until you let go.
+            Slider(
                 value: Binding(
                     get: { volume.volume },
                     set: { volume.setVolume($0) }
                 ),
-                range: 0...1,
-                trackHeight: 5,
-                tint: .white.opacity(0.9),
-                isGlass: true
+                in: 0...1
             )
+            .sliderThumbVisibility(.hidden)
+            .tint(.white)
 
             Image(systemName: "speaker.wave.3.fill")
         }

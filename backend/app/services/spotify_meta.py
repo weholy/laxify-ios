@@ -174,11 +174,18 @@ _BRACKETS = re.compile(r"[\(\[\{].*?[\)\]\}]")
 
 
 def _norm(text: str) -> str:
+    """Reduce a name to what two spellings of it have in common.
+
+    Keeps Cyrillic. Stripping it — which this did — left every Russian title
+    normalising to an empty string, so nothing Russian ever scored above zero
+    and most of that catalogue silently failed to match.
+    """
     text = unicodedata.normalize("NFKD", text or "")
     text = "".join(ch for ch in text if not unicodedata.combining(ch)).lower()
+    text = text.replace("ё", "е")
     text = _BRACKETS.sub(" ", text)
     text = _JUNK.sub(" ", text)
-    text = re.sub(r"[^a-z0-9\s]", " ", text)
+    text = re.sub(r"[^a-zа-я0-9\s]", " ", text)
     return " ".join(text.split())
 
 
