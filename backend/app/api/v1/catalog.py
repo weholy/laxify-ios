@@ -628,6 +628,11 @@ class ArtistDetailResponse(BaseModel):
 _sp_artist_cache: dict[str, tuple[list[dict], float]] = {}
 _SP_ARTIST_TTL = 15 * 60
 
+# The chart is the same for every listener, so the enriched result is worth
+# holding onto — it is the first thing the search screen draws.
+_chart_cache: dict[str, tuple[list["CatalogTrack"], float]] = {}
+_CHART_TTL = 10 * 60
+
 
 def _credits(track: dict, artist_id: str) -> bool:
     """Whether this artist is actually credited on the track.
@@ -923,9 +928,20 @@ async def charts(
     kind: str = Query("trending", pattern="^(top|trending)$"),
     limit: int = Query(30, ge=1, le=50),
 ) -> list[CatalogTrack]:
+    # The same chart for everyone, so the enriched result is cached rather
+    # than re-resolved per listener — this is what the search screen shows
+    # first, and it was taking a couple of seconds to appear.
+    key = f"{genre}:{kind}:{limit}"
+    hit = _chart_cache.get(key)
+    if hit and time.monotonic() - hit[1] < _CHART_TTL:
+        return hit[0]
+
     try:
         raw = await soundcloud.charts(genre=genre, kind=kind, limit=limit * 2)
     except SoundCloudError as exc:
         raise _guard(exc) from exc
 
-    return await catalog_meta.spotify_only(_tracks(await filter_playable(raw, limit)))
+    tracks = await catalog_meta.spotify_only(_tracks(await filter_playable(raw, limit)))
+    if tracks:
+        _chart_cache[key] = (tracks, time.monotonic())
+    return tracks
