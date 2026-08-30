@@ -357,19 +357,23 @@ async def _discovery_tracks(limit: int, genres: list[str] | None = None) -> list
     return collected[:limit]
 
 
-async def _station_pool(seeds: list[str], want: int) -> list[dict]:
+async def _station_pool(seeds: list[str], want: int, *, budget: float = 3.0) -> list[dict]:
     """Raw SoundCloud tracks from the stations of several seeds at once.
 
     Pulls deep from each station and then *interleaves* the results, so the
     front of the pool is a round-robin across every seed rather than the top
     few of the first station — which on SoundCloud are usually the same
     artist several times over.
+
+    Bounded: a seed whose station has gone quiet used to hold the whole home
+    screen for six seconds and then contribute nothing. Whatever has arrived
+    when the budget runs out is what the pool is built from.
     """
     if not seeds:
         return []
 
     per_seed = max(16, (want * 3) // max(len(seeds), 1))
-    sem = asyncio.Semaphore(6)
+    sem = asyncio.Semaphore(8)
 
     async def one(seed: str) -> list[dict]:
         async with sem:
@@ -378,7 +382,12 @@ async def _station_pool(seeds: list[str], want: int) -> list[dict]:
             except SoundCloudError:
                 return []
 
-    batches = await asyncio.gather(*(one(seed) for seed in seeds))
+    tasks = [asyncio.create_task(one(seed)) for seed in seeds]
+    done, pending = await asyncio.wait(tasks, timeout=budget)
+    for task in pending:
+        task.cancel()
+
+    batches = [t.result() for t in done if not t.cancelled() and t.exception() is None]
     trimmed = [batch[:per_seed] for batch in batches]
 
     pool: list[dict] = []
@@ -908,6 +917,29 @@ async def similar(track_id: str, user: CurrentUser, limit: int = Query(30, ge=1,
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+# The assembled feed, per listener. Short enough that a day's blocks still
+# turn over, long enough that opening the app twice in a minute costs one
+# assembly rather than two.
+FEED_TTL = 10 * 60
+_feed_cache: dict[str, tuple["FeedResponse", float]] = {}
+
+
+def _feed_cache_get(user_id) -> "FeedResponse | None":
+    hit = _feed_cache.get(str(user_id))
+    if hit and time.monotonic() - hit[1] < FEED_TTL:
+        return hit[0]
+    return None
+
+
+def _feed_cache_put(user_id, response: "FeedResponse") -> None:
+    _feed_cache[str(user_id)] = (response, time.monotonic())
+    # Cheap eviction: this is a handful of users, and the entries are small.
+    if len(_feed_cache) > 500:
+        oldest = sorted(_feed_cache.items(), key=lambda kv: kv[1][1])[:100]
+        for key, _ in oldest:
+            _feed_cache.pop(key, None)
+
+
 def _snapshot_track(snap: TrackSnapshot) -> CatalogTrack:
     return CatalogTrack(
         id=snap.track_id,
@@ -1073,33 +1105,56 @@ async def _block_genre_mix() -> FeedBlock | None:
 async def home_feed(user: CurrentUser, session: SessionDep) -> FeedResponse:
     """The home screen, shaped like Yandex's: a personal playlist of the day up
     top, then rows that each mean something — forgotten favourites, new from
-    your artists, quiet finds, the chart."""
-    seeds = await _seed_track_ids(session, user.id)
-    pool = await _station_pool(seeds, 120)
-    if len(pool) < 40:
-        pool += await _discovery_tracks(80, genres=await _taste_genres(session, user.id))
+    your artists, quiet finds, the chart.
 
-    today = date.today().isoformat()
-    day_rng = random.Random(f"{user.id}:{today}")
+    Assembled once per window and cached. It is a dozen upstream calls, and
+    the screen is opened on every launch and every tab switch back — paying
+    for it each time is what made the app feel slow.
+    """
+    if cached := _feed_cache_get(user.id):
+        return cached
 
-    blocks = await asyncio.gather(
-        _block_playlist_of_the_day(session, user.id, list(pool), day_rng),
+    # The rows that need the station pool and the ones that don't are started
+    # together: the pool is the slowest part, and waiting for it before even
+    # asking for the chart doubled the wait for no reason.
+    async def personal_rows() -> list[FeedBlock | None]:
+        seeds = await _seed_track_ids(session, user.id)
+        pool = await _station_pool(seeds, 120)
+        if len(pool) < 40:
+            pool += await _discovery_tracks(80, genres=await _taste_genres(session, user.id))
+
+        day_rng = random.Random(f"{user.id}:{date.today().isoformat()}")
+        results = await asyncio.gather(
+            _block_playlist_of_the_day(session, user.id, list(pool), day_rng),
+            _block_hidden_gem(session, user.id, list(pool)),
+            return_exceptions=True,
+        )
+        return [r for r in results if isinstance(r, FeedBlock)]
+
+    gathered = await asyncio.gather(
+        personal_rows(),
         _block_dejavu(session, user.id),
         _block_premiere(session, user.id),
-        _block_hidden_gem(session, user.id, list(pool)),
         _block_charts(),
         _block_genre_mix(),
         return_exceptions=True,
     )
 
-    ordered = [b for b in blocks if isinstance(b, FeedBlock)]
+    personal = gathered[0] if isinstance(gathered[0], list) else []
+    rest = [b for b in gathered[1:] if isinstance(b, FeedBlock)]
+
+    # Order is the point of the feed, so it is imposed here rather than
+    # falling out of which upstream answered first.
+    order = ["playlist-of-the-day", "dejavu", "premiere", "hidden-gem", "chart"]
+    by_id = {b.id: b for b in [*personal, *rest]}
+    ordered = [by_id[key] for key in order if key in by_id]
+    ordered += [b for b in by_id.values() if b.id not in order]
 
     # The feed must never come back empty — the home screen has no other
     # content now. If every block above missed (a fresh account, a slow
     # source), fall back to the chart, then to a plain wave.
     if not ordered:
-        chart = await _block_charts()
-        if chart:
+        if chart := await _block_charts():
             ordered.append(chart)
     if not ordered:
         one_shot = await build_wave(session, user.id, limit=40)
@@ -1112,11 +1167,21 @@ async def home_feed(user: CurrentUser, session: SessionDep) -> FeedResponse:
             )
 
     # Every row shows Spotify names and covers, and no row repeats a song.
-    for block in ordered:
-        block.tracks = await catalog_meta.spotify_only(block.tracks)
+    # In parallel: each row's enrichment has its own budget, and running them
+    # one after another meant the budgets added up.
+    enriched = await asyncio.gather(
+        *(catalog_meta.spotify_only(b.tracks) for b in ordered),
+        return_exceptions=True,
+    )
+    for block, tracks in zip(ordered, enriched):
+        if isinstance(tracks, list):
+            block.tracks = tracks
     ordered = [b for b in ordered if len(b.tracks) >= 3]
 
-    return FeedResponse(blocks=ordered, generated_at=datetime.now(UTC))
+    response = FeedResponse(blocks=ordered, generated_at=datetime.now(UTC))
+    if ordered:
+        _feed_cache_put(user.id, response)
+    return response
 
 
 @router.get("/home", response_model=HomeResponse)
