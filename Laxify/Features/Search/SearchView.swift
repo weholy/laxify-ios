@@ -329,6 +329,7 @@ struct SearchView: View {
                 artistsBlock(results)
                 tracksBlock(results)
                 albumsBlock(results)
+                playlistsBlock(results)
             }
         }
     }
@@ -343,14 +344,49 @@ struct SearchView: View {
             VStack(spacing: 12) {
                 ForEach(results.tracks) { song in
                     Button {
+                        guard song.playable else { return }
                         recordHistory(id: song.id, title: song.title, subtitle: song.artistName, coverURL: song.coverURL, kind: .track)
-                        AudioPlayerController.shared.play(song, queue: results.tracks)
+                        AudioPlayerController.shared.play(
+                            song, queue: results.tracks.filter(\.playable)
+                        )
                     } label: {
                         SongRowView(song: song)
+                            .opacity(song.playable ? 1 : 0.4)
+                            .overlay(alignment: .trailing) {
+                                if !song.playable {
+                                    Text(L("search.unavailable", "нет на SoundCloud"))
+                                        .font(.system(size: 10, weight: .medium))
+                                        .foregroundStyle(LaxifyPalette.textTertiary)
+                                }
+                            }
                     }
                     .buttonStyle(.plain)
+                    .disabled(!song.playable)
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func playlistsBlock(_ results: SearchResults) -> some View {
+        if !results.playlists.isEmpty {
+            Text(L("search.playlists", "Плейлисты"))
+                .font(LaxifyTypography.title)
+                .foregroundStyle(LaxifyPalette.textPrimary)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: LaxifyMetrics.itemSpacing) {
+                    ForEach(results.playlists) { playlist in
+                        Button {
+                            selectedAlbum = playlist
+                        } label: {
+                            AlbumCardView(album: playlist)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .scrollClipDisabled()
         }
     }
 

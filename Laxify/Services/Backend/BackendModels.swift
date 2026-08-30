@@ -203,6 +203,9 @@ struct CatalogTrackDTO: Codable, Sendable {
     let permalink: String?
     let genre: String?
     let playbackCount: Int?
+    /// Optional so a payload (or an older cache entry) without the field
+    /// decodes fine — absent means playable.
+    var playable: Bool?
 
     var song: Song {
         Song(
@@ -212,7 +215,8 @@ struct CatalogTrackDTO: Codable, Sendable {
             artistId: artistId,
             albumTitle: nil,
             coverURL: artworkUrl.flatMap(URL.init(string:)),
-            duration: durationSeconds
+            duration: durationSeconds,
+            playable: playable ?? true
         )
     }
 }
@@ -277,6 +281,7 @@ struct ArtistDetailResponse: Codable, Sendable {
 struct CatalogSearchResponse: Codable, Sendable {
     let tracks: [CatalogTrackDTO]
     let artists: [CatalogArtistDTO]
+    var albums: [CatalogPlaylistDTO]?
     let playlists: [CatalogPlaylistDTO]
 }
 

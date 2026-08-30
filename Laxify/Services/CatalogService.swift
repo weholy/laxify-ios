@@ -159,20 +159,22 @@ struct CatalogService: MusicService {
 
         let tracks = response.tracks.map(\.song)
         let artists = response.artists.map(\.artist)
-        let albums = response.playlists.map {
+
+        func asAlbum(_ p: CatalogPlaylistDTO) -> MusicAlbum {
             MusicAlbum(
-                id: $0.id,
-                title: $0.title,
-                artistName: $0.ownerName ?? "",
-                coverURL: $0.artworkUrl.flatMap(URL.init(string:)),
-                year: nil
+                id: p.id,
+                title: p.title,
+                artistName: p.ownerName ?? "",
+                coverURL: p.artworkUrl.flatMap(URL.init(string:)),
+                year: p.year
             )
         }
 
         return SearchResults(
             tracks: tracks,
             artists: artists,
-            albums: albums,
+            albums: (response.albums ?? []).map(asAlbum),
+            playlists: response.playlists.map(asAlbum),
             correctedQuery: nil,
             bestMatch: Self.bestMatch(for: trimmed, tracks: tracks, artists: artists)
         )

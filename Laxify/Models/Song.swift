@@ -16,6 +16,9 @@ struct Song: Identifiable, Hashable, Sendable {
     let albumTitle: String?
     let coverURL: URL?
     let duration: TimeInterval
+    /// False for a Spotify track with no SoundCloud stream behind it — shown
+    /// greyed, can't be played or saved.
+    var playable: Bool = true
 
     var artistName: String {
         artists.map(\.name).joined(separator: ", ")
@@ -31,7 +34,8 @@ struct Song: Identifiable, Hashable, Sendable {
         artists: [SongArtist],
         albumTitle: String? = nil,
         coverURL: URL? = nil,
-        duration: TimeInterval = 0
+        duration: TimeInterval = 0,
+        playable: Bool = true
     ) {
         self.id = id
         self.title = title
@@ -39,6 +43,7 @@ struct Song: Identifiable, Hashable, Sendable {
         self.albumTitle = albumTitle
         self.coverURL = coverURL
         self.duration = duration
+        self.playable = playable
     }
 
     /// Convenience for the places that only ever had a name and an optional id
@@ -50,7 +55,8 @@ struct Song: Identifiable, Hashable, Sendable {
         artistId: String?,
         albumTitle: String?,
         coverURL: URL?,
-        duration: TimeInterval
+        duration: TimeInterval,
+        playable: Bool = true
     ) {
         self.id = id
         self.title = title
@@ -60,5 +66,6 @@ struct Song: Identifiable, Hashable, Sendable {
         self.albumTitle = albumTitle
         self.coverURL = coverURL
         self.duration = duration
+        self.playable = playable
     }
 }

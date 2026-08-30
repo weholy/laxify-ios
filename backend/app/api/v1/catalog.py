@@ -45,7 +45,9 @@ async def _catalog_from_spotify_tracks(session, sp_tracks: list[dict]) -> list["
         sc_id = links.get(t.get("spotify_id"))
         out.append(
             CatalogTrack(
-                id=sc_id or "",
+                # A real SoundCloud id when playable; otherwise a stable,
+                # unique placeholder so lists don't collide on an empty id.
+                id=sc_id or f"sp:{t.get('spotify_id') or ''}",
                 title=t.get("title") or "",
                 artist_id=t.get("artist_id"),
                 artist_name=t.get("artist_name") or "",
