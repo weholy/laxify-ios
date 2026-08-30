@@ -14,12 +14,24 @@ struct NowPlayingActivityAttributes: ActivityAttributes, Sendable {
         /// 0…1, for the thin progress line. A plain number rather than a live
         /// `ProgressView(timerInterval:)` so a pause freezes it.
         var progress: Double
+        /// A tiny JPEG of the cover (~64 px). The whole Live Activity payload
+        /// is capped near 4 KB, so this is deliberately small — it only has to
+        /// survive a heavy blur as the card's full-bleed background. `nil`
+        /// until the cover has downloaded, or if it wouldn't fit.
+        var artwork: Data?
 
-        init(title: String, artist: String, isPlaying: Bool, progress: Double) {
+        init(
+            title: String,
+            artist: String,
+            isPlaying: Bool,
+            progress: Double,
+            artwork: Data? = nil
+        ) {
             self.title = title
             self.artist = artist
             self.isPlaying = isPlaying
             self.progress = min(max(progress, 0), 1)
+            self.artwork = artwork
         }
     }
 

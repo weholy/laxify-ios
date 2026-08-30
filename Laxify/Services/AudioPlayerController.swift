@@ -1035,6 +1035,9 @@ final class AudioPlayerController {
                 var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
                 info[MPMediaItemPropertyArtwork] = artwork
                 MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+
+                // Same image feeds the Live Activity card's blurred backdrop.
+                LiveActivityController.shared.setArtwork(image, for: song.id)
             }
         }
     }
