@@ -37,6 +37,10 @@ _MAX_SCHEDULED = 40
 _EAGER_ROWS = 12
 _EAGER_BUDGET = 3.5
 
+# Below this share surviving, hiding is doing more harm than good and is
+# skipped entirely for that listing.
+MIN_SURVIVING_SHARE = 0.5
+
 _inflight: set[str] = set()
 
 _META_COLS = (
@@ -100,6 +104,7 @@ async def enrich(rows: list, *, name_of, id_of, apply, hide_unmatched: bool) -> 
 
     missing: list[tuple[str, str, str, float]] = []
     out: list = []
+    hidden: list = []
     # Two different SoundCloud uploads of the same song both resolve to one
     # Spotify track, and after enrichment they render as identical rows. Keep
     # the first and drop the rest.
@@ -125,7 +130,16 @@ async def enrich(rows: list, *, name_of, id_of, apply, hide_unmatched: bool) -> 
             out.append(row)
         elif not hide_unmatched:
             out.append(row)
-        # else: matched is False and we hide it
+        else:
+            hidden.append(row)
+
+    # A screen with no music on it is worse than a screen with an uploader's
+    # spelling on it. If the rule would take most of a listing, it is the rule
+    # that is wrong — a bad afternoon upstream, or a corner of the catalogue
+    # Spotify simply does not carry — so stand down and show everything.
+    if hidden and len(out) < len(rows) * MIN_SURVIVING_SHARE:
+        logger.info("catalog_meta: kept %s of %s — not hiding", len(out), len(rows))
+        return rows
 
     if missing:
         _schedule(missing)
@@ -187,6 +201,10 @@ async def _resolve_batch(items: list[tuple[str, str, str, float]]) -> None:
         async with sem:
             try:
                 return _meta_row(tid, now, await spotify_meta.match_track(artist, title, dur))
+            except spotify_meta.LookupUnavailable:
+                # The lookup never happened. Recording it as "not on Spotify"
+                # would hide the track for a fortnight over one slow minute.
+                return None
             except Exception:  # noqa: BLE001
                 return None
 

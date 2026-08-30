@@ -91,6 +91,10 @@ async def _resolve(snapshots: list[TrackSnapshot]) -> int:
                 match = await spotify_meta.match_track(
                     snap.artist_name or "", snap.title or "", snap.duration_seconds or 0
                 )
+            except spotify_meta.LookupUnavailable:
+                # Never write a miss for a lookup that never ran — it would
+                # hide the track for a fortnight over one slow minute.
+                return None
             except Exception:  # noqa: BLE001
                 return None
         return _meta_row(snap.track_id, datetime.now(UTC), match)

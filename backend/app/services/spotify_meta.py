@@ -32,15 +32,37 @@ logger = logging.getLogger("laxify.spotify_meta")
 CALL_TIMEOUT = 8.0
 
 
+class LookupUnavailable(Exception):
+    """The lookup did not complete — a timeout, or the scraper erroring.
+
+    Distinct from a lookup that completed and found nothing. Callers that
+    cache a verdict must not record a miss for this: doing so hid nearly half
+    the catalogue behind one slow afternoon.
+    """
+
+
 async def _call(label: str, fn, default):
-    """Run a blocking scraper call off-thread, with a hard deadline."""
+    """Run a blocking scraper call off-thread, with a hard deadline.
+
+    Fail-open: returns `default` when the call does not complete, so display
+    paths fall back to what they already had.
+    """
+    try:
+        return await _call_strict(label, fn)
+    except LookupUnavailable:
+        return default
+
+
+async def _call_strict(label: str, fn):
+    """As `_call`, but raises `LookupUnavailable` instead of swallowing."""
     try:
         return await asyncio.wait_for(run_in_threadpool(fn), timeout=CALL_TIMEOUT)
-    except TimeoutError:
+    except TimeoutError as exc:
         logger.warning("spotify_meta.%s timed out", label)
-    except Exception:  # noqa: BLE001
+        raise LookupUnavailable(label) from exc
+    except Exception as exc:  # noqa: BLE001
         logger.warning("spotify_meta.%s failed", label, exc_info=True)
-    return default
+        raise LookupUnavailable(label) from exc
 
 _client = None
 _client_broken = False
@@ -377,9 +399,15 @@ async def search(query: str, limit: int = 12) -> dict:
 
 
 async def match_track(artist: str, title: str, duration_s: float = 0) -> dict | None:
-    """The Spotify track that best matches this SoundCloud one, or None."""
+    """The Spotify track that best matches this SoundCloud one, or None.
+
+    Raises `LookupUnavailable` when the lookup could not be made at all —
+    the caller decides whether that is worth remembering, and it never is.
+    """
     client = _get_client()
-    if client is None or not title.strip():
+    if client is None:
+        raise LookupUnavailable("no client")
+    if not title.strip():
         return None
 
     query = f"{artist} {title}".strip()
@@ -388,7 +416,7 @@ async def match_track(artist: str, title: str, duration_s: float = 0) -> dict | 
         res = client.search(query, types=("track",), limit=8)
         return [_track_dict(t) for t in (res.tracks or [])]
 
-    cands = await _call("match_track", _run, [])
+    cands = await _call_strict("match_track", _run)
     if not cands:
         return None
     best = max(cands, key=lambda c: _score(c, artist, title, duration_s))
