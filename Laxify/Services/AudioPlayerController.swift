@@ -156,9 +156,14 @@ final class AudioPlayerController {
 
     func next() {
         guard hasNext else { return }
+        let wasWave = waveBatchId != nil
         reportSkipIfNeeded()
         currentIndex += 1
         loadAndPlayCurrent()
+        // A skip in the wave should change what comes next, not just move to
+        // the track that was already queued — the way Yandex's does. Reshape
+        // the tail once the skip has reached the server.
+        if wasWave { Task { await reshapeWaveTailAfterSkip() } }
     }
 
     func previous() {
@@ -167,6 +172,10 @@ final class AudioPlayerController {
         currentIndex -= 1
         loadAndPlayCurrent()
     }
+
+    /// The in-flight "track skipped" report, so a reshape can wait for it to
+    /// land before asking the server for the next batch.
+    private var pendingSkipReport: Task<Void, Never>?
 
     private func reportSkipIfNeeded() {
         reportPlaybackToAccount(completed: false)
@@ -177,11 +186,21 @@ final class AudioPlayerController {
         guard currentTime < duration - 5 else { return }
         let trackId = song.id
         let played = currentTime
-        Task {
+        pendingSkipReport = Task {
             await CatalogService.shared.reportWaveTrackSkipped(
                 trackId: trackId, batchId: batchId, playedSeconds: played
             )
         }
+    }
+
+    private func reshapeWaveTailAfterSkip() async {
+        guard let sessionId = waveBatchId else { return }
+        await pendingSkipReport?.value
+        guard waveBatchId == sessionId, !isExtendingWave else { return }
+        if currentIndex < queue.count - 1 {
+            queue.removeSubrange((currentIndex + 1)...)
+        }
+        await extendWaveQueue()
     }
 
     func playIndex(_ index: Int) {
@@ -842,24 +861,10 @@ final class AudioPlayerController {
         // so feedback and the next top-up address a session that still exists.
         if batch.batchId != sessionId { waveBatchId = batch.batchId }
 
+        // The server already spreads artists out and honours this session's
+        // skips; second-guessing it here only thinned the batch unpredictably.
         let existing = Set(queue.map(\.id))
-        // Spread artists out: three tracks by the same person in a row is the
-        // one thing that most makes a "wave" feel like a shuffle of a library.
-        var recentArtists = Set(queue.suffix(8).compactMap { $0.artistId }.filter { !$0.isEmpty })
-
-        var fresh: [Song] = []
-        for song in batch.songs where !existing.contains(song.id) {
-            let artist = song.artistId ?? ""
-            if !artist.isEmpty, recentArtists.contains(artist) { continue }
-            if !artist.isEmpty { recentArtists.insert(artist) }
-            fresh.append(song)
-        }
-
-        // The spread filter left nothing — a thin batch, or one artist's
-        // playlist. Better a repeat than silence.
-        if fresh.isEmpty {
-            fresh = batch.songs.filter { !existing.contains($0.id) }
-        }
+        let fresh = batch.songs.filter { !existing.contains($0.id) }
         guard !fresh.isEmpty else { return }
 
         queue.append(contentsOf: fresh)
