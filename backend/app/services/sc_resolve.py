@@ -29,7 +29,55 @@ _sem = asyncio.Semaphore(12)
 
 # A whole search must not wait on the slowest lookup. Anything unresolved when
 # this expires is simply left out of the results.
-RESOLVE_BUDGET = 6.0
+RESOLVE_BUDGET = 3.5
+
+# How many to resolve while the caller waits. The rest are done after the
+# response goes out, so the second search of the same thing is instant.
+RESOLVE_INLINE = 14
+
+_deferred_task: asyncio.Task | None = None
+
+
+def _schedule_background(items: list[dict]) -> None:
+    """Resolve the tail after the response has gone out.
+
+    Nobody is waiting on these, and having them cached is what makes a repeat
+    search — or scrolling past the first screenful — cost nothing.
+    """
+    global _deferred_task
+    if _deferred_task is not None and not _deferred_task.done():
+        return
+
+    async def run() -> None:
+        from app.db.session import SessionLocal
+
+        try:
+            results = await asyncio.gather(
+                *(_resolve_one(sp) for sp in items), return_exceptions=True
+            )
+            now = datetime.now(UTC)
+            rows = [
+                {"spotify_id": sid, "sc_track_id": sc_id, "checked_at": now}
+                for res in results
+                if not isinstance(res, BaseException)
+                for sid, sc_id in [res]
+            ]
+            if rows:
+                async with SessionLocal() as session:
+                    stmt = pg_insert(SpotifyLink).values(rows)
+                    stmt = stmt.on_conflict_do_update(
+                        index_elements=["spotify_id"],
+                        set_={
+                            "sc_track_id": stmt.excluded.sc_track_id,
+                            "checked_at": stmt.excluded.checked_at,
+                        },
+                    )
+                    await session.execute(stmt)
+                    await session.commit()
+        except Exception:  # noqa: BLE001
+            logger.warning("sc_resolve: background pass failed", exc_info=True)
+
+    _deferred_task = asyncio.create_task(run())
 
 
 def _score(cand, artist: str, title: str, duration_s: float) -> float:
@@ -127,22 +175,33 @@ async def resolve(session, spotify_tracks: list[dict]) -> dict[str, str | None]:
             out[sp["spotify_id"]] = row.sc_track_id
 
     if todo:
-        try:
-            results = await asyncio.wait_for(
-                asyncio.gather(*(_resolve_one(sp) for sp in todo), return_exceptions=True),
-                timeout=RESOLVE_BUDGET,
+        # Only the first screenful is resolved inline. Someone searching does
+        # not scroll thirty rows before the results appear, and each lookup is
+        # a round trip to SoundCloud.
+        inline, deferred = todo[:RESOLVE_INLINE], todo[RESOLVE_INLINE:]
+
+        tasks = [asyncio.create_task(_resolve_one(sp)) for sp in inline]
+        done, pending = await asyncio.wait(tasks, timeout=RESOLVE_BUDGET)
+        for task in pending:
+            task.cancel()
+        if pending:
+            logger.info(
+                "sc_resolve: %d of %d resolved within budget", len(done), len(inline)
             )
-        except TimeoutError:
-            logger.warning("sc_resolve: budget exhausted for %d tracks", len(todo))
-            results = []
+
         now = datetime.now(UTC)
         to_store: list[dict] = []
-        for res in results:
-            if isinstance(res, BaseException):
+        # Whatever finished is kept, even when the batch as a whole ran out of
+        # time — throwing away completed work meant the next search redid it.
+        for task in done:
+            if task.cancelled() or task.exception() is not None:
                 continue
-            sid, sc_id = res
+            sid, sc_id = task.result()
             out[sid] = sc_id
             to_store.append({"spotify_id": sid, "sc_track_id": sc_id, "checked_at": now})
+
+        if deferred:
+            _schedule_background(deferred)
 
         if to_store:
             try:
