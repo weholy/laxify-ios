@@ -6,8 +6,8 @@ import Foundation
 ///
 /// Compiled into both the app (which starts and updates the activity) and the
 /// widget extension (which draws it), so it lives in `Shared/`.
-struct NowPlayingActivityAttributes: ActivityAttributes {
-    struct ContentState: Codable, Hashable {
+struct NowPlayingActivityAttributes: ActivityAttributes, Sendable {
+    struct ContentState: Codable, Hashable, Sendable {
         var title: String
         var artist: String
         var isPlaying: Bool
