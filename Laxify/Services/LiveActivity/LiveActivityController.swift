@@ -32,10 +32,11 @@ final class LiveActivityController {
         let key = "\(state.title)|\(state.artist)|\(state.isPlaying)"
 
         guard let activity else {
+            let content = ActivityContent(state: state, staleDate: nil)
             do {
-                self.activity = try Activity.request(
+                activity = try Activity.request(
                     attributes: NowPlayingActivityAttributes(),
-                    content: ActivityContent(state: state, staleDate: nil)
+                    content: content
                 )
                 lastPush = Date()
                 lastKey = key
@@ -52,13 +53,13 @@ final class LiveActivityController {
         lastKey = key
 
         let content = ActivityContent(state: state, staleDate: nil)
-        Task { await activity.update(content) }
+        Task { [activity] in await activity.update(content) }
     }
 
     func stop() {
         guard let activity else { return }
         self.activity = nil
         lastKey = ""
-        Task { await activity.end(nil, dismissalPolicy: .immediate) }
+        Task { [activity] in await activity.end(nil, dismissalPolicy: .immediate) }
     }
 }
