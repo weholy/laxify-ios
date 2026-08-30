@@ -202,7 +202,7 @@ struct FavoritesView: View {
                 // A tap gesture rather than a button around the row: the
                 // download control inside it is its own button, and nesting
                 // one button in another means only the outer one is ever hit.
-                SongRowView(song: favorite.song, isFavorite: true, showsDownload: true)
+                SongRowView(song: favorite.song, isFavorite: true)
                     .contentShape(Rectangle())
                     .onTapGesture {
                         AudioPlayerController.shared.play(

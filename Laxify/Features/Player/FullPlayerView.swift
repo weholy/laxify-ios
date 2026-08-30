@@ -16,7 +16,6 @@ struct FullPlayerView: View {
     @State private var selectedArtistId: String?
     @State private var palette: ArtworkPalette = .neutral
 
-    var downloads = DownloadManager.shared
 
     private var isFavorite: Bool {
         guard let song = player.currentSong else { return false }
@@ -171,28 +170,12 @@ struct FullPlayerView: View {
                 Label(L("player.crossfade", "Кроссфейд"), systemImage: "waveform.path")
             }
 
-            Menu {
-                ForEach(SleepTimerOption.allCases) { option in
-                    Button(option.label) {
-                        player.setSleepTimer(minutes: option.minutes)
-                    }
-                }
-                if player.sleepTimerDeadline != nil {
-                    Button(L("player.sleepOff", "Отключить таймер"), role: .destructive) {
-                        player.cancelSleepTimer()
-                    }
-                }
-            } label: {
-                Label(L("player.sleepTimer", "Таймер сна"), systemImage: "moon.zzz")
-            }
 
             Button {
                 isAddToPlaylistPresented = true
             } label: {
                 Label(L("player.addToPlaylist", "Добавить в плейлист"), systemImage: "text.badge.plus")
             }
-
-            downloadButton
 
             Button {
                 markNotInterested()
@@ -265,34 +248,6 @@ struct FullPlayerView: View {
 
             FavouriteStar(isOn: isFavorite) {
                 toggleFavorite()
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var downloadButton: some View {
-        if let song = player.currentSong {
-            switch downloads.status(for: song.id) {
-            case .downloaded:
-                Button(role: .destructive) {
-                    downloads.remove(song.id)
-                } label: {
-                    Label(L("player.downloadRemove", "Удалить загрузку"), systemImage: "trash")
-                }
-
-            case .downloading:
-                Button {
-                    downloads.cancel(song.id)
-                } label: {
-                    Label(L("player.downloadCancel", "Отменить загрузку"), systemImage: "xmark.circle")
-                }
-
-            case .none, .failed:
-                Button {
-                    downloads.download(song)
-                } label: {
-                    Label(L("player.download", "Скачать"), systemImage: "arrow.down.circle")
-                }
             }
         }
     }
@@ -457,15 +412,3 @@ private enum PlaybackSpeedOption: Double, CaseIterable, Identifiable {
     }
 }
 
-private enum SleepTimerOption: Int, CaseIterable, Identifiable {
-    case fifteen = 15
-    case thirty = 30
-    case fortyFive = 45
-    case sixty = 60
-
-    var id: Int { rawValue }
-    var minutes: Int { rawValue }
-
-    @MainActor
-    var label: String { "\(rawValue) " + L("unit.min", "мин") }
-}

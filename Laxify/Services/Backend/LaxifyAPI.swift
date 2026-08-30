@@ -343,22 +343,6 @@ actor LaxifyAPI {
         _ = try await send("/me/playback", method: "POST", body: Body(events: events)) as BackendStats
     }
 
-    func registerDownload(song: Song, sizeBytes: Int) async throws {
-        struct Body: Encodable {
-            let track: BackendTrack
-            let sizeBytes: Int
-        }
-        _ = try await send(
-            "/me/downloads",
-            method: "PUT",
-            body: Body(track: BackendTrack(song: song), sizeBytes: sizeBytes)
-        ) as MessageResponse
-    }
-
-    func removeDownload(trackId: String) async throws {
-        _ = try await send("/me/downloads/\(trackId)", method: "DELETE") as MessageResponse
-    }
-
     func stats() async throws -> BackendStats {
         try await send("/me/stats", method: "GET")
     }

@@ -45,7 +45,6 @@ enum LocalStateReset {
         SyncOutbox.shared.clear()
 
         ListeningStatsService.shared.reset()
-        DownloadManager.shared.removeAll()
         AudioPlayerController.shared.stopAndClear()
 
         clearStore(context)

@@ -18,7 +18,6 @@ final class AudioPlayerController {
     private(set) var duration: TimeInterval = 0
     private(set) var errorMessage: String?
     private(set) var playbackRate: Double = 1.0
-    private(set) var sleepTimerDeadline: Date?
 
     var hasNext: Bool { currentIndex + 1 < queue.count }
     var hasPrevious: Bool { currentIndex > 0 }
@@ -40,7 +39,6 @@ final class AudioPlayerController {
     /// elapsed time + rate; if it is only pushed on play/pause/seek it drifts
     /// (stalls, buffering) and the bar sticks. Re-push on a short interval.
     private var lastNowPlayingPush: Date = .distantPast
-    private var sleepTimerTask: Task<Void, Never>?
 
     // Crossfade: a second player fades in over the tail of the current one.
     private var crossfadePlayer: AVPlayer?
@@ -227,31 +225,6 @@ final class AudioPlayerController {
         }
     }
 
-    func setSleepTimer(minutes: Int) {
-        sleepTimerTask?.cancel()
-        let totalSeconds = minutes * 60
-        sleepTimerDeadline = Date().addingTimeInterval(TimeInterval(totalSeconds))
-        sleepTimerTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(totalSeconds))
-            guard !Task.isCancelled else { return }
-            self?.pauseForSleepTimer()
-        }
-    }
-
-    func cancelSleepTimer() {
-        sleepTimerTask?.cancel()
-        sleepTimerTask = nil
-        sleepTimerDeadline = nil
-    }
-
-    private func pauseForSleepTimer() {
-        player?.pause()
-        isPlaying = false
-        sleepTimerTask = nil
-        sleepTimerDeadline = nil
-        updateNowPlayingInfo()
-    }
-
     /// Tracks the source refused within the current queue, so a skip chain
     /// terminates instead of cycling through the same dead entries.
     /// What happens when the queue reaches its end.
@@ -364,19 +337,11 @@ final class AudioPlayerController {
                 // whose address is known without asking. Resolving a url first
                 // and then having the server resolve it again was most of the
                 // wait between a tap and the first sound.
-                let item: AVPlayerItem
-                if let local = DownloadManager.shared.localURL(for: song.id) {
-                    AppLogger.log("play: using downloaded file")
-                    item = AVPlayerItem(url: local)
-                    streamLoader = nil
-                } else {
-                    let (streamed, loader) = try await Self.streamingItem(for: song.id)
-                    item = streamed
-                    // Held so the download can be stopped when the track
-                    // changes; a loader with nothing referencing it is
-                    // deallocated mid-flight.
-                    streamLoader = loader
-                }
+                let (item, loader) = try await Self.streamingItem(for: song.id)
+                // Held so the download can be stopped when the track changes;
+                // a loader with nothing referencing it is deallocated
+                // mid-flight.
+                streamLoader = loader
                 trace.mark("ассет создан")
 
                 guard currentSong?.id == song.id else {
@@ -515,7 +480,6 @@ final class AudioPlayerController {
     private func prefetchNext() {
         guard queue.indices.contains(currentIndex + 1) else { return }
         let nextId = queue[currentIndex + 1].id
-        guard DownloadManager.shared.localURL(for: nextId) == nil else { return }
 
         Task.detached(priority: .background) {
             _ = try? await SoundCloudDirect.shared.streamURL(for: nextId)
