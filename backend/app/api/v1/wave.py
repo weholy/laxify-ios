@@ -921,12 +921,30 @@ async def similar(track_id: str, user: CurrentUser, limit: int = Query(30, ge=1,
 # turn over, long enough that opening the app twice in a minute costs one
 # assembly rather than two.
 FEED_TTL = 10 * 60
+
+# How long the whole assembly gets before the feed is served with whatever
+# rows are ready.
+BUILD_BUDGET = 4.0
+
+# Past the TTL a cached feed is still served — immediately — and rebuilt
+# behind the request. Nobody waits for a refresh of something they can
+# already see.
+FEED_STALE_TTL = 60 * 60
+
 _feed_cache: dict[str, tuple["FeedResponse", float]] = {}
+_feed_refreshing: set[str] = set()
 
 
 def _feed_cache_get(user_id) -> "FeedResponse | None":
     hit = _feed_cache.get(str(user_id))
     if hit and time.monotonic() - hit[1] < FEED_TTL:
+        return hit[0]
+    return None
+
+
+def _feed_cache_stale(user_id) -> "FeedResponse | None":
+    hit = _feed_cache.get(str(user_id))
+    if hit and time.monotonic() - hit[1] < FEED_STALE_TTL:
         return hit[0]
     return None
 
@@ -938,6 +956,20 @@ def _feed_cache_put(user_id, response: "FeedResponse") -> None:
         oldest = sorted(_feed_cache.items(), key=lambda kv: kv[1][1])[:100]
         for key, _ in oldest:
             _feed_cache.pop(key, None)
+
+
+async def _rebuild_feed(user, key: str) -> None:
+    """Refresh a stale feed on its own connection, after the response went out."""
+    from app.db.session import SessionLocal
+
+    try:
+        _feed_cache.pop(key, None)
+        async with SessionLocal() as session:
+            await home_feed(user=user, session=session)
+    except Exception:  # noqa: BLE001 — nobody is waiting on this
+        pass
+    finally:
+        _feed_refreshing.discard(key)
 
 
 def _snapshot_track(snap: TrackSnapshot) -> CatalogTrack:
@@ -1114,6 +1146,15 @@ async def home_feed(user: CurrentUser, session: SessionDep) -> FeedResponse:
     if cached := _feed_cache_get(user.id):
         return cached
 
+    # Past the TTL but still recent: serve it now and rebuild behind the
+    # request, so only the very first open of a session ever waits.
+    if stale := _feed_cache_stale(user.id):
+        key = str(user.id)
+        if key not in _feed_refreshing:
+            _feed_refreshing.add(key)
+            asyncio.create_task(_rebuild_feed(user, key))
+        return stale
+
     # The rows that need the station pool and the ones that don't are started
     # together: the pool is the slowest part, and waiting for it before even
     # asking for the chart doubled the wait for no reason.
@@ -1131,17 +1172,31 @@ async def home_feed(user: CurrentUser, session: SessionDep) -> FeedResponse:
         )
         return [r for r in results if isinstance(r, FeedBlock)]
 
-    gathered = await asyncio.gather(
-        personal_rows(),
-        _block_dejavu(session, user.id),
-        _block_premiere(session, user.id),
-        _block_charts(),
-        _block_genre_mix(),
-        return_exceptions=True,
-    )
+    # A hard deadline on the whole assembly. Whatever is ready by then is the
+    # feed; the rest lands in the cache for the next open. A home screen that
+    # appears in four seconds with four rows beats one that appears in ten
+    # with five.
+    tasks = [
+        asyncio.create_task(personal_rows()),
+        asyncio.create_task(_block_dejavu(session, user.id)),
+        asyncio.create_task(_block_premiere(session, user.id)),
+        asyncio.create_task(_block_charts()),
+        asyncio.create_task(_block_genre_mix()),
+    ]
+    done, pending = await asyncio.wait(tasks, timeout=BUILD_BUDGET)
+    for task in pending:
+        task.cancel()
 
-    personal = gathered[0] if isinstance(gathered[0], list) else []
-    rest = [b for b in gathered[1:] if isinstance(b, FeedBlock)]
+    personal: list[FeedBlock] = []
+    rest: list[FeedBlock] = []
+    for task in done:
+        if task.cancelled() or task.exception() is not None:
+            continue
+        value = task.result()
+        if isinstance(value, list):
+            personal = value
+        elif isinstance(value, FeedBlock):
+            rest.append(value)
 
     # Order is the point of the feed, so it is imposed here rather than
     # falling out of which upstream answered first.
