@@ -61,8 +61,9 @@ final class LiveActivityController {
     func stop() {
         guard activity != nil else { return }
         lastKey = ""
-        let ending = activity
-        activity = nil
-        Task { await ending?.end(nil, dismissalPolicy: .immediate) }
+        Task {
+            await activity?.end(nil, dismissalPolicy: .immediate)
+            activity = nil
+        }
     }
 }
