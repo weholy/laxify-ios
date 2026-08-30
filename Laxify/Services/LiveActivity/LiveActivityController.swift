@@ -13,7 +13,11 @@ final class LiveActivityController {
     static let shared = LiveActivityController()
     private init() {}
 
-    private var activity: Activity<NowPlayingActivityAttributes>?
+    // Written and read only on the main actor (every entry point is
+    // main-actor). `nonisolated(unsafe)` just lets the handle be handed to
+    // ActivityKit's own async methods without the region checker treating it
+    // as escaping the main actor.
+    nonisolated(unsafe) private var activity: Activity<NowPlayingActivityAttributes>?
     private var lastPush: Date = .distantPast
     private var lastKey = ""
 
@@ -30,9 +34,9 @@ final class LiveActivityController {
             progress: progress
         )
         let key = "\(state.title)|\(state.artist)|\(state.isPlaying)"
+        let content = ActivityContent(state: state, staleDate: nil)
 
-        guard let activity else {
-            let content = ActivityContent(state: state, staleDate: nil)
+        guard activity != nil else {
             do {
                 activity = try Activity.request(
                     attributes: NowPlayingActivityAttributes(),
@@ -51,15 +55,14 @@ final class LiveActivityController {
         guard key != lastKey || Date().timeIntervalSince(lastPush) > 4 else { return }
         lastPush = Date()
         lastKey = key
-
-        let content = ActivityContent(state: state, staleDate: nil)
-        Task { [activity] in await activity.update(content) }
+        Task { await activity?.update(content) }
     }
 
     func stop() {
-        guard let activity else { return }
-        self.activity = nil
+        guard activity != nil else { return }
         lastKey = ""
-        Task { [activity] in await activity.end(nil, dismissalPolicy: .immediate) }
+        let ending = activity
+        activity = nil
+        Task { await ending?.end(nil, dismissalPolicy: .immediate) }
     }
 }
