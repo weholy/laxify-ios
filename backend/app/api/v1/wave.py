@@ -33,7 +33,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, desc, func, select
+from sqlalchemy import delete, desc, func, or_, select
 
 from app.api.deps import CurrentUser, SessionDep
 from app.api.v1.catalog import CatalogTrack, normalise_track
@@ -44,7 +44,6 @@ from app.models import (
     TrackSnapshot,
     WaveSession,
 )
-from app.services import authenticity
 from app.services.playability import filter_playable
 from app.services.soundcloud import SoundCloudError, soundcloud
 
@@ -59,8 +58,8 @@ BUFFER_REFILL_BELOW = 22
 # rather than run the buffer dry once the station pool is exhausted.
 SERVED_CAP = 600
 
-SEED_LIMIT = 12
-RECENT_EXCLUSION_DAYS = 3
+SEED_LIMIT = 8
+RECENT_EXCLUSION_DAYS = 2
 
 # Yandex limits free skips to a handful an hour. We aren't gating a
 # subscription — the cap only exists so a burst of angry skips doesn't tear the
@@ -182,16 +181,35 @@ class HomeResponse(BaseModel):
 
 
 async def _seed_track_ids(session, user_id, *, extra: list[str] | None = None) -> list[str]:
-    """Track ids to seed stations from: this session's finishes first, then
-    recent likes, then recent plays."""
-    seeds: list[str] = list(extra or [])
+    """A few strong track ids to grow stations from.
+
+    Fewer than before and better chosen: a track the listener actually
+    *finished* recently is a far stronger "more like this" signal than a like
+    from a year ago, so those come first, then recent likes, then any recent
+    play. Session finishes / likes (``extra``) lead.
+    """
+    seeds: list[str] = list(dict.fromkeys(extra or []))
+    month_ago = datetime.now(UTC) - timedelta(days=30)
+
+    finished = (
+        await session.scalars(
+            select(ListeningEvent.track_id)
+            .where(
+                ListeningEvent.user_id == user_id,
+                ListeningEvent.played_at >= month_ago,
+                or_(ListeningEvent.completed.is_(True), ListeningEvent.seconds_played >= 60),
+            )
+            .order_by(desc(ListeningEvent.played_at))
+            .limit(40)
+        )
+    ).all()
 
     liked = (
         await session.scalars(
             select(Favorite.track_id)
             .where(Favorite.user_id == user_id)
             .order_by(desc(Favorite.added_at))
-            .limit(SEED_LIMIT)
+            .limit(20)
         )
     ).all()
 
@@ -200,17 +218,17 @@ async def _seed_track_ids(session, user_id, *, extra: list[str] | None = None) -
             select(ListeningEvent.track_id)
             .where(ListeningEvent.user_id == user_id, ListeningEvent.seconds_played >= 30)
             .order_by(desc(ListeningEvent.played_at))
-            .limit(SEED_LIMIT * 3)
+            .limit(40)
         )
     ).all()
 
-    for track_id in list(liked) + list(played):
+    for track_id in [*finished, *liked, *played]:
         if track_id and track_id not in seeds:
             seeds.append(track_id)
         if len(seeds) >= SEED_LIMIT:
             break
 
-    return seeds
+    return seeds[:SEED_LIMIT]
 
 
 async def _taste_artist_ids(session, user_id) -> set[str]:
@@ -240,7 +258,30 @@ async def _taste_artist_ids(session, user_id) -> set[str]:
     return {a for a in list(fav_artists) + list(heard_artists) if a}
 
 
+async def _taste_genres(session, user_id) -> list[str]:
+    """The genres the listener plays most — used to keep the discovery
+    fallback in their world instead of dropping to the global chart."""
+    rows = (
+        await session.execute(
+            select(TrackSnapshot.genre, func.count().label("n"))
+            .join(ListeningEvent, ListeningEvent.track_id == TrackSnapshot.track_id)
+            .where(
+                ListeningEvent.user_id == user_id,
+                TrackSnapshot.genre.is_not(None),
+                TrackSnapshot.genre != "",
+            )
+            .group_by(TrackSnapshot.genre)
+            .order_by(desc("n"))
+            .limit(5)
+        )
+    ).all()
+    return [row[0] for row in rows if row[0]]
+
+
 async def _excluded_track_ids(session, user_id) -> set[str]:
+    """Disliked tracks always; tracks played in the last couple of days for
+    freshness — but not the listener's own favourites, which a wave is allowed
+    to bring back round now and then the way Yandex's does."""
     disliked = set(
         (
             await session.scalars(
@@ -259,7 +300,14 @@ async def _excluded_track_ids(session, user_id) -> set[str]:
             )
         ).all()
     )
-    return disliked | recent
+    liked = set(
+        (
+            await session.scalars(
+                select(Favorite.track_id).where(Favorite.user_id == user_id)
+            )
+        ).all()
+    )
+    return disliked | (recent - liked)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -275,8 +323,14 @@ def _rotating_genres(count: int) -> list[str]:
     return [DISCOVERY_GENRES[(start + offset) % len(DISCOVERY_GENRES)] for offset in range(count)]
 
 
-async def _discovery_tracks(limit: int) -> list[dict]:
-    """Popular music, for when there is no history to build a station from."""
+async def _discovery_tracks(limit: int, genres: list[str] | None = None) -> list[dict]:
+    """Top-up when the stations come back thin.
+
+    The listener's own top genres first, so a short history still keeps the
+    wave in their lane; the rotating spread next; the global chart only as a
+    last resort — dropping straight to the chart was most of why the wave
+    drifted generic after a few refills.
+    """
     collected: list[dict] = []
     seen: set[str] = set()
 
@@ -287,45 +341,57 @@ async def _discovery_tracks(limit: int) -> list[dict]:
                 seen.add(track_id)
                 collected.append(raw)
 
-    take(await soundcloud.charts(limit=limit * 2))
+    for genre in (genres or [])[:3]:
+        take(await soundcloud.genre_tracks(genre, limit=limit))
+        if len(collected) >= limit:
+            return collected[:limit]
+
+    for genre in _rotating_genres(3):
+        take(await soundcloud.genre_tracks(genre, limit=limit))
+        if len(collected) >= limit:
+            return collected[:limit]
+
     if len(collected) < limit:
-        for genre in _rotating_genres(3):
-            take(await soundcloud.genre_tracks(genre, limit=limit))
-            if len(collected) >= limit:
-                break
+        take(await soundcloud.charts(limit=limit * 2))
     return collected[:limit]
 
 
 async def _station_pool(seeds: list[str], want: int) -> list[dict]:
-    """Raw SoundCloud tracks from the stations of several seeds at once."""
+    """Raw SoundCloud tracks from the stations of several seeds at once.
+
+    Pulls deep from each station and then *interleaves* the results, so the
+    front of the pool is a round-robin across every seed rather than the top
+    few of the first station — which on SoundCloud are usually the same
+    artist several times over.
+    """
     if not seeds:
         return []
 
-    per_seed = max(8, (want * 2) // max(len(seeds), 1))
+    per_seed = max(16, (want * 3) // max(len(seeds), 1))
     sem = asyncio.Semaphore(6)
 
     async def one(seed: str) -> list[dict]:
         async with sem:
             try:
-                return await soundcloud.station_tracks(seed, limit=40)
+                return await soundcloud.station_tracks(seed, limit=50)
             except SoundCloudError:
                 return []
 
     batches = await asyncio.gather(*(one(seed) for seed in seeds))
+    trimmed = [batch[:per_seed] for batch in batches]
 
     pool: list[dict] = []
     seen: set[str] = set()
-    for batch in batches:
-        taken = 0
-        for raw in batch:
+    for rank in range(per_seed):
+        for batch in trimmed:
+            if rank >= len(batch):
+                continue
+            raw = batch[rank]
             track_id = str(raw.get("id"))
             if not track_id or track_id in seen:
                 continue
             seen.add(track_id)
             pool.append(raw)
-            taken += 1
-            if taken >= per_seed:
-                break
     return pool
 
 
@@ -356,16 +422,23 @@ def _is_russian(raw: dict) -> bool:
     return bool(_RU_GENRE_HINT.search(_text_of(raw)))
 
 
+_TOKEN_SPLIT = re.compile(r"[\s,/|_\-]+")
+
+
 def _bias_to_front(items: list[dict], wanted: list[str]) -> list[dict]:
-    """Stable partition: tracks matching any wanted genre/tag keep their order
-    but move ahead of the ones that don't."""
+    """Stable partition: tracks whose genre/tags contain one of `wanted` as a
+    whole word keep their order but move ahead of the ones that don't.
+
+    Whole word, not substring — "sad" was matching "sadie", "casa", "usada"…
+    which is how the mood dials ended up meaning almost nothing.
+    """
     if not wanted:
         return items
-    flat = [w.replace("-", "") for w in wanted]
+    wanted_set = {w.replace("-", "").lower() for w in wanted}
 
     def matches(raw: dict) -> bool:
-        text = _text_of(raw).replace(" ", "").replace("-", "")
-        return any(w in text for w in flat)
+        tokens = {t.replace("-", "") for t in _TOKEN_SPLIT.split(_text_of(raw)) if t}
+        return bool(wanted_set & tokens)
 
     lead = [r for r in items if matches(r)]
     rest = [r for r in items if not matches(r)]
@@ -395,7 +468,11 @@ def _apply_diversity(
     if diversity == "discover":
         # Least familiar and least played first.
         return sorted(items, key=lambda r: (known(r), plays(r)))
-    rng.shuffle(items)
+
+    # default — keep the order the stations returned (ranked by how close a
+    # track sounds to the seeds). Shuffling it away was most of why the wave
+    # felt random rather than "like what I was listening to". `_spread_artists`
+    # afterwards is enough to break up long runs by one artist.
     return items
 
 
@@ -416,7 +493,6 @@ def _spread_artists(items: list[dict], max_per_artist: int = 2) -> list[dict]:
 
 
 async def _shape(
-    db_session,
     pool: list[dict],
     *,
     settings: dict,
@@ -426,21 +502,20 @@ async def _shape(
     want: int,
     rng: random.Random,
 ) -> list[CatalogTrack]:
-    """The full pipeline from raw pool to a finished run of CatalogTracks."""
+    """The full pipeline from raw pool to a finished run of CatalogTracks.
+
+    Note there is deliberately no reference-artist filter here. That test — is
+    this the real artist and not an account borrowing the name — is for search
+    and the library, where the wrong "Lil Peep" is a real problem. A discovery
+    wave is the opposite case: hiding good music because Deezer has never heard
+    of whoever uploaded it is how the wave ends up thin and generic.
+    """
     fresh = [
         raw
         for raw in pool
         if str(raw.get("id")) not in exclude_ids
         and str((raw.get("user") or {}).get("id") or "") not in suppressed_artists
     ]
-
-    # Hide accounts that only borrow a real artist's name — the same test the
-    # rest of the catalogue uses. It no-ops until the reference list is big
-    # enough, and backs off if it would empty the run.
-    try:
-        fresh = await authenticity.filter_tracks(db_session, fresh)
-    except Exception:  # noqa: BLE001 — the reference pass is best-effort
-        pass
 
     fresh = _apply_language(fresh, settings.get("language", "any"))
     fresh = _bias_to_front(fresh, ACTIVITY_GENRES.get(settings.get("activity", "none"), []))
@@ -509,11 +584,10 @@ async def _fill(
 
     pool = await _station_pool(seeds, want * 3)
     if len({str(r.get("id")) for r in pool} - exclude) < want:
-        pool += await _discovery_tracks(want * 2)
+        pool += await _discovery_tracks(want * 2, genres=await _taste_genres(db, user_id))
 
     rng = random.Random(f"{user_id}:{len(sess.served or [])}:{int(time.time() // 900)}")
     tracks = await _shape(
-        db,
         pool,
         settings=settings,
         taste_artists=taste_artists,
@@ -749,7 +823,7 @@ async def personal_wave(
 
     pool = await _station_pool(seeds, limit * 3)
     if len({str(r.get("id")) for r in pool} - exclude) < limit:
-        pool += await _discovery_tracks(limit * 2)
+        pool += await _discovery_tracks(limit * 2, genres=await _taste_genres(session, user.id))
 
     if not pool:
         raise HTTPException(
@@ -759,7 +833,6 @@ async def personal_wave(
 
     rng = random.Random(f"{user.id}:{int(time.time() // 900)}")
     tracks = await _shape(
-        session,
         pool,
         settings={
             "mood_energy": mood,
@@ -816,7 +889,6 @@ async def _block_playlist_of_the_day(
 ) -> FeedBlock | None:
     """A personal set that is the same all day and different tomorrow."""
     tracks = await _shape(
-        session,
         pool,
         settings=dict(DEFAULT_SETTINGS),
         taste_artists=await _taste_artist_ids(session, user_id),
@@ -967,7 +1039,7 @@ async def home_feed(user: CurrentUser, session: SessionDep) -> FeedResponse:
     seeds = await _seed_track_ids(session, user.id)
     pool = await _station_pool(seeds, 120)
     if len(pool) < 40:
-        pool += await _discovery_tracks(80)
+        pool += await _discovery_tracks(80, genres=await _taste_genres(session, user.id))
 
     today = date.today().isoformat()
     day_rng = random.Random(f"{user.id}:{today}")
