@@ -7,6 +7,7 @@ actually heard — a skip after three seconds does not count the same as a
 full listen.
 """
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Query
@@ -14,8 +15,8 @@ from pydantic import BaseModel
 from sqlalchemy import and_, desc, distinct, func, select, text
 
 from app.api.deps import CurrentUser, SessionDep
-from app.services import catalog_meta
-from app.models import ListeningEvent, TrackSnapshot
+from app.services import catalog_meta, spotify_meta
+from app.models import ListeningEvent, TrackMeta, TrackSnapshot
 
 router = APIRouter(prefix="/replay", tags=["replay"])
 
@@ -106,22 +107,65 @@ def _apply_meta_to_top_track(track, meta) -> None:
         track.artwork_url = meta.cover_url
 
 
-def _relabel_artists(top_artists: list, top_tracks: list, snapshots: dict) -> None:
-    """Carry the enriched names across to the artist list.
+async def _relabel_artists(session, top_artists: list, snapshots: dict) -> None:
+    """Give the artist list Spotify's names and photos.
 
-    The two lists are counted separately but describe the same listening, so
-    an artist named one way in one and another way in the other reads as a
-    bug. Matched by the SoundCloud name the snapshot recorded.
+    Counted from the same listening as the tracks, so an artist spelled one
+    way here and another way there reads as a bug. Each artist is matched
+    through any of their tracks that has a Spotify twin, and the photo comes
+    from Spotify itself rather than from a track's cover.
     """
-    renamed: dict[str, tuple[str, str | None]] = {}
-    for track in top_tracks:
-        snapshot = snapshots.get(track.id)
-        if snapshot and snapshot.artist_id and track.artist_name:
-            renamed.setdefault(snapshot.artist_id, (track.artist_name, track.artwork_url))
+    if not top_artists:
+        return
+
+    # A SoundCloud artist id -> one of their track ids, so the artist can be
+    # looked up through the track_meta rows we already keep.
+    track_ids_by_artist: dict[str, list[str]] = {}
+    for snapshot in snapshots.values():
+        if snapshot.artist_id:
+            track_ids_by_artist.setdefault(snapshot.artist_id, []).append(snapshot.track_id)
+
+    wanted = {a.id for a in top_artists} & track_ids_by_artist.keys()
+    if not wanted:
+        return
+
+    every_track = [tid for aid in wanted for tid in track_ids_by_artist[aid]]
+    rows = (
+        await session.scalars(
+            select(TrackMeta).where(
+                TrackMeta.sc_track_id.in_(every_track), TrackMeta.matched.is_(True)
+            )
+        )
+    ).all()
+    meta_by_track = {row.sc_track_id: row for row in rows}
+
+    resolved: dict[str, tuple[str, str | None]] = {}
+    for artist_id in wanted:
+        for track_id in track_ids_by_artist[artist_id]:
+            meta = meta_by_track.get(track_id)
+            if meta and meta.artist_name:
+                resolved[artist_id] = (meta.artist_name, meta.artist_id)
+                break
+
+    # One Spotify lookup per artist for the photo, in parallel and best-effort.
+    async def photo(spotify_artist_id: str) -> str | None:
+        info = await spotify_meta.artist(spotify_artist_id)
+        return (info or {}).get("image_url")
+
+    ids = [(aid, sp_id) for aid, (_, sp_id) in resolved.items() if sp_id]
+    images = dict(
+        zip(
+            [aid for aid, _ in ids],
+            await asyncio.gather(*(photo(sp) for _, sp in ids), return_exceptions=True),
+        )
+    )
 
     for artist in top_artists:
-        if pair := renamed.get(artist.id):
+        if pair := resolved.get(artist.id):
             artist.name = pair[0]
+        image = images.get(artist.id)
+        if isinstance(image, str) and image:
+            artist.artwork_url = image
 
 
 def _title(period_id: str) -> tuple[str, str]:
@@ -315,7 +359,7 @@ async def summary(
         id_of=lambda t: t.id,
         apply=_apply_meta_to_top_track,
     )
-    _relabel_artists(top_artists, top_tracks, snapshots)
+    await _relabel_artists(session, top_artists, snapshots)
 
     return ReplaySummary(
         period=Period(id=period, title=title, short_title=short),

@@ -369,6 +369,53 @@ async def _discovery_tracks(limit: int, genres: list[str] | None = None) -> list
     return collected[:limit]
 
 
+async def _related_pool(taste_artists: set[str], want: int, *, budget: float = 2.5) -> list[dict]:
+    """Tracks by artists adjacent to the ones the listener plays.
+
+    A track station tends to answer with more of the same artist, so a wave
+    built only from stations circles the library. This reaches one step out —
+    the artists the source associates with theirs — which is where the
+    unfamiliar half of the run comes from.
+    """
+    if not taste_artists:
+        return []
+
+    sem = asyncio.Semaphore(6)
+
+    async def neighbours(artist_id: str) -> list[dict]:
+        async with sem:
+            try:
+                related = await soundcloud.related_artists(artist_id, limit=6)
+            except SoundCloudError:
+                return []
+        picks = [str(a["id"]) for a in related if a.get("id")][:3]
+        out: list[dict] = []
+        for other in picks:
+            try:
+                out += await soundcloud.user_tracks(other, limit=5)
+            except SoundCloudError:
+                continue
+        return out
+
+    seeds = list(taste_artists)[:5]
+    tasks = [asyncio.create_task(neighbours(a)) for a in seeds]
+    done, pending = await asyncio.wait(tasks, timeout=budget)
+    for task in pending:
+        task.cancel()
+
+    pool: list[dict] = []
+    seen: set[str] = set()
+    for task in done:
+        if task.cancelled() or task.exception() is not None:
+            continue
+        for raw in task.result():
+            track_id = str(raw.get("id"))
+            if track_id and track_id not in seen:
+                seen.add(track_id)
+                pool.append(raw)
+    return pool[:want]
+
+
 async def _known_pool(session, user_id, want: int, exclude: set[str]) -> list[dict]:
     """A pool built from tracks we already hold, for when the source is out.
 
@@ -515,25 +562,69 @@ def _apply_language(items: list[dict], language: str) -> list[dict]:
     return items
 
 
+# What share of a default run may be artists the listener already plays. A
+# wave made only of those is a library on shuffle; one made only of strangers
+# is a radio station. Yandex sits around here, and it is what makes theirs
+# feel like a wave rather than a playlist.
+FAMILIAR_SHARE = {
+    "default": 0.4,
+    "favorite": 0.75,
+    "popular": 0.5,
+    "discover": 0.15,
+}
+
+
+def _blend_familiar(
+    items: list[dict], taste_artists: set[str], share: float
+) -> list[dict]:
+    """Interleave known and unknown artists to roughly the given share.
+
+    Both sides keep the order they arrived in, so the closest-sounding track
+    still leads its own group; only the alternation is imposed. Whichever side
+    runs out, the other simply continues — a listener with no history gets all
+    discovery, and one whose pool is entirely familiar still gets a full run.
+    """
+    known = [r for r in items if str((r.get("user") or {}).get("id") or "") in taste_artists]
+    fresh = [r for r in items if str((r.get("user") or {}).get("id") or "") not in taste_artists]
+    if not known or not fresh:
+        return items
+
+    out: list[dict] = []
+    known_i = fresh_i = 0
+    while known_i < len(known) or fresh_i < len(fresh):
+        placed = len(out)
+        want_known = (
+            known_i < len(known)
+            and (fresh_i >= len(fresh) or (placed * share) >= known_i)
+        )
+        if want_known:
+            out.append(known[known_i])
+            known_i += 1
+        elif fresh_i < len(fresh):
+            out.append(fresh[fresh_i])
+            fresh_i += 1
+        else:
+            out.append(known[known_i])
+            known_i += 1
+    return out
+
+
 def _apply_diversity(
     items: list[dict], diversity: str, taste_artists: set[str], rng: random.Random
 ) -> list[dict]:
     plays = lambda raw: raw.get("playback_count") or 0
-    known = lambda raw: str((raw.get("user") or {}).get("id") or "") in taste_artists
 
     if diversity == "popular":
-        return sorted(items, key=plays, reverse=True)
-    if diversity == "favorite":
-        return sorted(items, key=lambda r: (known(r), -plays(r)), reverse=True)
-    if diversity == "discover":
-        # Least familiar and least played first.
-        return sorted(items, key=lambda r: (known(r), plays(r)))
+        items = sorted(items, key=plays, reverse=True)
+    elif diversity == "discover":
+        # Least played first, so the run leads with things unlikely to be
+        # already known.
+        items = sorted(items, key=plays)
+    # "favorite" and "default" keep the order the stations returned — ranked
+    # by how close a track sounds to the seeds. Shuffling that away was most
+    # of why the wave felt random rather than "like what I was listening to".
 
-    # default — keep the order the stations returned (ranked by how close a
-    # track sounds to the seeds). Shuffling it away was most of why the wave
-    # felt random rather than "like what I was listening to". `_spread_artists`
-    # afterwards is enough to break up long runs by one artist.
-    return items
+    return _blend_familiar(items, taste_artists, FAMILIAR_SHARE.get(diversity, 0.4))
 
 
 def _spread_artists(items: list[dict], max_per_artist: int = 2) -> list[dict]:
@@ -647,7 +738,11 @@ async def _fill(
     exclude = served | await _excluded_track_ids(db, user_id)
     taste_artists = await _taste_artist_ids(db, user_id)
 
-    pool = await _station_pool(seeds, want * 3)
+    stations, related = await asyncio.gather(
+        _station_pool(seeds, want * 3),
+        _related_pool(taste_artists, want * 2),
+    )
+    pool = stations + related
     if len({str(r.get("id")) for r in pool} - exclude) < want:
         pool += await _discovery_tracks(want * 2, genres=await _taste_genres(db, user_id))
     if len({str(r.get("id")) for r in pool} - exclude) < want:
@@ -893,7 +988,13 @@ async def build_wave(
     exclude = await _excluded_track_ids(session, user_id) if exclude_recent else set()
     taste_artists = await _taste_artist_ids(session, user_id)
 
-    pool = await _station_pool(seeds, limit * 3)
+    # Stations for what sounds like the seeds, neighbours for what does not —
+    # gathered together, since the run needs both halves.
+    stations, related = await asyncio.gather(
+        _station_pool(seeds, limit * 3),
+        _related_pool(taste_artists, limit * 2),
+    )
+    pool = stations + related
     if len({str(r.get("id")) for r in pool} - exclude) < limit:
         pool += await _discovery_tracks(limit * 2, genres=await _taste_genres(session, user_id))
 
