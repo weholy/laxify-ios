@@ -77,6 +77,13 @@ def _track_dict(tr) -> dict:
         "title": tr.name or "",
         "artist_name": _artist_ref_names(tr.artists) or "",
         "artist_id": _spotify_id(getattr(primary, "uri", None), getattr(primary, "id", "") or ""),
+        # Every credited artist, so a track can be attributed to a featured
+        # artist as well as the lead one.
+        "artist_ids": [
+            _spotify_id(getattr(a, "uri", None), getattr(a, "id", "") or "")
+            for a in (tr.artists or [])
+            if _spotify_id(getattr(a, "uri", None), getattr(a, "id", "") or "")
+        ],
         "album": (tr.album.name if getattr(tr, "album", None) else None),
         "album_id": _spotify_id(getattr(getattr(tr, "album", None), "uri", None)),
         "cover_url": _biggest(tr.images) or _biggest(getattr(getattr(tr, "album", None), "images", None)),
@@ -96,6 +103,8 @@ def _artist_dict(a) -> dict:
 
 
 def _album_dict(al) -> dict:
+    """Works for both a full `Album` and the bare `AlbumRef` a discography
+    listing returns (id / uri / name / images only)."""
     return {
         "id": al.id or _spotify_id(al.uri),
         "title": al.name or "",

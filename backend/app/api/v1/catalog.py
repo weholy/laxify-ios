@@ -627,10 +627,23 @@ _sp_artist_cache: dict[str, tuple[list[dict], float]] = {}
 _SP_ARTIST_TTL = 15 * 60
 
 
+def _credits(track: dict, artist_id: str) -> bool:
+    """Whether this artist is actually credited on the track.
+
+    A discography listing includes compilations and "appears on" releases, so
+    an album's track list is not by itself proof — without this check an
+    artist's page fills up with other people's songs.
+    """
+    ids = track.get("artist_ids") or []
+    if ids:
+        return artist_id in ids
+    return track.get("artist_id") == artist_id
+
+
 async def _spotify_artist_catalogue(artist_id: str) -> list[dict]:
-    """Every track the artist has on Spotify — top tracks first, then each
-    album's tracks, flattened and de-duped. Cached for a while: it is a dozen
-    requests to assemble."""
+    """Every track the artist is credited on — top tracks first, then each
+    album's tracks, flattened, filtered to this artist and de-duped. Cached:
+    it is a few dozen requests to assemble."""
     hit = _sp_artist_cache.get(artist_id)
     if hit and time.monotonic() - hit[1] < _SP_ARTIST_TTL:
         return hit[0]
@@ -640,10 +653,15 @@ async def _spotify_artist_catalogue(artist_id: str) -> list[dict]:
 
     seen: set[str] = set()
     pool: list[dict] = []
-    for tr in top:
-        if tr.get("spotify_id") and tr["spotify_id"] not in seen:
-            seen.add(tr["spotify_id"])
-            pool.append(tr)
+
+    def take(tracks: list[dict]) -> None:
+        for tr in tracks:
+            sid = tr.get("spotify_id")
+            if sid and sid not in seen and _credits(tr, artist_id):
+                seen.add(sid)
+                pool.append(tr)
+
+    take(top)
 
     sem = asyncio.Semaphore(4)
 
@@ -652,11 +670,9 @@ async def _spotify_artist_catalogue(artist_id: str) -> list[dict]:
             full = await spotify_meta.album(al["id"])
         return (full or {}).get("tracks", []) or []
 
-    for tracks in await asyncio.gather(*(one(a) for a in albums)):
-        for tr in tracks:
-            if tr.get("spotify_id") and tr["spotify_id"] not in seen:
-                seen.add(tr["spotify_id"])
-                pool.append(tr)
+    for tracks in await asyncio.gather(*(one(a) for a in albums), return_exceptions=True):
+        if isinstance(tracks, list):
+            take(tracks)
 
     _sp_artist_cache[artist_id] = (pool, time.monotonic())
     return pool
@@ -688,7 +704,9 @@ async def _spotify_artist_detail(session, artist_id: str) -> ArtistDetailRespons
         for a in albums
         if a.get("id") and a.get("title")
     ]
-    releases.sort(key=lambda item: item.year or 0, reverse=True)
+    # Deliberately not re-sorted: a discography listing carries no release
+    # date, so sorting by year would put everything in one bucket and scramble
+    # the order Spotify already returns them in (newest first).
 
     return ArtistDetailResponse(
         artist=artist_obj,

@@ -210,7 +210,8 @@ struct CatalogService: MusicService {
     // MARK: - Tracks
 
     func song(id: String) async throws -> Song {
-        if let direct = try? await SoundCloudDirect.shared.track(id).song {
+        if !Self.isSpotifyId(id),
+           let direct = try? await SoundCloudDirect.shared.track(id).song {
             return direct
         }
 
@@ -249,15 +250,26 @@ struct CatalogService: MusicService {
     func artistTracks(artistId: String, page: Int) async throws -> [Song] {
         let pageSize = 50
 
-        if let direct = try? await SoundCloudDirect.shared.artistTracks(
-            artistId, limit: pageSize, offset: page * pageSize
-        ), !direct.isEmpty {
+        // Only a SoundCloud id means anything to SoundCloud. Asking it about a
+        // Spotify id used to return some unrelated account's uploads, which is
+        // why an artist's page filled up with other people's songs.
+        if !Self.isSpotifyId(artistId),
+           let direct = try? await SoundCloudDirect.shared.artistTracks(
+               artistId, limit: pageSize, offset: page * pageSize
+           ), !direct.isEmpty {
             return direct
         }
 
         return try await api
             .catalogArtistTracks(id: artistId, limit: pageSize, offset: page * pageSize)
             .map(\.song)
+    }
+
+    /// Spotify ids are 22-character base62; SoundCloud ids are all digits.
+    static func isSpotifyId(_ value: String) -> Bool {
+        !value.isEmpty
+            && value.count >= 18
+            && !value.allSatisfy(\.isNumber)
     }
 
     // MARK: - Collections
