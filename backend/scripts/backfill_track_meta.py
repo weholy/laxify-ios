@@ -26,6 +26,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert  # noqa: E402
 from app.db.session import SessionLocal                        # noqa: E402
 from app.models import TrackMeta, TrackSnapshot                # noqa: E402
 from app.services import spotify_meta                          # noqa: E402
+from app.services.catalog_meta import _META_COLS, _meta_row    # noqa: E402
 
 RECHECK_AFTER = timedelta(days=14)
 PAUSE_SECONDS = 0.4        # be gentle on the embed API
@@ -69,13 +70,7 @@ async def main() -> None:
             stmt = pg_insert(TrackMeta).values(batch)
             stmt = stmt.on_conflict_do_update(
                 index_elements=["sc_track_id"],
-                set_={
-                    c: stmt.excluded[c]
-                    for c in (
-                        "matched", "checked_at", "spotify_id", "title",
-                        "artist_name", "artist_id", "album", "album_id", "cover_url",
-                    )
-                },
+                set_={c: stmt.excluded[c] for c in ("matched", "checked_at", *_META_COLS)},
             )
             await session.execute(stmt)
             await session.commit()
@@ -90,23 +85,9 @@ async def main() -> None:
             print(f"  ! {snap.track_id}: {exc}")
             match = None
 
-        row = {
-            "sc_track_id": snap.track_id,
-            "checked_at": datetime.now(UTC),
-            "matched": bool(match),
-        }
         if match:
             matched += 1
-            row.update(
-                spotify_id=match["spotify_id"],
-                title=match["title"],
-                artist_name=match["artist_name"],
-                artist_id=match.get("artist_id"),
-                album=match.get("album"),
-                album_id=match.get("album_id"),
-                cover_url=match.get("cover_url"),
-            )
-        batch.append(row)
+        batch.append(_meta_row(snap.track_id, datetime.now(UTC), match))
 
         if i % COMMIT_EVERY == 0:
             await flush()

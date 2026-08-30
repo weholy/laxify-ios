@@ -31,6 +31,28 @@ _MAX_SCHEDULED = 40
 
 _inflight: set[str] = set()
 
+_META_COLS = (
+    "spotify_id", "title", "artist_name", "artist_id", "album", "album_id", "cover_url",
+)
+
+
+def _meta_row(tid: str, when, match: dict | None) -> dict:
+    """A row for `track_meta` with the full column set every time — a
+    multi-row upsert needs every dict to carry the same keys."""
+    row = {"sc_track_id": tid, "checked_at": when, "matched": bool(match)}
+    row.update({c: None for c in _META_COLS})
+    if match:
+        row.update(
+            spotify_id=match["spotify_id"],
+            title=match["title"],
+            artist_name=match["artist_name"],
+            artist_id=match.get("artist_id"),
+            album=match.get("album"),
+            album_id=match.get("album_id"),
+            cover_url=match.get("cover_url"),
+        )
+    return row
+
 
 def _cover(meta: TrackMeta, fallback: str | None) -> str | None:
     return meta.cover_url or fallback
@@ -110,18 +132,7 @@ async def _resolve_batch(items: list[tuple[str, str, str, float]]) -> None:
                 match = await spotify_meta.match_track(artist, title, dur)
             except Exception:  # noqa: BLE001
                 match = None
-            row = {"sc_track_id": tid, "checked_at": now, "matched": bool(match)}
-            if match:
-                row.update(
-                    spotify_id=match["spotify_id"],
-                    title=match["title"],
-                    artist_name=match["artist_name"],
-                    artist_id=match.get("artist_id"),
-                    album=match.get("album"),
-                    album_id=match.get("album_id"),
-                    cover_url=match.get("cover_url"),
-                )
-            resolved.append(row)
+            resolved.append(_meta_row(tid, now, match))
 
         if resolved:
             async with SessionLocal() as session:
@@ -130,10 +141,7 @@ async def _resolve_batch(items: list[tuple[str, str, str, float]]) -> None:
                     index_elements=["sc_track_id"],
                     set_={
                         c: stmt.excluded[c]
-                        for c in (
-                            "matched", "checked_at", "spotify_id", "title",
-                            "artist_name", "artist_id", "album", "album_id", "cover_url",
-                        )
+                        for c in ("matched", "checked_at", *_META_COLS)
                     },
                 )
                 await session.execute(stmt)
