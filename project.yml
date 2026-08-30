@@ -17,6 +17,7 @@ targets:
     deploymentTarget: "26.0"
     sources:
       - path: Laxify
+      - path: Shared
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.laxify.app
@@ -37,3 +38,24 @@ targets:
       - package: YMAPI
       - package: GoogleSignIn
         product: GoogleSignIn
+      - target: LaxifyWidgets
+
+  LaxifyWidgets:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: LaxifyWidgets
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.laxify.app.widgets
+        PRODUCT_NAME: LaxifyWidgets
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "6.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        INFOPLIST_FILE: LaxifyWidgets/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        SKIP_INSTALL: YES
+        SUPPORTS_MACCATALYST: NO

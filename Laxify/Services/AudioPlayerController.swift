@@ -314,6 +314,7 @@ final class AudioPlayerController {
         errorMessage = nil
         waveBatchId = nil
         unplayableTrackIds.removeAll()
+        LiveActivityController.shared.stop()
         updateNowPlayingInfo()
     }
 
@@ -992,6 +993,7 @@ final class AudioPlayerController {
 
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
         loadArtworkIfNeeded(for: song)
+        LiveActivityController.shared.sync()
     }
 
     /// Downloads the cover once per track and hands it to the system.
