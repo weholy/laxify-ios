@@ -199,6 +199,11 @@ def _rank_artists(query: str, artists: list[dict]) -> list[dict]:
     q_tokens = _tokens(query)
     q_norm = _norm(query)
 
+    def overlap(a_tokens: set[str]) -> float:
+        if not (q_tokens and a_tokens):
+            return 0.0
+        return len(q_tokens & a_tokens) / len(q_tokens | a_tokens)
+
     best: dict[str, dict] = {}
     for a in artists:
         name = a.get("name") or ""
@@ -206,8 +211,9 @@ def _rank_artists(query: str, artists: list[dict]) -> list[dict]:
         if not key:
             continue
         a_tokens = _tokens(name)
-        # No shared word with the query at all — not this artist.
-        if q_tokens and a_tokens and not (q_tokens & a_tokens) and key != q_norm:
+        # Not the same artist unless the name is the query, or shares most of
+        # its words with it. "the weeknd" must not keep "The Weekending".
+        if key != q_norm and overlap(a_tokens) < 0.5:
             continue
         prev = best.get(key)
         weight = (len(a.get("image_url") or "") > 0, a.get("followers") or 0)
@@ -216,10 +222,12 @@ def _rank_artists(query: str, artists: list[dict]) -> list[dict]:
 
     def score(a: dict) -> tuple:
         key = _norm(a.get("name") or "")
-        exact = key == q_norm
-        a_tokens = _tokens(a.get("name") or "")
-        overlap = len(q_tokens & a_tokens) / len(q_tokens | a_tokens) if (q_tokens and a_tokens) else 0
-        return (exact, overlap, bool(a.get("image_url")), a.get("followers") or 0)
+        return (
+            key == q_norm,
+            overlap(_tokens(a.get("name") or "")),
+            bool(a.get("image_url")),
+            a.get("followers") or 0,
+        )
 
     ranked = sorted(best.values(), key=score, reverse=True)
     return [{k: v for k, v in a.items() if k != "_w"} for a in ranked]
