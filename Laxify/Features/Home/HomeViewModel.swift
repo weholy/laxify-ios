@@ -4,6 +4,7 @@ import Foundation
 @Observable
 final class HomeViewModel {
     private(set) var content: HomeContent?
+    private(set) var feed: [WaveFeedBlockDTO] = []
     private(set) var isLoading = false
     private(set) var errorMessage: String?
 
@@ -183,6 +184,15 @@ final class HomeViewModel {
             AsyncCoverImage.prefetchCovers(for: fresh.recommendedTracks, width: 150)
             AsyncCoverImage.prefetchCovers(for: waveTracks, width: 150)
             HomeCache.save(recommended: fresh.recommendedTracks, wave: waveTracks)
+
+            // The Yandex-style shelves (Плейлист дня, Дежавю, Премьера…).
+            // Best-effort: the plain "Для вас" list stands in if it fails.
+            if let blocks = try? await LaxifyAPI.shared.waveFeed().blocks, !blocks.isEmpty {
+                feed = blocks
+                AsyncCoverImage.prefetchCovers(
+                    for: blocks.flatMap { $0.tracks.prefix(6).map(\.song) }, width: 150
+                )
+            }
         } catch MusicServiceError.missingAccessKey {
             errorMessage = "Добавьте ключ доступа в Профиле"
         } catch MusicServiceError.notFound {

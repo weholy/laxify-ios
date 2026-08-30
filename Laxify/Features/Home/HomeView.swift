@@ -102,6 +102,10 @@ struct HomeView: View {
             ProgressView()
                 .frame(maxWidth: .infinity)
                 .padding(.top, 60)
+        } else if !viewModel.feed.isEmpty {
+            ForEach(viewModel.feed) { block in
+                FeedRow(block: block)
+            }
         } else if viewModel.content != nil {
             songCarousel(title: L("home.forYou", "Для вас"), songs: recommendedTracks)
 
