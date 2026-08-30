@@ -25,6 +25,7 @@ listening back, rather than a playlist that was decided in advance.
 """
 
 import asyncio
+import logging
 import random
 import re
 import time
@@ -47,6 +48,8 @@ from app.models import (
 from app.services import catalog_meta
 from app.services.playability import filter_playable
 from app.services.soundcloud import SoundCloudError, soundcloud
+
+logger = logging.getLogger("laxify.wave")
 
 router = APIRouter(prefix="/wave", tags=["wave"])
 
@@ -956,6 +959,62 @@ def _feed_cache_put(user_id, response: "FeedResponse") -> None:
         oldest = sorted(_feed_cache.items(), key=lambda kv: kv[1][1])[:100]
         for key, _ in oldest:
             _feed_cache.pop(key, None)
+
+
+async def warm_feeds(limit: int = 25) -> int:
+    """Build the feed for everyone who has listened recently.
+
+    The first open of a session is the only one that ever waits, and this
+    removes even that: by the time anyone opens the app, their rows are
+    already assembled. Runs at startup and on a slow loop.
+    """
+    from app.db.session import SessionLocal
+    from app.models import User
+
+    warmed = 0
+    try:
+        async with SessionLocal() as session:
+            recent = (
+                await session.scalars(
+                    select(User)
+                    .join(ListeningEvent, ListeningEvent.user_id == User.id)
+                    .where(
+                        ListeningEvent.played_at
+                        >= datetime.now(UTC) - timedelta(days=14)
+                    )
+                    .distinct()
+                    .limit(limit)
+                )
+            ).all()
+
+        for user in recent:
+            if _feed_cache_get(user.id):
+                continue
+            try:
+                async with SessionLocal() as session:
+                    await home_feed(user=user, session=session)
+                warmed += 1
+            except Exception:  # noqa: BLE001 — one bad account must not stop the rest
+                logger.warning("feed warm failed for %s", user.id, exc_info=True)
+            # Gentle: this competes with real requests for the same upstreams.
+            await asyncio.sleep(1.0)
+    except Exception:  # noqa: BLE001
+        logger.warning("feed warm pass failed", exc_info=True)
+    return warmed
+
+
+async def feed_warm_loop() -> None:
+    """Keeps every recent listener's feed inside its TTL, forever."""
+    while True:
+        try:
+            warmed = await warm_feeds()
+            if warmed:
+                logger.info("Прогрето лент: %s", warmed)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            logger.warning("feed warm loop error", exc_info=True)
+        await asyncio.sleep(FEED_TTL // 2)
 
 
 async def _rebuild_feed(user, key: str) -> None:

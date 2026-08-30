@@ -1,5 +1,6 @@
+import asyncio
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,8 +28,17 @@ async def lifespan(app: FastAPI):
             await session.commit()
             logger.info("Добавлено ключей из окружения: %s", added)
 
+    # Assemble the home feed for recent listeners in the background, so the
+    # screen is served from cache rather than built while someone waits.
+    from app.api.v1.wave import feed_warm_loop
+
+    warmer = asyncio.create_task(feed_warm_loop())
+
     yield
 
+    warmer.cancel()
+    with suppress(asyncio.CancelledError):
+        await warmer
     await engine.dispose()
 
 
