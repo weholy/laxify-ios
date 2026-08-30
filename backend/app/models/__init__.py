@@ -6,6 +6,7 @@ from app.models.activity import (
     ListeningEvent,
     ListeningStat,
     SearchHistoryEntry,
+    WaveSession,
     YandexToken,
 )
 from app.models.library import (
@@ -53,5 +54,6 @@ __all__ = [
     "SearchHistoryEntry",
     "TrackSnapshot",
     "User",
+    "WaveSession",
     "YandexToken",
 ]

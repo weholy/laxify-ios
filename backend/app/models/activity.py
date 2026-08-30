@@ -64,6 +64,46 @@ class ListeningStat(Base, TimestampMixin):
     top_tracks: Mapped[list] = mapped_column(JSONB, default=list)
 
 
+class WaveSession(Base, UUIDMixin, TimestampMixin):
+    """One running instance of the personal wave.
+
+    Yandex's rotor is a stateful thing: it hands out a short batch of tracks,
+    remembers what you skipped and finished *inside this listening session*,
+    and reshapes what comes next from that — not from a slow cross-session
+    profile. This row is our equivalent of that session. Its id is the
+    ``batchId`` the client already threads through every wave request.
+
+    A user has at most one live session; starting a new wave replaces it.
+    """
+
+    __tablename__ = "wave_sessions"
+    __table_args__ = (Index("ix_wave_sessions_user", "user_id", "updated_at"),)
+
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    station: Mapped[str] = mapped_column(String(64), default="user:onyourwave")
+
+    # {moodEnergy, diversity, language, activity} — the rotor settings3 body.
+    settings: Mapped[dict] = mapped_column(JSONB, default=dict)
+
+    # Upcoming tracks, already normalised to CatalogTrack shape, so a poll for
+    # "what's next" is answered from here without touching SoundCloud again.
+    queue: Mapped[list] = mapped_column(JSONB, default=list)
+
+    # Recent feedback, newest last: [{trackId, event, seconds, at}]. Capped.
+    history: Mapped[list] = mapped_column(JSONB, default=list)
+
+    # Artists pushed out of this session by a skip or a dislike.
+    suppressed: Mapped[list] = mapped_column(JSONB, default=list)
+    # Artists a like in this session leans the mix towards.
+    favored: Mapped[list] = mapped_column(JSONB, default=list)
+    # Tracks finished in full — the strongest same-session seed there is.
+    boosted: Mapped[list] = mapped_column(JSONB, default=list)
+    # Every track id already handed out, so a run never repeats itself.
+    served: Mapped[list] = mapped_column(JSONB, default=list)
+    # ISO timestamps of skips, pruned to the last hour, for the skip limit.
+    skips: Mapped[list] = mapped_column(JSONB, default=list)
+
+
 class SearchHistoryEntry(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "search_history"
     __table_args__ = (
