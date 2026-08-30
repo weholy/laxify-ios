@@ -23,6 +23,7 @@ from app.api.v1.catalog import (
     normalise_track,
 )
 from app.services.playability import filter_playable
+from app.services import catalog_meta
 from app.services.soundcloud import SoundCloudError, soundcloud
 
 router = APIRouter(prefix="/discover", tags=["discover"])
@@ -142,7 +143,7 @@ async def genre_tracks(
     limit: int = Query(40, ge=1, le=100),
 ) -> list[CatalogTrack]:
     raw = await soundcloud.genre_tracks(genre, limit=limit * 2)
-    return _tracks(await filter_playable(raw, limit))
+    return await catalog_meta.spotify_only(_tracks(await filter_playable(raw, limit)))
 
 
 @router.get("/shelves", response_model=list[Shelf])

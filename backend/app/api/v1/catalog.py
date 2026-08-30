@@ -222,7 +222,7 @@ async def _search_soundcloud(session, q: str, limit: int) -> SearchResponse:
         artist.is_verified = True
 
     tracks = _tracks(await authenticity.filter_tracks(session, results["tracks"]))
-    tracks = await catalog_meta.enrich_catalog_tracks(tracks, hide_unmatched=False)
+    tracks = await catalog_meta.spotify_only(tracks)
 
     return SearchResponse(
         tracks=tracks,
@@ -294,12 +294,14 @@ async def search(
 @router.get("/search/tracks", response_model=list[CatalogTrack])
 async def search_tracks(
     user: CurrentUser,
+    session: SessionDep,
     q: str = Query(min_length=1, max_length=200),
     limit: int = Query(30, ge=1, le=50),
     offset: int = Query(0, ge=0),
 ) -> list[CatalogTrack]:
     try:
-        return _tracks(await soundcloud.search_tracks(q, limit=limit, offset=offset))
+        found = _tracks(await soundcloud.search_tracks(q, limit=limit, offset=offset))
+        return await catalog_meta.spotify_only(found)
     except SoundCloudError as exc:
         raise _guard(exc) from exc
 
@@ -522,7 +524,7 @@ async def artist_tracks(
     name = profile.get("username") or ""
     every = await _artist_catalogue(artist_id, name)
 
-    return _tracks(every[offset : offset + limit])
+    return await catalog_meta.spotify_only(_tracks(every[offset : offset + limit]))
 
 
 _artist_cache: dict[str, tuple[list[dict], float]] = {}
@@ -821,7 +823,7 @@ async def playlist_tracks(
         except SoundCloudError:
             break
 
-    return _tracks(hydrated)
+    return await catalog_meta.spotify_only(_tracks(hydrated))
 
 
 class SourceKey(BaseModel):
@@ -926,4 +928,4 @@ async def charts(
     except SoundCloudError as exc:
         raise _guard(exc) from exc
 
-    return _tracks(await filter_playable(raw, limit))
+    return await catalog_meta.spotify_only(_tracks(await filter_playable(raw, limit)))

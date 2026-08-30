@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from sqlalchemy import and_, desc, distinct, func, select, text
 
 from app.api.deps import CurrentUser, SessionDep
+from app.services import catalog_meta
 from app.models import ListeningEvent, TrackSnapshot
 
 router = APIRouter(prefix="/replay", tags=["replay"])
@@ -93,6 +94,34 @@ def _bounds(period_id: str, offset_minutes: int = 0) -> tuple[datetime | None, d
     start = datetime(year, month, 1, tzinfo=UTC) - shift
     end = datetime(year + (month // 12), (month % 12) + 1, 1, tzinfo=UTC) - shift
     return start, end
+
+
+def _apply_meta_to_top_track(track, meta) -> None:
+    """Spotify's spelling and cover over a statistics row."""
+    if meta.title:
+        track.title = meta.title
+    if meta.artist_name:
+        track.artist_name = meta.artist_name
+    if meta.cover_url:
+        track.artwork_url = meta.cover_url
+
+
+def _relabel_artists(top_artists: list, top_tracks: list, snapshots: dict) -> None:
+    """Carry the enriched names across to the artist list.
+
+    The two lists are counted separately but describe the same listening, so
+    an artist named one way in one and another way in the other reads as a
+    bug. Matched by the SoundCloud name the snapshot recorded.
+    """
+    renamed: dict[str, tuple[str, str | None]] = {}
+    for track in top_tracks:
+        snapshot = snapshots.get(track.id)
+        if snapshot and snapshot.artist_id and track.artist_name:
+            renamed.setdefault(snapshot.artist_id, (track.artist_name, track.artwork_url))
+
+    for artist in top_artists:
+        if pair := renamed.get(artist.id):
+            artist.name = pair[0]
 
 
 def _title(period_id: str) -> tuple[str, str]:
@@ -277,6 +306,16 @@ async def summary(
         )
         for track_id, track_seconds, track_plays in top_track_rows
     ]
+
+    # Statistics show the same names as everywhere else. Nothing is dropped —
+    # a play happened whether or not the proper catalogue knows the upload,
+    # and hiding it would make the totals disagree with the list under them.
+    top_tracks = await catalog_meta.enrich_snapshot_rows(
+        top_tracks,
+        id_of=lambda t: t.id,
+        apply=_apply_meta_to_top_track,
+    )
+    _relabel_artists(top_artists, top_tracks, snapshots)
 
     return ReplaySummary(
         period=Period(id=period, title=title, short_title=short),

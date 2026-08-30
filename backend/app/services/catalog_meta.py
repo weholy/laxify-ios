@@ -259,6 +259,36 @@ async def enrich_catalog_tracks(tracks: list, *, hide_unmatched: bool = True) ->
     )
 
 
+async def spotify_only(tracks: list) -> list:
+    """The single gate every SoundCloud-sourced listing passes through.
+
+    A track the proper catalogue has never heard of does not reach the app at
+    all; everything else is shown with Spotify's spelling and cover. This is
+    what makes the catalogue look like one service rather than two.
+    """
+    return await enrich_catalog_tracks(tracks, hide_unmatched=True)
+
+
+async def enrich_snapshot_rows(rows: list, *, id_of, apply, hide_unmatched: bool = False) -> list:
+    """For anything built from `TrackSnapshot` — statistics, history.
+
+    `apply(row, meta)` receives the row and its Spotify twin. Nothing is
+    hidden by default: a play really happened, and dropping it would make the
+    figures disagree with the history that produced them.
+    """
+    return await enrich(
+        rows,
+        id_of=id_of,
+        name_of=lambda r: (
+            getattr(r, "artist_name", "") or "",
+            getattr(r, "title", "") or "",
+            0,
+        ),
+        apply=apply,
+        hide_unmatched=hide_unmatched,
+    )
+
+
 async def enrich_playlist_detail(detail, *, hide_unmatched: bool = True):
     """For `PlaylistDetailOut` — enriches `.items[].track` in place."""
     detail.items = await enrich(

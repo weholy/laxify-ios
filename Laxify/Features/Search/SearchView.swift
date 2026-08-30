@@ -238,10 +238,13 @@ struct SearchView: View {
                 // Artists first. Someone searching a name is looking for the
                 // person, and a page of their uploads underneath answers that;
                 // the same page above it does not.
+                // Artist first — someone typing a name wants the person, and
+                // a page of their songs under it answers that. Then the
+                // tracks, then the collections they belong to.
                 artistsBlock(results)
                 tracksBlock(results)
-                albumsBlock(results)
                 playlistsBlock(results)
+                albumsBlock(results)
             }
         }
     }

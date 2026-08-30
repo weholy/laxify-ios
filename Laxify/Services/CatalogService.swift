@@ -27,26 +27,12 @@ struct CatalogService: MusicService {
         do {
             return try await homeFromServer()
         } catch {
-            // The server is unreachable on some networks. Charts from the
-            // source are a smaller home screen, but a working one.
-            return try await homeFromSource()
+            // No fallback to the raw source. Its uploads are titled by
+            // whoever posted them, and one screen full of those undoes the
+            // clean catalogue everywhere else — better an empty home with a
+            // retry than a home that looks like a different app.
+            throw error
         }
-    }
-
-    /// What to show when only the source can be reached.
-    private func homeFromSource() async throws -> HomeContent {
-        let popular = try await SoundCloudDirect.shared.charts(limit: 40)
-
-        let collections = popular.isEmpty ? [] : [
-            MusicCollection(
-                id: "charts",
-                title: "Сейчас слушают",
-                subtitle: "Популярное прямо сейчас",
-                coverURL: popular.first?.coverURL
-            )
-        ]
-
-        return HomeContent(collections: collections, recommendedTracks: popular)
     }
 
     private func homeFromServer() async throws -> HomeContent {
@@ -100,63 +86,11 @@ struct CatalogService: MusicService {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return SearchResults() }
 
-        // The server answers with the proper catalogue — real artist names,
-        // artist photos, albums, playlists. Whatever it says goes, including
-        // "nothing found": falling through to the source on an empty result
-        // is what made a search occasionally come back full of uploader
-        // spellings instead.
-        if await LaxifyAPI.shared.isServerReachable {
-            if let viaServer = try? await searchThroughServer(trimmed) {
-                return viaServer
-            }
-        }
-
-        // Only when the server cannot be reached at all. Asking one that
-        // cannot costs a full timeout before the source is tried, which is
-        // why searching used to take half a minute.
-        let direct = try await SoundCloudDirect.shared.search(trimmed, limit: 30)
-        return SearchResults(
-            tracks: direct.tracks,
-            artists: Self.ranked(direct.artists, for: trimmed),
-            albums: direct.albums
-        )
-    }
-
-    /// Puts the real artist first, without the server to ask.
-    ///
-    /// The source is open to anyone, so a name search returns the artist
-    /// alongside fan accounts and reposters using the same name. The server
-    /// checks each against an independent catalogue; here there is only what
-    /// came back, so it is ordered by the signals that came with it — an
-    /// exact name match, then how many people follow them.
-    private static func ranked(_ artists: [MusicArtist], for query: String) -> [MusicArtist] {
-        let needle = query
-            .folding(options: .diacriticInsensitive, locale: .current)
-            .lowercased()
-            .trimmingCharacters(in: .whitespaces)
-
-        func score(_ artist: MusicArtist) -> Int {
-            let name = artist.name
-                .folding(options: .diacriticInsensitive, locale: .current)
-                .lowercased()
-
-            // Decoration around a name is common — "☆LiL PEEP☆" — so an exact
-            // match is checked against the letters alone as well.
-            let letters = name.filter { $0.isLetter || $0.isNumber || $0.isWhitespace }
-                .trimmingCharacters(in: .whitespaces)
-
-            if name == needle || letters == needle { return 3 }
-            if name.hasPrefix(needle) { return 2 }
-            if name.contains(needle) { return 1 }
-            return 0
-        }
-
-        return artists.sorted { lhs, rhs in
-            let left = score(lhs)
-            let right = score(rhs)
-            if left != right { return left > right }
-            return (lhs.trackCount ?? 0) > (rhs.trackCount ?? 0)
-        }
+        // Only the server searches. It answers from the proper catalogue —
+        // real names, artist photos, albums, playlists — while the source's
+        // own search returns uploads titled by whoever posted them. Mixing
+        // the two is what made results look like two different apps.
+        return try await searchThroughServer(trimmed)
     }
 
     private func searchThroughServer(_ trimmed: String) async throws -> SearchResults {
@@ -215,16 +149,19 @@ struct CatalogService: MusicService {
     // MARK: - Tracks
 
     func song(id: String) async throws -> Song {
+        // The server first: it returns the track with the catalogue's name and
+        // cover. The source knows the same track only by its uploader's
+        // spelling, so it is the fallback, not the first choice.
+        if let viaServer = try? await api.catalogTrack(id: id).song {
+            return viaServer
+        }
+
         if !Self.isSpotifyId(id),
            let direct = try? await SoundCloudDirect.shared.track(id).song {
             return direct
         }
 
-        do {
-            return try await api.catalogTrack(id: id).song
-        } catch let error as APIError {
-            throw Self.translate(error)
-        }
+        throw MusicServiceError.notFound
     }
 
     func streamURL(for songId: String) async throws -> URL {
@@ -255,16 +192,10 @@ struct CatalogService: MusicService {
     func artistTracks(artistId: String, page: Int) async throws -> [Song] {
         let pageSize = 50
 
-        // Only a SoundCloud id means anything to SoundCloud. Asking it about a
-        // Spotify id used to return some unrelated account's uploads, which is
-        // why an artist's page filled up with other people's songs.
-        if !Self.isSpotifyId(artistId),
-           let direct = try? await SoundCloudDirect.shared.artistTracks(
-               artistId, limit: pageSize, offset: page * pageSize
-           ), !direct.isEmpty {
-            return direct
-        }
-
+        // Ask the server, always: it filters an artist's uploads down to what
+        // the proper catalogue actually credits to them. Going direct returns
+        // every upload on the account, reposts and all, under whatever names
+        // the uploader chose.
         return try await api
             .catalogArtistTracks(id: artistId, limit: pageSize, offset: page * pageSize)
             .map(\.song)
@@ -308,11 +239,7 @@ struct CatalogService: MusicService {
     // MARK: - Discover
 
     func popularTracks() async throws -> [Song] {
-        if await LaxifyAPI.shared.isServerReachable,
-           let charts = try? await api.catalogCharts(limit: 50), !charts.isEmpty {
-            return charts.map(\.song)
-        }
-        return try await SoundCloudDirect.shared.charts(limit: 50)
+        try await api.catalogCharts(limit: 50).map(\.song)
     }
 
     func categories() async throws -> [MusicCategory] {

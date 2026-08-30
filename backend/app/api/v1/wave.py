@@ -527,10 +527,10 @@ async def _shape(
 
     tracks = [t for t in (normalise_track(raw) for raw in fresh) if t][:want]
 
-    # Clean Spotify names / covers, and drop the duplicates that two uploads
-    # of one song produce. Never hides here: a wave that empties itself is
-    # worse than a wave with an uploader's spelling in it.
-    return await catalog_meta.enrich_catalog_tracks(tracks, hide_unmatched=False)
+    # Only what the proper catalogue knows: the app should never surface a
+    # random upload. `want` is asked for generously upstream, so dropping the
+    # unknown ones still leaves a full run.
+    return await catalog_meta.spotify_only(tracks)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1081,10 +1081,8 @@ async def home_feed(user: CurrentUser, session: SessionDep) -> FeedResponse:
 
     # Every row shows Spotify names and covers, and no row repeats a song.
     for block in ordered:
-        block.tracks = await catalog_meta.enrich_catalog_tracks(
-            block.tracks, hide_unmatched=False
-        )
-    ordered = [b for b in ordered if b.tracks]
+        block.tracks = await catalog_meta.spotify_only(block.tracks)
+    ordered = [b for b in ordered if len(b.tracks) >= 3]
 
     return FeedResponse(blocks=ordered, generated_at=datetime.now(UTC))
 
