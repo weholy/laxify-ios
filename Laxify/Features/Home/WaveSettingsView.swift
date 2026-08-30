@@ -24,7 +24,9 @@ struct WaveSettingsView: View {
         "calm": "chill lofi", "sad": "sad songs",
         "default": "top hits", "favorite": "love songs",
         "popular": "popular hits", "discover": "new music",
-        "any": "world music", "russian": "русский рэп", "notRussian": "english pop"
+        "any": "world music", "russian": "русский рэп", "notRussian": "english pop",
+        "sleep": "sleep ambient", "workout": "gym phonk",
+        "commute": "road trip", "focus": "focus beats"
     ]
 
     private let columns = [
@@ -49,6 +51,10 @@ struct WaveSettingsView: View {
                     section(title: L("wave.settings.lang", "Язык"), keyPrefix: "lang",
                             options: WaveSettings.Language.allCases,
                             selection: settings.language, titleFor: \.title) { settings.language = $0 }
+
+                    section(title: L("wave.settings.activity", "Занятие"), keyPrefix: "act",
+                            options: WaveSettings.Activity.allCases,
+                            selection: settings.activity, titleFor: \.title) { settings.activity = $0 }
                 }
                 .padding(.horizontal, LaxifyMetrics.screenPadding)
                 .padding(.top, 6)
@@ -164,6 +170,12 @@ private struct WaveOptionStyle {
         case "any": .init(colors: [.init(hex: 0x4ECDC4), .init(hex: 0x556270)], symbol: "globe")
         case "russian": .init(colors: [.init(hex: 0x2A61FF), .init(hex: 0x1E3A8A)], symbol: "character.book.closed.fill")
         case "notRussian": .init(colors: [.init(hex: 0x00B4D8), .init(hex: 0x0077B6)], symbol: "airplane")
+        // Activity
+        case "none": .init(colors: [.init(hex: 0x8E9AAF), .init(hex: 0x4A5568)], symbol: "circle.slash")
+        case "sleep": .init(colors: [.init(hex: 0x3A2E6E), .init(hex: 0x1A1440)], symbol: "moon.stars.fill")
+        case "workout": .init(colors: [.init(hex: 0xFF6B35), .init(hex: 0xC1121F)], symbol: "figure.run")
+        case "commute": .init(colors: [.init(hex: 0x2AB7CA), .init(hex: 0x1E6091)], symbol: "car.fill")
+        case "focus": .init(colors: [.init(hex: 0x6D5DF6), .init(hex: 0x3B2E8C)], symbol: "target")
         default: .init(colors: [.init(hex: 0x6D5DF6), .init(hex: 0x3B2E8C)], symbol: "music.note")
         }
     }

@@ -61,11 +61,34 @@ struct WaveSettings: Sendable, Equatable {
             case .notRussian: "Иностранный"
             }
         }
+
+        /// The rotor spells it with a hyphen.
+        var apiValue: String { self == .notRussian ? "not-russian" : rawValue }
+    }
+
+    /// The "по занятию" axis Yandex runs as its own stations.
+    enum Activity: String, CaseIterable, Sendable {
+        case none
+        case sleep
+        case workout
+        case commute
+        case focus
+
+        var title: String {
+            switch self {
+            case .none: "Не выбрано"
+            case .sleep: "Сон"
+            case .workout: "Спорт"
+            case .commute: "Дорога"
+            case .focus: "Фокус"
+            }
+        }
     }
 
     var mood: Mood = .all
     var diversity: Diversity = .default
     var language: Language = .any
+    var activity: Activity = .none
 
     static let storageKey = "laxify.wave.settings"
 
@@ -77,15 +100,31 @@ struct WaveSettings: Sendable, Equatable {
         return WaveSettings(
             mood: Mood(rawValue: raw["mood"] ?? "") ?? .all,
             diversity: Diversity(rawValue: raw["diversity"] ?? "") ?? .default,
-            language: Language(rawValue: raw["language"] ?? "") ?? .any
+            language: Language(rawValue: raw["language"] ?? "") ?? .any,
+            activity: Activity(rawValue: raw["activity"] ?? "") ?? .none
         )
     }
 
     func save() {
         UserDefaults.standard.set(
-            ["mood": mood.rawValue, "diversity": diversity.rawValue, "language": language.rawValue],
+            [
+                "mood": mood.rawValue,
+                "diversity": diversity.rawValue,
+                "language": language.rawValue,
+                "activity": activity.rawValue,
+            ],
             forKey: Self.storageKey
         )
+    }
+
+    /// Body for the wave endpoints.
+    var apiPayload: [String: String] {
+        [
+            "mood_energy": mood.rawValue,
+            "diversity": diversity.rawValue,
+            "language": language.apiValue,
+            "activity": activity.rawValue,
+        ]
     }
 }
 

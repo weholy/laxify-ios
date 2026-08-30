@@ -60,7 +60,9 @@ final class MyWaveViewModel {
     func extend() async {
         guard !isLoading, let last = tracks.last else { return }
         isLoading = true
-        if let batch = try? await CatalogService.shared.waveBatch(lastTrackId: last.id) {
+        if let batch = try? await CatalogService.shared.waveBatch(
+            sessionId: batchId, lastTrackId: last.id
+        ) {
             let existing = Set(tracks.map(\.id))
             tracks.append(contentsOf: batch.songs.filter { !existing.contains($0.id) })
             batchId = batch.batchId
@@ -71,7 +73,7 @@ final class MyWaveViewModel {
     func apply(_ newSettings: WaveSettings) async {
         settings = newSettings
         newSettings.save()
-        try? await CatalogService.shared.applyWaveSettings(newSettings)
+        try? await CatalogService.shared.applyWaveSettings(newSettings, sessionId: batchId)
 
         // Playing: keep the current track, reshape only what comes after it —
         // the way Yandex's wave settings take effect without a gap. Idle:

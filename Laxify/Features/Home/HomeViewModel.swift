@@ -105,7 +105,9 @@ final class HomeViewModel {
     func extendWave() async {
         guard !isLoadingWave, let last = waveTracks.last else { return }
         isLoadingWave = true
-        if let batch = try? await CatalogService.shared.waveBatch(lastTrackId: last.id) {
+        if let batch = try? await CatalogService.shared.waveBatch(
+            sessionId: waveBatchId, lastTrackId: last.id
+        ) {
             let existing = Set(waveTracks.map(\.id))
             waveTracks.append(contentsOf: batch.songs.filter { !existing.contains($0.id) })
             waveBatchId = batch.batchId
@@ -160,7 +162,7 @@ final class HomeViewModel {
     func applyWaveSettings(_ settings: WaveSettings) async {
         waveSettings = settings
         settings.save()
-        try? await CatalogService.shared.applyWaveSettings(settings)
+        try? await CatalogService.shared.applyWaveSettings(settings, sessionId: waveBatchId)
         await loadWave(force: true)
     }
 

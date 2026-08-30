@@ -171,13 +171,17 @@ final class AudioPlayerController {
     private func reportSkipIfNeeded() {
         reportPlaybackToAccount(completed: false)
 
-        guard waveBatchId != nil, let song = currentSong, currentTime > 0 else { return }
+        guard let batchId = waveBatchId, let song = currentSong, currentTime > 0 else { return }
         // Only a genuine skip counts: a track left to finish on its own is
         // reported separately as completed.
         guard currentTime < duration - 5 else { return }
         let trackId = song.id
         let played = currentTime
-        Task { await CatalogService.shared.reportWaveTrackSkipped(trackId: trackId, playedSeconds: played) }
+        Task {
+            await CatalogService.shared.reportWaveTrackSkipped(
+                trackId: trackId, batchId: batchId, playedSeconds: played
+            )
+        }
     }
 
     func playIndex(_ index: Int) {
@@ -826,12 +830,17 @@ final class AudioPlayerController {
     /// and only ever near the tail — the personal radio the source runs is
     /// endless, so the queue has to be too, no matter which screen started it.
     private func extendWaveQueue() async {
-        guard waveBatchId != nil, !isExtendingWave, let lastId = queue.last?.id else { return }
+        guard let sessionId = waveBatchId, !isExtendingWave, let lastId = queue.last?.id else { return }
         isExtendingWave = true
         defer { isExtendingWave = false }
 
-        guard let batch = try? await CatalogService.shared.waveBatch(lastTrackId: lastId),
-              waveBatchId != nil else { return }
+        guard let batch = try? await CatalogService.shared.waveBatch(
+            sessionId: sessionId, lastTrackId: lastId
+        ), waveBatchId != nil else { return }
+
+        // If the session had lapsed, the server opened a fresh one — follow it,
+        // so feedback and the next top-up address a session that still exists.
+        if batch.batchId != sessionId { waveBatchId = batch.batchId }
 
         let existing = Set(queue.map(\.id))
         // Spread artists out: three tracks by the same person in a row is the
@@ -853,8 +862,6 @@ final class AudioPlayerController {
         }
         guard !fresh.isEmpty else { return }
 
-        // Keep the original batch id: one wave session, one id. The new
-        // batch's own id is client-generated and only ever nil-checked.
         queue.append(contentsOf: fresh)
     }
 
@@ -922,9 +929,10 @@ final class AudioPlayerController {
         guard let batchId = waveBatchId, let song = currentSong else { return }
         let trackId = song.id
         let played = max(currentTime, duration)
+        let total = duration
         Task {
             await CatalogService.shared.reportWaveTrackFinished(
-                trackId: trackId, batchId: batchId, playedSeconds: played
+                trackId: trackId, batchId: batchId, playedSeconds: played, durationSeconds: total
             )
         }
     }

@@ -290,6 +290,35 @@ struct WaveResponse: Codable, Sendable {
     let isPersonalised: Bool
 }
 
+/// One running wave session — `/wave/start`, `/wave/next`, `/wave/settings`.
+struct WaveSessionDTO: Codable, Sendable {
+    let sessionId: String
+    let tracks: [CatalogTrackDTO]
+    let skipsPerHour: Int
+    let skipsAvailable: Int
+    let isPersonalised: Bool
+}
+
+/// `/wave/feedback` — only the remaining skip budget comes back.
+struct WaveFeedbackDTO: Codable, Sendable {
+    let ok: Bool
+    let skipsAvailable: Int
+}
+
+/// One row of the home feed — a playlist to press play on, or a shelf to browse.
+struct WaveFeedBlockDTO: Codable, Sendable, Identifiable {
+    let id: String
+    let type: String
+    let title: String
+    let subtitle: String?
+    let tracks: [CatalogTrackDTO]
+}
+
+struct WaveFeedDTO: Codable, Sendable {
+    let blocks: [WaveFeedBlockDTO]
+    let generatedAt: Date
+}
+
 struct HomeFeedResponse: Codable, Sendable {
     let wave: [CatalogTrackDTO]
     let forYou: [CatalogTrackDTO]

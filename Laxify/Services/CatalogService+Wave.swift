@@ -1,36 +1,39 @@
 import Foundation
 
-/// The wave, served by the backend.
+/// The wave, served by the backend as a running session.
 ///
-/// A station is picked from what the listener actually played and liked, and
-/// selects on how a track sounds rather than on who made it — which is the
-/// difference between a wave and a shuffle of artists already in the library.
-///
-/// The signatures here match what the screens already call, so switching the
-/// source underneath did not ripple into them.
+/// The server holds the session (its `sessionId` is what we thread through as
+/// `batchId`): it remembers what was skipped and finished *this sitting* and
+/// reshapes what comes next from that. So the feedback calls below are no
+/// longer no-ops — a skip or a finish actually moves the next batch.
 extension CatalogService {
     /// Fetches the next run.
     ///
-    /// `lastTrackId` matters: passing the track that just finished continues
-    /// the same run from there, instead of rebuilding the station and
-    /// replaying what was already heard.
-    func waveBatch(lastTrackId: String? = nil) async throws -> WaveBatch {
+    /// With no `sessionId` this opens a fresh session (`/wave/start`). With
+    /// one, it advances that session's chain (`/wave/next`) — `lastTrackId` is
+    /// the track just left, so the buffer tops up after it rather than
+    /// replaying what was already heard. A lapsed session falls back to a new
+    /// one so the music never stops on a 409.
+    func waveBatch(sessionId: String? = nil, lastTrackId: String? = nil) async throws -> WaveBatch {
         let settings = WaveSettings.load()
 
         do {
-            let response = try await LaxifyAPI.shared.wave(
-                limit: 40,
-                mood: settings.mood.rawValue,
-                diversity: settings.diversity.rawValue,
-                seed: lastTrackId
-            )
+            let dto: WaveSessionDTO
+            if let sessionId {
+                if let advanced = try? await LaxifyAPI.shared.waveNext(
+                    sessionId: sessionId, lastTrackId: lastTrackId
+                ) {
+                    dto = advanced
+                } else {
+                    dto = try await LaxifyAPI.shared.waveStart(settings: settings)
+                }
+            } else {
+                dto = try await LaxifyAPI.shared.waveStart(settings: settings)
+            }
 
-            let songs = response.tracks.map(\.song)
+            let songs = dto.tracks.map(\.song)
             guard !songs.isEmpty else { throw MusicServiceError.notFound }
-
-            // The server is stateless about runs, so the id is ours; the
-            // player only uses it to tie feedback to the run it came from.
-            return WaveBatch(songs: songs, batchId: UUID().uuidString)
+            return WaveBatch(songs: songs, batchId: dto.sessionId)
         } catch let error as APIError {
             if case .notAuthenticated = error {
                 throw MusicServiceError.missingAccessKey
@@ -39,23 +42,37 @@ extension CatalogService {
         }
     }
 
-    /// Kept so the wave can be warmed before it is shown; the server keeps no
-    /// session of its own.
+    /// Kept for the call sites that warm the wave before showing it; the
+    /// session is opened lazily by `waveBatch`.
     func startWaveSession() async {}
 
-    /// The wave learns from ordinary listening events, which the player
-    /// already reports for every track it plays — including the source it came
-    /// from. Reporting again here would count each track twice and skew the
-    /// very history the next run is built from.
-    func reportWaveTrackStarted(trackId: String, batchId: String) async {}
+    func reportWaveTrackStarted(trackId: String, batchId: String) async {
+        try? await LaxifyAPI.shared.waveFeedback(
+            sessionId: batchId, type: "trackStarted", trackId: trackId
+        )
+    }
 
-    func reportWaveTrackFinished(trackId: String, batchId: String, playedSeconds: Double) async {}
+    func reportWaveTrackFinished(
+        trackId: String, batchId: String, playedSeconds: Double, durationSeconds: Double = 0
+    ) async {
+        try? await LaxifyAPI.shared.waveFeedback(
+            sessionId: batchId, type: "trackFinished", trackId: trackId,
+            playedSeconds: playedSeconds, durationSeconds: durationSeconds
+        )
+    }
 
-    func reportWaveTrackSkipped(trackId: String, playedSeconds: Double) async {}
+    func reportWaveTrackSkipped(trackId: String, batchId: String, playedSeconds: Double) async {
+        try? await LaxifyAPI.shared.waveFeedback(
+            sessionId: batchId, type: "skip", trackId: trackId, playedSeconds: playedSeconds
+        )
+    }
 
-    /// Settings are stored on the device and sent with each request, so a
-    /// change takes effect on the next run without a round trip of its own.
-    func applyWaveSettings(_ settings: WaveSettings) async throws {
+    /// Settings are stored on the device and, if a session is running, pushed
+    /// to it so the tail reshapes without a gap. The caller then refetches the
+    /// tail through the normal `/wave/next` path.
+    func applyWaveSettings(_ settings: WaveSettings, sessionId: String? = nil) async throws {
         settings.save()
+        guard let sessionId else { return }
+        _ = try? await LaxifyAPI.shared.waveApplySettings(sessionId: sessionId, settings: settings)
     }
 }

@@ -835,6 +835,86 @@ actor LaxifyAPI {
 
     // MARK: - Wave
 
+    private struct WaveSettingsBody: Encodable {
+        let moodEnergy: String
+        let diversity: String
+        let language: String
+        let activity: String
+
+        init(_ s: WaveSettings) {
+            moodEnergy = s.mood.rawValue
+            diversity = s.diversity.rawValue
+            language = s.language.apiValue
+            activity = s.activity.rawValue
+        }
+    }
+
+    /// Opens a wave session and returns the first batch. The `sessionId` it
+    /// hands back is what the rest of the wave calls key off.
+    func waveStart(settings: WaveSettings) async throws -> WaveSessionDTO {
+        struct Body: Encodable { let settings: WaveSettingsBody }
+        return try await send(
+            "/wave/start", method: "POST", body: Body(settings: WaveSettingsBody(settings))
+        )
+    }
+
+    /// Advances the chain. `lastTrackId` is the track the listener just left —
+    /// everything up to it is consumed and the buffer tops back up.
+    func waveNext(sessionId: String, lastTrackId: String?) async throws -> WaveSessionDTO {
+        struct Body: Encodable { let sessionId: String; let lastTrackId: String? }
+        return try await send(
+            "/wave/next", method: "POST",
+            body: Body(sessionId: sessionId, lastTrackId: lastTrackId)
+        )
+    }
+
+    /// trackStarted / trackFinished / skip / like / dislike.
+    func waveFeedback(
+        sessionId: String,
+        type: String,
+        trackId: String?,
+        playedSeconds: Double? = nil,
+        durationSeconds: Double? = nil
+    ) async throws {
+        struct Body: Encodable {
+            let sessionId: String
+            let type: String
+            let trackId: String?
+            let playedSeconds: Double?
+            let durationSeconds: Double?
+        }
+        _ = try await send(
+            "/wave/feedback", method: "POST",
+            body: Body(
+                sessionId: sessionId, type: type, trackId: trackId,
+                playedSeconds: playedSeconds, durationSeconds: durationSeconds
+            )
+        ) as WaveFeedbackDTO
+    }
+
+    /// Changes mood/diversity/language/activity mid-stream; the server keeps
+    /// whatever is playing and reshapes the tail.
+    func waveApplySettings(sessionId: String, settings: WaveSettings) async throws -> WaveSessionDTO {
+        struct Body: Encodable {
+            let sessionId: String
+            let moodEnergy: String
+            let diversity: String
+            let language: String
+            let activity: String
+        }
+        return try await send(
+            "/wave/settings", method: "POST",
+            body: Body(
+                sessionId: sessionId,
+                moodEnergy: settings.mood.rawValue,
+                diversity: settings.diversity.rawValue,
+                language: settings.language.apiValue,
+                activity: settings.activity.rawValue
+            )
+        )
+    }
+
+    /// One-shot stateless wave — home-screen preview and old builds.
     func wave(
         limit: Int = 40,
         mood: String = "all",
@@ -850,6 +930,11 @@ actor LaxifyAPI {
 
     func waveSimilar(trackId: String, limit: Int = 30) async throws -> [CatalogTrackDTO] {
         try await send("/wave/similar/\(escaped(trackId))?limit=\(limit)", method: "GET")
+    }
+
+    /// The Yandex-style home feed: Плейлист дня, Дежавю, Премьера, Тайник…
+    func waveFeed() async throws -> WaveFeedDTO {
+        try await send("/wave/feed", method: "GET")
     }
 
     func homeFeed(limit: Int = 30) async throws -> HomeFeedResponse {
