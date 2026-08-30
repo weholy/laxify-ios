@@ -18,6 +18,7 @@ from app.models.library import (
     PlaylistCollaborator,
     PlaylistInvite,
     PlaylistItem,
+    TrackMeta,
     TrackSnapshot,
 )
 from app.models.social import (
@@ -52,6 +53,7 @@ __all__ = [
     "PlaylistItem",
     "PushToken",
     "SearchHistoryEntry",
+    "TrackMeta",
     "TrackSnapshot",
     "User",
     "WaveSession",

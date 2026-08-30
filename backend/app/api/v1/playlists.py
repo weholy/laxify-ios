@@ -17,7 +17,7 @@ from app.models import (
     User,
 )
 from app.schemas.common import MessageOut, Page
-from app.services import authenticity
+from app.services import authenticity, catalog_meta
 from app.schemas.library import (
     InviteCreate,
     InviteOut,
@@ -184,11 +184,12 @@ async def read_playlist(
 ) -> PlaylistDetailOut:
     playlist = await _load(session, playlist_id)
     _ensure_visible(playlist, viewer)
-    return _detail(
+    detail = _detail(
         playlist,
         can_edit=await _can_edit(session, playlist, viewer),
         items=await _visible_items(session, playlist),
     )
+    return await catalog_meta.enrich_playlist_detail(detail)
 
 
 @router.get("/shared/{share_slug}", response_model=PlaylistDetailOut)
@@ -200,11 +201,12 @@ async def read_shared_playlist(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Плейлист не найден")
     loaded = await _load(session, playlist.id)
     _ensure_visible(loaded, viewer)
-    return _detail(
+    detail = _detail(
         loaded,
         can_edit=await _can_edit(session, loaded, viewer),
         items=await _visible_items(session, loaded),
     )
+    return await catalog_meta.enrich_playlist_detail(detail)
 
 
 @router.patch("/playlists/{playlist_id}", response_model=PlaylistOut)

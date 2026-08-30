@@ -22,7 +22,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.models import ReferenceArtist
-from app.services import audio_cache, authenticity
+from app.services import audio_cache, authenticity, catalog_meta
 from app.services.playability import filter_playable
 from app.services.soundcloud import SoundCloudError, soundcloud
 
@@ -191,8 +191,13 @@ async def search(
     for artist in artists:
         artist.is_verified = True
 
+    tracks = _tracks(await authenticity.filter_tracks(session, results["tracks"]))
+    # Clean track titles / artist names / covers from Spotify. Not hiding here:
+    # search should still surface what SoundCloud has, even off-Spotify.
+    tracks = await catalog_meta.enrich_catalog_tracks(tracks, hide_unmatched=False)
+
     return SearchResponse(
-        tracks=_tracks(await authenticity.filter_tracks(session, results["tracks"])),
+        tracks=tracks,
         artists=artists,
         playlists=[p for p in (normalise_playlist(p) for p in results["playlists"]) if p],
     )

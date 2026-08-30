@@ -167,6 +167,31 @@ class LyricsCache(Base, TimestampMixin):
     synced: Mapped[list] = mapped_column(JSONB, default=list)
 
 
+class TrackMeta(Base, TimestampMixin):
+    """The Spotify twin of a SoundCloud track, if it has one.
+
+    Keyed on the SoundCloud id (that stays the identity everywhere —
+    favourites, playlists, history, the wave). This row only overlays clean
+    metadata for display, and records whether Spotify knows the track at all:
+    ``matched = false`` means it is hidden from listings until a re-check finds
+    it. Nothing here changes what plays or what a user has saved.
+    """
+
+    __tablename__ = "track_meta"
+
+    sc_track_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    matched: Mapped[bool] = mapped_column(Boolean, default=False)
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    spotify_id: Mapped[str | None] = mapped_column(String(32), index=True, default=None)
+    title: Mapped[str | None] = mapped_column(Text, default=None)
+    artist_name: Mapped[str | None] = mapped_column(Text, default=None)
+    artist_id: Mapped[str | None] = mapped_column(String(32), default=None)
+    album: Mapped[str | None] = mapped_column(Text, default=None)
+    album_id: Mapped[str | None] = mapped_column(String(32), default=None)
+    cover_url: Mapped[str | None] = mapped_column(Text, default=None)
+
+
 class ReferenceArtist(Base):
     """An artist a proper music catalogue knows about.
 

@@ -8,7 +8,7 @@ from app.api.deps import CurrentUser, SessionDep
 from app.models import DislikedTrack, Favorite
 from app.schemas.common import MessageOut, Page
 from app.schemas.library import DislikeIn, FavoriteAdd, FavoriteBulkAdd, FavoriteOut
-from app.services import authenticity
+from app.services import authenticity, catalog_meta
 from app.services.tracks import upsert_track, upsert_tracks
 
 router = APIRouter(prefix="/me", tags=["library"])
@@ -44,12 +44,20 @@ async def list_favorites(
         session, list(rows), lambda fav: fav.track.artist_name if fav.track else "", guard=False
     )
 
-    return Page(
-        items=[FavoriteOut.model_validate(row) for row in rows],
-        total=total,
-        limit=limit,
-        offset=offset,
+    items = [FavoriteOut.model_validate(row) for row in rows]
+
+    # Clean names / covers from Spotify, and drop tracks a completed Spotify
+    # lookup found no match for. Fail-open: if Spotify is unreachable this is
+    # a no-op and nothing is hidden.
+    items = await catalog_meta.enrich(
+        items,
+        id_of=lambda f: f.track.track_id,
+        name_of=lambda f: (f.track.artist_name, f.track.title, f.track.duration_seconds),
+        apply=lambda f, m: catalog_meta.apply_track_out(f.track, m),
+        hide_unmatched=True,
     )
+
+    return Page(items=items, total=total, limit=limit, offset=offset)
 
 
 @router.put("/favorites", response_model=FavoriteOut, status_code=status.HTTP_201_CREATED)
