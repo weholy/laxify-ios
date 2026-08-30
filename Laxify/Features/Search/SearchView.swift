@@ -1,13 +1,9 @@
 import SwiftUI
-import SwiftData
 
 struct SearchView: View {
     var onClose: () -> Void
     /// The tab presentation has no chrome to dismiss, so it hides the ✕.
     var showsCloseButton: Bool = true
-
-    @Environment(\.modelContext) private var modelContext
-    @Query(sort: \SearchHistoryEntry.searchedAt, order: .reverse) private var history: [SearchHistoryEntry]
 
     @State private var query = ""
     @State private var viewModel = SearchViewModel()
@@ -165,8 +161,6 @@ struct SearchView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.top, 20)
         }
-
-        historySection
     }
 
     // MARK: - Suggestions (typing)
@@ -200,88 +194,6 @@ struct SearchView: View {
                     Divider().overlay(LaxifyPalette.separator)
                 }
             }
-        }
-    }
-
-    // MARK: - History
-
-    @ViewBuilder
-    private var historySection: some View {
-        if !history.isEmpty {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack {
-                    Text(L("search.recent", "Недавние"))
-                        .font(LaxifyTypography.title)
-                        .foregroundStyle(LaxifyPalette.textPrimary)
-
-                    Spacer()
-
-                    Button(L("search.clear", "Очистить")) {
-                        for entry in history { modelContext.delete(entry) }
-                    }
-                    .font(LaxifyTypography.footnote)
-                    .foregroundStyle(LaxifyPalette.textSecondary)
-                }
-
-                VStack(spacing: 12) {
-                    ForEach(history) { entry in
-                        historyRow(entry)
-                    }
-                }
-            }
-        }
-    }
-
-    private func historyRow(_ entry: SearchHistoryEntry) -> some View {
-        HStack(spacing: 12) {
-            Button {
-                switch entry.kind {
-                case .artist:
-                    selectedArtistId = entry.id
-                case .track:
-                    playFromHistory(entry)
-                }
-            } label: {
-                HStack(spacing: 12) {
-                    if entry.coverURL != nil {
-                        AsyncCoverImage(url: entry.coverURL, cornerRadius: LaxifyMetrics.smallCornerRadius, displaySize: 48)
-                            .frame(width: 44, height: 44)
-                    } else {
-                        Circle()
-                            .fill(LaxifyPalette.surface)
-                            .frame(width: 44, height: 44)
-                            .overlay {
-                                Image(systemName: "clock")
-                                    .foregroundStyle(LaxifyPalette.textTertiary)
-                            }
-                    }
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(entry.title)
-                            .font(LaxifyTypography.body)
-                            .foregroundStyle(LaxifyPalette.textPrimary)
-                            .lineLimit(1)
-                        if let subtitle = entry.subtitle {
-                            Text(subtitle)
-                                .font(LaxifyTypography.footnote)
-                                .foregroundStyle(LaxifyPalette.textSecondary)
-                        }
-                    }
-
-                    Spacer()
-                }
-            }
-            .buttonStyle(.plain)
-
-            Button {
-                modelContext.delete(entry)
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(LaxifyPalette.textTertiary)
-                    .frame(width: 28, height: 28)
-            }
-            .buttonStyle(.plain)
         }
     }
 
@@ -344,24 +256,11 @@ struct SearchView: View {
             VStack(spacing: 12) {
                 ForEach(results.tracks) { song in
                     Button {
-                        guard song.playable else { return }
-                        recordHistory(id: song.id, title: song.title, subtitle: song.artistName, coverURL: song.coverURL, kind: .track)
-                        AudioPlayerController.shared.play(
-                            song, queue: results.tracks.filter(\.playable)
-                        )
+                        AudioPlayerController.shared.play(song, queue: results.tracks)
                     } label: {
                         SongRowView(song: song)
-                            .opacity(song.playable ? 1 : 0.4)
-                            .overlay(alignment: .trailing) {
-                                if !song.playable {
-                                    Text(L("search.unavailable", "нет на SoundCloud"))
-                                        .font(.system(size: 10, weight: .medium))
-                                        .foregroundStyle(LaxifyPalette.textTertiary)
-                                }
-                            }
                     }
                     .buttonStyle(.plain)
-                    .disabled(!song.playable)
                 }
             }
         }
@@ -400,7 +299,6 @@ struct SearchView: View {
             VStack(spacing: 12) {
                 ForEach(results.artists) { artist in
                     Button {
-                        recordHistory(id: artist.id, title: artist.name, subtitle: L("search.artistRole", "Исполнитель"), coverURL: artist.imageURL, kind: .artist)
                         selectedArtistId = artist.id
                     } label: {
                         ArtistRowView(artist: artist)
@@ -434,22 +332,6 @@ struct SearchView: View {
         }
     }
 
-    private func recordHistory(id: String, title: String, subtitle: String?, coverURL: URL?, kind: SearchHistoryKind) {
-        if let existing = history.first(where: { $0.id == id }) {
-            existing.searchedAt = .now
-        } else {
-            let entry = SearchHistoryEntry(id: id, title: title, subtitle: subtitle, coverURLString: coverURL?.absoluteString, kind: kind)
-            modelContext.insert(entry)
-        }
-    }
-
-    private func playFromHistory(_ entry: SearchHistoryEntry) {
-        entry.searchedAt = .now
-        Task {
-            guard let song = try? await CatalogService.shared.song(id: entry.id) else { return }
-            AudioPlayerController.shared.play(song, queue: [song])
-        }
-    }
 }
 
 /// A genre banner: a real cover from the genre behind a dark scrim when one

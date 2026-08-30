@@ -120,6 +120,7 @@ enum Translations {
 
         "home.forYou": "Для вас",
         "home.more": "Ещё треки",
+        "home.empty": "Не удалось собрать ленту",
         "home.retryLoad": "Не удалось загрузить главную",
 
         "library.title": "Медиатека",
@@ -367,6 +368,7 @@ enum Translations {
 
         "home.forYou": "For you",
         "home.more": "More tracks",
+        "home.empty": "Couldn't build the feed",
         "home.retryLoad": "Couldn't load Home",
 
         "library.title": "Library",

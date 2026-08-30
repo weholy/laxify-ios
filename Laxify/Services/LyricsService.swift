@@ -43,6 +43,34 @@ enum LyricsService {
         guard let plain = payload.plain, !plain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return nil
         }
+
+        // No timed lyrics for this track. Rather than a static wall of text,
+        // lay the lines out evenly across the song so the reader still gets a
+        // moving highlight and follow-along scroll. Approximate, but it reads
+        // as the same feature everywhere else has.
+        if let synthesised = synthesiseTiming(from: plain, duration: duration) {
+            return Lyrics(syncedLines: synthesised, plainText: plain)
+        }
         return Lyrics(syncedLines: [], plainText: plain)
+    }
+
+    private static func synthesiseTiming(
+        from plain: String, duration: TimeInterval
+    ) -> [LyricLine]? {
+        guard duration > 40 else { return nil }
+
+        let lines = plain
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        // Keep blank lines as breath marks, but need real content to bother.
+        guard lines.filter({ !$0.isEmpty }).count >= 4 else { return nil }
+
+        let start = duration * 0.06
+        let end = duration * 0.94
+        let step = (end - start) / Double(max(lines.count - 1, 1))
+
+        return lines.enumerated().map { index, text in
+            LyricLine(timestamp: start + step * Double(index), text: text)
+        }
     }
 }

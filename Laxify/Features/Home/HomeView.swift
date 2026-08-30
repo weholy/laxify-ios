@@ -1,18 +1,10 @@
 import SwiftUI
-import SwiftData
 
 struct HomeView: View {
     @State private var viewModel = HomeViewModel()
     @State private var isSearchPresented = false
     @State private var isNotificationsPresented = false
-    @Query private var dislikedTracks: [DislikedTrack]
     private var notifications = NotificationStore.shared
-
-    private var recommendedTracks: [Song] {
-        guard let content = viewModel.content else { return [] }
-        let dislikedIds = Set(dislikedTracks.map(\.id))
-        return content.recommendedTracks.filter { !dislikedIds.contains($0.id) }
-    }
 
     var body: some View {
         ScrollView {
@@ -106,79 +98,25 @@ struct HomeView: View {
             ForEach(viewModel.feed) { block in
                 FeedRow(block: block)
             }
-        } else if viewModel.content != nil {
-            songCarousel(title: L("home.forYou", "Для вас"), songs: recommendedTracks)
-
-            if recommendedTracks.count > 8 {
-                trackListSection(title: L("home.more", "Ещё треки"), songs: Array(recommendedTracks.dropFirst(8)))
+        } else if viewModel.isLoading {
+            ProgressView()
+                .frame(maxWidth: .infinity)
+                .padding(.top, 60)
+        } else {
+            VStack(spacing: 14) {
+                Text(L("home.empty", "Не удалось собрать ленту"))
+                    .font(LaxifyTypography.body)
+                    .foregroundStyle(LaxifyPalette.textSecondary)
+                Button(L("common.retry", "Повторить")) {
+                    Task { await viewModel.reload() }
+                }
+                .buttonStyle(.laxifySecondary)
             }
+            .frame(maxWidth: .infinity)
+            .padding(.top, 60)
         }
     }
 
-    private func songCarousel(title: String, songs: [Song]) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            sectionTitle(title)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: LaxifyMetrics.itemSpacing) {
-                    ForEach(songs) { song in
-                        Button {
-                            AudioPlayerController.shared.play(song, queue: songs)
-                        } label: {
-                            SongCardView(song: song)
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    // Reaching the end asks for more, so the row keeps going.
-                    Color.clear
-                        .frame(width: 1)
-                        .onAppear {
-                            Task { await viewModel.extendRecommendations() }
-                        }
-                }
-                .padding(.horizontal, LaxifyMetrics.screenPadding)
-            }
-            .scrollClipDisabled()
-        }
-    }
-
-    private func trackListSection(title: String, songs: [Song]) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            sectionTitle(title)
-
-            LazyVStack(spacing: 12) {
-                ForEach(songs) { song in
-                    Button {
-                        AudioPlayerController.shared.play(song, queue: songs)
-                    } label: {
-                        SongRowView(song: song)
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                if viewModel.isLoadingMore {
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                } else {
-                    Color.clear
-                        .frame(height: 1)
-                        .onAppear {
-                            Task { await viewModel.extendRecommendations() }
-                        }
-                }
-            }
-            .padding(.horizontal, LaxifyMetrics.screenPadding)
-        }
-    }
-
-    private func sectionTitle(_ title: String) -> some View {
-        Text(title)
-            .font(LaxifyTypography.title)
-            .foregroundStyle(LaxifyPalette.textPrimary)
-            .padding(.horizontal, LaxifyMetrics.screenPadding)
-    }
 }
 
 #Preview {
