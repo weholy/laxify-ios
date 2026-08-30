@@ -112,8 +112,14 @@ class SoundCloudClient:
         async with httpx.AsyncClient(
             timeout=20, headers={"User-Agent": USER_AGENT}, follow_redirects=True
         ) as client:
-            home = await client.get(WEB_BASE)
-            home.raise_for_status()
+            try:
+                home = await client.get(WEB_BASE)
+                home.raise_for_status()
+            except httpx.HTTPError as exc:
+                # A 403 here means the source is throttling us. It has to
+                # surface as our own error: raw httpx escaping this call turned
+                # every endpoint that touches the source into a 500.
+                raise SoundCloudError("Источник временно недоступен") from exc
 
             scripts = _SCRIPT_PATTERN.findall(home.text)
             if not scripts:

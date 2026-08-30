@@ -345,18 +345,26 @@ async def _discovery_tracks(limit: int, genres: list[str] | None = None) -> list
                 seen.add(track_id)
                 collected.append(raw)
 
+    async def safe(coro) -> list[dict]:
+        # The source throttles, and when it does every one of these raises.
+        # A thin wave beats a wave that fails outright.
+        try:
+            return await coro
+        except SoundCloudError:
+            return []
+
     for genre in (genres or [])[:3]:
-        take(await soundcloud.genre_tracks(genre, limit=limit))
+        take(await safe(soundcloud.genre_tracks(genre, limit=limit)))
         if len(collected) >= limit:
             return collected[:limit]
 
     for genre in _rotating_genres(3):
-        take(await soundcloud.genre_tracks(genre, limit=limit))
+        take(await safe(soundcloud.genre_tracks(genre, limit=limit)))
         if len(collected) >= limit:
             return collected[:limit]
 
     if len(collected) < limit:
-        take(await soundcloud.charts(limit=limit * 2))
+        take(await safe(soundcloud.charts(limit=limit * 2)))
     return collected[:limit]
 
 
