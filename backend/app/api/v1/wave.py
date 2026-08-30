@@ -1055,6 +1055,24 @@ async def home_feed(user: CurrentUser, session: SessionDep) -> FeedResponse:
     )
 
     ordered = [b for b in blocks if isinstance(b, FeedBlock)]
+
+    # The feed must never come back empty — the home screen has no other
+    # content now. If every block above missed (a fresh account, a slow
+    # source), fall back to the chart, then to a plain wave.
+    if not ordered:
+        chart = await _block_charts()
+        if chart:
+            ordered.append(chart)
+    if not ordered:
+        one_shot = await personal_wave(user=user, session=session, limit=40)
+        if one_shot.tracks:
+            ordered.append(
+                FeedBlock(
+                    id="wave", type="playlist", title="Волна",
+                    subtitle="Подобрано под ваш вкус", tracks=one_shot.tracks,
+                )
+            )
+
     return FeedResponse(blocks=ordered, generated_at=datetime.now(UTC))
 
 

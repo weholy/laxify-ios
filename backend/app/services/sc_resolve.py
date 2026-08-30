@@ -50,27 +50,48 @@ def _score(cand, artist: str, title: str, duration_s: float) -> float:
     return score
 
 
+_FEAT = re.compile(r"\s*[\(\[]?\s*(feat|ft|with)\.?\s+[^\)\]]+[\)\]]?", re.IGNORECASE)
+_PRIMARY_ARTIST = re.compile(r"\s*,\s*|\s*&\s*|\s+x\s+", re.IGNORECASE)
+
+
 async def _resolve_one(sp: dict) -> tuple[str, str | None]:
     artist = sp.get("artist_name") or ""
     title = sp.get("title") or ""
     dur = (sp.get("duration_ms") or 0) / 1000
-    query = f"{artist} {title}".strip()
     if not title:
         return sp["spotify_id"], None
 
-    async with _sem:
-        try:
-            raw = await soundcloud.search_tracks(query, limit=6)
-        except SoundCloudError:
-            return sp["spotify_id"], None
+    primary = _PRIMARY_ARTIST.split(artist)[0].strip() or artist
+    bare_title = _FEAT.sub("", title).strip() or title
 
-    cands = [t for t in (normalise_track(r) for r in raw) if t]
-    if not cands:
-        return sp["spotify_id"], None
+    # Several phrasings — SoundCloud uploads are titled every which way.
+    queries = [
+        f"{artist} {title}",
+        f"{primary} {bare_title}",
+        f"{primary} - {bare_title}",
+        bare_title if len(bare_title) > 6 else "",
+    ]
 
-    best = max(cands, key=lambda c: _score(c, artist, title, dur))
-    if _score(best, artist, title, dur) >= _MATCH_THRESHOLD:
-        return sp["spotify_id"], best.id
+    best_overall = None
+    best_score = 0.0
+    for q in dict.fromkeys(q for q in queries if q.strip()):
+        async with _sem:
+            try:
+                raw = await soundcloud.search_tracks(q, limit=6)
+            except SoundCloudError:
+                continue
+        cands = [t for t in (normalise_track(r) for r in raw) if t]
+        if not cands:
+            continue
+        best = max(cands, key=lambda c: _score(c, artist, title, dur))
+        s = _score(best, artist, title, dur)
+        if s > best_score:
+            best_score, best_overall = s, best
+        if s >= 0.75:
+            break
+
+    if best_overall is not None and best_score >= _MATCH_THRESHOLD:
+        return sp["spotify_id"], best_overall.id
     return sp["spotify_id"], None
 
 

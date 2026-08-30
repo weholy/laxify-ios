@@ -180,28 +180,76 @@ async def available() -> bool:
     return _get_client() is not None
 
 
+def _dedup_by_id(items: list[dict], key: str = "id") -> list[dict]:
+    seen: set[str] = set()
+    out: list[dict] = []
+    for it in items:
+        k = it.get(key)
+        if k and k not in seen:
+            seen.add(k)
+            out.append(it)
+    return out
+
+
+def _rank_artists(query: str, artists: list[dict]) -> list[dict]:
+    """Spotify's artist search is noisy — a query for one name drags in
+    same-surname artists and unrelated "fans also like" acts. Dedupe by name,
+    drop anything with no word in common with the query, put an exact name
+    match first."""
+    q_tokens = _tokens(query)
+    q_norm = _norm(query)
+
+    best: dict[str, dict] = {}
+    for a in artists:
+        name = a.get("name") or ""
+        key = _norm(name)
+        if not key:
+            continue
+        a_tokens = _tokens(name)
+        # No shared word with the query at all — not this artist.
+        if q_tokens and a_tokens and not (q_tokens & a_tokens) and key != q_norm:
+            continue
+        prev = best.get(key)
+        weight = (len(a.get("image_url") or "") > 0, a.get("followers") or 0)
+        if prev is None or weight > prev["_w"]:
+            best[key] = {**a, "_w": weight}
+
+    def score(a: dict) -> tuple:
+        key = _norm(a.get("name") or "")
+        exact = key == q_norm
+        a_tokens = _tokens(a.get("name") or "")
+        overlap = len(q_tokens & a_tokens) / len(q_tokens | a_tokens) if (q_tokens and a_tokens) else 0
+        return (exact, overlap, bool(a.get("image_url")), a.get("followers") or 0)
+
+    ranked = sorted(best.values(), key=score, reverse=True)
+    return [{k: v for k, v in a.items() if k != "_w"} for a in ranked]
+
+
 async def search(query: str, limit: int = 12) -> dict:
     """Aggregate search: tracks / artists / albums / playlists as plain dicts."""
     client = _get_client()
+    empty = {"tracks": [], "artists": [], "albums": [], "playlists": []}
     if client is None or not query.strip():
-        return {"tracks": [], "artists": [], "albums": [], "playlists": []}
+        return empty
 
     def _run():
         res = client.search(
             query, types=("track", "artist", "album", "playlist"), limit=limit
         )
         return {
-            "tracks": [_track_dict(t) for t in (res.tracks or [])],
-            "artists": [_artist_dict(a) for a in (res.artists or [])],
-            "albums": [_album_dict(a) for a in (res.albums or [])],
-            "playlists": [_playlist_dict(p) for p in (res.playlists or [])],
+            "tracks": _dedup_by_id([_track_dict(t) for t in (res.tracks or [])], "spotify_id"),
+            "artists": _rank_artists(
+                query, _dedup_by_id([_artist_dict(a) for a in (res.artists or [])])
+            )[:5],
+            "albums": _dedup_by_id([_album_dict(a) for a in (res.albums or [])]),
+            "playlists": _dedup_by_id([_playlist_dict(p) for p in (res.playlists or [])]),
         }
 
     try:
         return await run_in_threadpool(_run)
     except Exception:  # noqa: BLE001
         logger.warning("spotify_meta.search failed for %r", query, exc_info=True)
-        return {"tracks": [], "artists": [], "albums": [], "playlists": []}
+        return empty
 
 
 async def match_track(artist: str, title: str, duration_s: float = 0) -> dict | None:

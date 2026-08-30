@@ -32,28 +32,37 @@ def _is_spotify_id(value: str) -> bool:
     return bool(value) and not value.isdigit() and len(value) >= 18
 
 
-async def _catalog_from_spotify_tracks(session, sp_tracks: list[dict]) -> list["CatalogTrack"]:
+async def _catalog_from_spotify_tracks(
+    session, sp_tracks: list[dict], *, drop_unresolved: bool = True
+) -> list["CatalogTrack"]:
     """Spotify track dicts -> CatalogTrack, with a SoundCloud stream resolved
-    behind each (unresolved ones come back `playable=False`)."""
+    behind each. Tracks with no SoundCloud match are dropped (search) rather
+    than shown greyed."""
     from app.services import sc_resolve  # lazy: sc_resolve imports this module
 
     if not sp_tracks:
         return []
     links = await sc_resolve.resolve(session, sp_tracks)
     out: list[CatalogTrack] = []
+    seen_sc: set[str] = set()
     for t in sp_tracks:
         sc_id = links.get(t.get("spotify_id"))
+        if not sc_id:
+            if drop_unresolved:
+                continue
+            sc_id = f"sp:{t.get('spotify_id') or ''}"
+        elif sc_id in seen_sc:
+            continue  # two Spotify tracks resolved to the same upload
+        seen_sc.add(sc_id)
         out.append(
             CatalogTrack(
-                # A real SoundCloud id when playable; otherwise a stable,
-                # unique placeholder so lists don't collide on an empty id.
-                id=sc_id or f"sp:{t.get('spotify_id') or ''}",
+                id=sc_id,
                 title=t.get("title") or "",
                 artist_id=t.get("artist_id"),
                 artist_name=t.get("artist_name") or "",
                 artwork_url=t.get("cover_url"),
                 duration_seconds=(t.get("duration_ms") or 0) / 1000,
-                playable=bool(sc_id),
+                playable=not sc_id.startswith("sp:"),
             )
         )
     return out
@@ -502,17 +511,7 @@ async def artist_tracks(
     nothing useful from that endpoint.
     """
     if _is_spotify_id(artist_id):
-        # Spotify: the artist's discography flattened, top tracks first.
-        top = await spotify_meta.artist_top_tracks(artist_id)
-        albums = await spotify_meta.discography(artist_id, limit=12)
-        seen: set[str] = {t["spotify_id"] for t in top}
-        pool = list(top)
-        for al in albums[: max(1, (offset + limit) // 12 + 1)]:
-            full = await spotify_meta.album(al["id"])
-            for tr in (full or {}).get("tracks", []):
-                if tr["spotify_id"] not in seen:
-                    seen.add(tr["spotify_id"])
-                    pool.append(tr)
+        pool = await _spotify_artist_catalogue(artist_id)
         return await _catalog_from_spotify_tracks(session, pool[offset : offset + limit])
 
     try:
@@ -624,11 +623,50 @@ class ArtistDetailResponse(BaseModel):
     similar_artists: list[CatalogArtist]
 
 
+_sp_artist_cache: dict[str, tuple[list[dict], float]] = {}
+_SP_ARTIST_TTL = 15 * 60
+
+
+async def _spotify_artist_catalogue(artist_id: str) -> list[dict]:
+    """Every track the artist has on Spotify — top tracks first, then each
+    album's tracks, flattened and de-duped. Cached for a while: it is a dozen
+    requests to assemble."""
+    hit = _sp_artist_cache.get(artist_id)
+    if hit and time.monotonic() - hit[1] < _SP_ARTIST_TTL:
+        return hit[0]
+
+    top = await spotify_meta.artist_top_tracks(artist_id)
+    albums = await spotify_meta.discography(artist_id, limit=40)
+
+    seen: set[str] = set()
+    pool: list[dict] = []
+    for tr in top:
+        if tr.get("spotify_id") and tr["spotify_id"] not in seen:
+            seen.add(tr["spotify_id"])
+            pool.append(tr)
+
+    sem = asyncio.Semaphore(4)
+
+    async def one(al: dict) -> list[dict]:
+        async with sem:
+            full = await spotify_meta.album(al["id"])
+        return (full or {}).get("tracks", []) or []
+
+    for tracks in await asyncio.gather(*(one(a) for a in albums)):
+        for tr in tracks:
+            if tr.get("spotify_id") and tr["spotify_id"] not in seen:
+                seen.add(tr["spotify_id"])
+                pool.append(tr)
+
+    _sp_artist_cache[artist_id] = (pool, time.monotonic())
+    return pool
+
+
 async def _spotify_artist_detail(session, artist_id: str) -> ArtistDetailResponse:
-    sp, top, albums = await asyncio.gather(
+    sp, catalogue, albums = await asyncio.gather(
         spotify_meta.artist(artist_id),
-        spotify_meta.artist_top_tracks(artist_id),
-        spotify_meta.discography(artist_id, limit=24),
+        _spotify_artist_catalogue(artist_id),
+        spotify_meta.discography(artist_id, limit=30),
     )
     if not sp:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Исполнитель не найден")
@@ -637,7 +675,9 @@ async def _spotify_artist_detail(session, artist_id: str) -> ArtistDetailRespons
         id=sp["id"], name=sp["name"], avatar_url=sp.get("image_url"),
         followers=sp.get("followers"), is_verified=True,
     )
-    top_tracks = await _catalog_from_spotify_tracks(session, top)
+    # "Популярные" — the first slice of the catalogue, which leads with the
+    # artist's actual top tracks.
+    top_tracks = await _catalog_from_spotify_tracks(session, catalogue[:12])
     releases = [
         CatalogPlaylist(
             id=a["id"], title=a["title"], artwork_url=a.get("cover_url"),
@@ -653,7 +693,7 @@ async def _spotify_artist_detail(session, artist_id: str) -> ArtistDetailRespons
     return ArtistDetailResponse(
         artist=artist_obj,
         top_tracks=top_tracks[:10],
-        total_track_count=len(top_tracks),
+        total_track_count=len(catalogue),
         releases=releases,
         similar_artists=[],
     )
