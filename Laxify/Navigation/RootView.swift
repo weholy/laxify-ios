@@ -67,16 +67,24 @@ struct RootView: View {
     /// scroll-down the bar minimises and the mini player slides into the
     /// same row (iOS 26 / Apple Music).
     ///
-    /// The accessory modifier is attached unconditionally and only its
-    /// *content* depends on whether something is playing. Toggling the
-    /// modifier itself gave the `TabView` a new identity the first time a
-    /// track started, which tore down every tab — closing an open playlist,
-    /// the favourites screen or search mid-use.
+    /// Toggling the modifier's *presence* gives the `TabView` a new identity
+    /// and tears down every tab — closing an open playlist, the favourites
+    /// screen or search mid-use — so on 26.1+ it stays attached and only
+    /// `isEnabled` flips, which also hides the empty accessory bar that
+    /// otherwise shows when nothing is playing. 26.0 has no `isEnabled`, so
+    /// there the modifier is attached only while a track plays.
+    @ViewBuilder
     private var playerAwareTabView: some View {
-        tabs.tabViewBottomAccessory {
-            if player.currentSong != nil {
+        if #available(iOS 26.1, *) {
+            tabs.tabViewBottomAccessory(isEnabled: player.currentSong != nil) {
                 MiniPlayerBar(zoomNamespace: playerZoom) { isPlayerPresented = true }
             }
+        } else if player.currentSong != nil {
+            tabs.tabViewBottomAccessory {
+                MiniPlayerBar(zoomNamespace: playerZoom) { isPlayerPresented = true }
+            }
+        } else {
+            tabs
         }
     }
 
