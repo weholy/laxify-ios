@@ -65,15 +65,18 @@ struct RootView: View {
 
     /// The mini player rides as the tab bar's bottom accessory — so on
     /// scroll-down the bar minimises and the mini player slides into the
-    /// same row (iOS 26 / Apple Music). Only attached while something plays.
-    @ViewBuilder
+    /// same row (iOS 26 / Apple Music).
+    ///
+    /// The accessory modifier is attached unconditionally and only its
+    /// *content* depends on whether something is playing. Toggling the
+    /// modifier itself gave the `TabView` a new identity the first time a
+    /// track started, which tore down every tab — closing an open playlist,
+    /// the favourites screen or search mid-use.
     private var playerAwareTabView: some View {
-        if player.currentSong != nil {
-            tabs.tabViewBottomAccessory {
+        tabs.tabViewBottomAccessory {
+            if player.currentSong != nil {
                 MiniPlayerBar(zoomNamespace: playerZoom) { isPlayerPresented = true }
             }
-        } else {
-            tabs
         }
     }
 

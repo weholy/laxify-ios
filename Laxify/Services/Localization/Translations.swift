@@ -133,6 +133,8 @@ enum Translations {
         "favorites.empty": "Пока нет избранных треков",
 
         "playlist.rename": "Переименовать",
+        "playlist.name": "Название",
+        "playlist.deleteConfirm": "Удалить плейлист?",
         "playlist.cover": "Обложка",
         "playlist.cover.remove": "Убрать обложку",
         "playlist.makePrivate": "Сделать закрытым",
@@ -376,6 +378,8 @@ enum Translations {
         "favorites.empty": "No favorite tracks yet",
 
         "playlist.rename": "Rename",
+        "playlist.name": "Name",
+        "playlist.deleteConfirm": "Delete playlist?",
         "playlist.cover": "Cover",
         "playlist.cover.remove": "Remove cover",
         "playlist.makePrivate": "Make private",

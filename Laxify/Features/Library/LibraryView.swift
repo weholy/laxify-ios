@@ -11,6 +11,9 @@ struct LibraryView: View {
     @State private var showsFavorites = false
     @State private var selected: PlaylistDTO?
     @State private var isCreatePresented = false
+    @State private var renaming: PlaylistDTO?
+    @State private var renameText = ""
+    @State private var pendingDelete: PlaylistDTO?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -31,6 +34,33 @@ struct LibraryView: View {
         }
         .sheet(isPresented: $isCreatePresented) {
             CreatePlaylistSheet { isCreatePresented = false }
+        }
+        .alert(
+            L("playlist.rename", "Переименовать"),
+            isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })
+        ) {
+            TextField(L("playlist.name", "Название"), text: $renameText)
+            Button(L("common.cancel", "Отмена"), role: .cancel) { renaming = nil }
+            Button(L("common.save", "Сохранить")) {
+                guard let playlist = renaming else { return }
+                let title = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+                renaming = nil
+                guard !title.isEmpty, title != playlist.title else { return }
+                Task { await store.rename(playlist, to: title) }
+            }
+        }
+        .confirmationDialog(
+            L("playlist.deleteConfirm", "Удалить плейлист?"),
+            isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button(L("playlist.delete", "Удалить"), role: .destructive) {
+                guard let playlist = pendingDelete else { return }
+                pendingDelete = nil
+                if selected?.id == playlist.id { selected = nil }
+                Task { await store.delete(playlist) }
+            }
+            Button(L("common.cancel", "Отмена"), role: .cancel) { pendingDelete = nil }
         }
     }
 
@@ -103,6 +133,19 @@ struct LibraryView: View {
                         PlaylistRow(playlist: playlist)
                     }
                     .buttonStyle(.plain)
+                    .contextMenu {
+                        Button {
+                            renameText = playlist.title
+                            renaming = playlist
+                        } label: {
+                            Label(L("playlist.rename", "Переименовать"), systemImage: "pencil")
+                        }
+                        Button(role: .destructive) {
+                            pendingDelete = playlist
+                        } label: {
+                            Label(L("playlist.delete", "Удалить"), systemImage: "trash")
+                        }
+                    }
                 }
 
                 if store.playlists.isEmpty && !store.isLoading {
