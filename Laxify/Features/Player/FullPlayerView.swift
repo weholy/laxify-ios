@@ -15,40 +15,6 @@ struct FullPlayerView: View {
     @State private var isCommentsPresented = false
     @State private var selectedArtistId: String?
     @State private var palette: ArtworkPalette = .neutral
-    @State private var dragOffset: CGFloat = 0
-
-    /// How far through the dismissal the drag is, 0…1. Everything the gesture
-    /// animates reads from this, so the shrink, the corner rounding and the
-    /// fade stay in step.
-    private var dismissProgress: CGFloat {
-        min(max(dragOffset / 340, 0), 1)
-    }
-
-    /// Drag down to put the player away.
-    ///
-    /// Attached to the container, so the scrubber and the volume slider — both
-    /// children with gestures of their own — still win the touches that start
-    /// on them.
-    private var dismissDrag: some Gesture {
-        DragGesture(minimumDistance: 12)
-            .onChanged { value in
-                // Downward only, and only when the movement is more vertical
-                // than horizontal; anything else belongs to another control.
-                guard value.translation.height > 0,
-                      abs(value.translation.height) > abs(value.translation.width) else { return }
-                // Rubber-banded: the further it goes the less it follows, so
-                // it never feels like it is being thrown off the screen.
-                dragOffset = pow(value.translation.height, 0.86)
-            }
-            .onEnded { value in
-                let flung = value.predictedEndTranslation.height > 420
-                if dragOffset > 110 || flung {
-                    onClose()
-                } else {
-                    dragOffset = 0
-                }
-            }
-    }
 
 
     private var isFavorite: Bool {
@@ -88,16 +54,6 @@ struct FullPlayerView: View {
             .padding(.top, 8)
             .padding(.bottom, 18)
         }
-        // Pulled down, the player shrinks away rather than just sliding — the
-        // same gesture the bottom bar used to answer to. Past a third of the
-        // way it lets go and hands back to the zoom transition into the mini
-        // player; short of that it springs back.
-        .scaleEffect(1 - dismissProgress * 0.16, anchor: .top)
-        .offset(y: dragOffset)
-        .clipShape(RoundedRectangle(cornerRadius: dismissProgress * 44, style: .continuous))
-        .opacity(1 - dismissProgress * 0.35)
-        .gesture(dismissDrag)
-        .animation(.spring(response: 0.34, dampingFraction: 0.86), value: dragOffset)
         .task(id: player.currentSong?.id) {
             palette = await PaletteExtractor.shared.palette(for: player.currentSong?.coverURL)
         }
