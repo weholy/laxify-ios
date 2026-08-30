@@ -48,6 +48,10 @@ final class AudioPlayerController {
     private var isCrossfading = false
     /// So the tail-of-track check only fires the fade once per song.
     private var crossfadeArmedForTrackId: String?
+    /// Fires once when the playhead reaches `duration - window`. Unlike the
+    /// periodic observer this is honoured during background audio, so the
+    /// fade still starts with the screen locked.
+    private var crossfadeBoundaryObserver: Any?
 
     private var waveBatchId: String?
     private var artworkTrackId: String?
@@ -183,14 +187,13 @@ final class AudioPlayerController {
     }
 
     func seek(to time: TimeInterval) {
-        // Scrubbing back into the track cancels a fade that had already begun.
-        if isCrossfading {
-            cancelCrossfade()
-            crossfadeArmedForTrackId = nil
-            player?.volume = 1
-        }
+        // Scrubbing back into the track cancels a fade that had already begun,
+        // and makes the track eligible to fade again from its new position.
+        let wasCrossfading = isCrossfading
+        if wasCrossfading { cancelCrossfade() }
         currentTime = time
         player?.seek(to: CMTime(seconds: time, preferredTimescale: 600))
+        if wasCrossfading { armCrossfadeBoundary() }
         updateNowPlayingInfo()
     }
 
@@ -594,9 +597,14 @@ final class AudioPlayerController {
                 guard let self, self.currentSong != nil else { return }
                 guard seconds.isFinite, seconds > 1, abs(self.duration - seconds) > 1 else { return }
                 self.duration = seconds
+                // The fade is scheduled off the real duration, so re-place it
+                // now that it is known rather than off the metadata estimate.
+                self.armCrossfadeBoundary()
                 self.updateNowPlayingInfo()
             }
         }
+
+        armCrossfadeBoundary()
     }
 
     // MARK: - Crossfade
@@ -607,10 +615,40 @@ final class AudioPlayerController {
         crossfadePlayer?.pause()
         crossfadePlayer = nil
         isCrossfading = false
+        crossfadeArmedForTrackId = nil
+        player?.volume = 1
+        disarmCrossfadeBoundary()
     }
 
-    /// Called every tick. Once the current track is within the fade window of
-    /// its end, start the next one on a second player and cross the volumes.
+    private func disarmCrossfadeBoundary() {
+        if let crossfadeBoundaryObserver {
+            player?.removeTimeObserver(crossfadeBoundaryObserver)
+        }
+        crossfadeBoundaryObserver = nil
+    }
+
+    /// Schedules the fade to begin when the playhead reaches `duration -
+    /// window`. Re-armed whenever the real duration is learned (the metadata
+    /// estimate it starts from can be off by several seconds).
+    private func armCrossfadeBoundary() {
+        disarmCrossfadeBoundary()
+
+        let window = crossfadeDuration.seconds
+        guard window > 0, let player,
+              duration.isFinite, duration > window + 3
+        else { return }
+
+        let fireAt = CMTime(seconds: duration - window, preferredTimescale: 600)
+        crossfadeBoundaryObserver = player.addBoundaryTimeObserver(
+            forTimes: [NSValue(time: fireAt)], queue: .main
+        ) { [weak self] in
+            Task { @MainActor in self?.maybeStartCrossfade() }
+        }
+    }
+
+    /// Starts the fade if the current track is within the window of its end.
+    /// Driven both by the boundary observer above and, as a fallback, by the
+    /// periodic time observer.
     private func maybeStartCrossfade() {
         let window = crossfadeDuration.seconds
         guard window > 0,
@@ -619,37 +657,69 @@ final class AudioPlayerController {
               repeatMode != .one,
               hasNext,
               duration > window + 2,
-              currentTime >= duration - window,
+              currentTime >= duration - window - 0.5,
+              currentTime < duration - 0.5,
               crossfadeArmedForTrackId != currentSong?.id
         else { return }
 
         crossfadeArmedForTrackId = currentSong?.id
         isCrossfading = true
         let nextSong = queue[currentIndex + 1]
+        // Never ramp for longer than there is audio left on the outgoing side,
+        // or the current track ends mid-fade into silence.
+        let remaining = max(1.0, duration - currentTime - 0.25)
+        let ramp = min(window, remaining)
 
         crossfadeTask = Task { [weak self] in
             guard let self else { return }
             guard let (item, loader) = try? await Self.streamingItem(for: nextSong.id) else {
-                self.isCrossfading = false
+                self.abortCrossfade()
                 return
             }
-            await self.runCrossfade(to: nextSong, item: item, loader: loader, over: window)
+            await self.runCrossfade(to: nextSong, item: item, loader: loader, over: ramp)
         }
     }
 
+    /// Give up on the fade and let the ordinary end-of-track handler do a
+    /// clean cut instead.
+    private func abortCrossfade() {
+        crossfadePlayer?.pause()
+        crossfadePlayer = nil
+        isCrossfading = false
+        crossfadeArmedForTrackId = nil
+        player?.volume = 1
+    }
+
     private func runCrossfade(
-        to song: Song, item: AVPlayerItem, loader: StreamLoader?, over window: Double
+        to song: Song, item: AVPlayerItem, loader: StreamLoader?, over ramp: Double
     ) async {
         let outgoing = player
         let incoming = AVPlayer(playerItem: item)
         incoming.volume = 0
         incoming.automaticallyWaitsToMinimizeStalling = true
-        incoming.play()
-        incoming.rate = Float(playbackRate)
         crossfadePlayer = incoming
 
-        let steps = max(Int(window / 0.05), 1)
+        // Wait until the incoming track can actually produce sound. Ramping
+        // before it is ready fades the current track down into a gap and then
+        // slams the next one in at full volume — which is what "crossfade
+        // doesn't work" looked like.
+        let ready = await Self.waitUntilReady(item, timeout: 3.0)
+        guard !Task.isCancelled else { incoming.pause(); return }
+        guard ready else {
+            abortCrossfade()
+            return
+        }
+
+        incoming.play()
+        incoming.rate = Float(playbackRate)
+
+        let steps = max(Int(ramp / 0.05), 1)
         for step in 0...steps {
+            if Task.isCancelled { incoming.pause(); return }
+            // Honour a pause during the fade: hold the ramp where it is.
+            while !isPlaying && !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
             if Task.isCancelled { incoming.pause(); return }
             let t = Float(step) / Float(steps)
             outgoing?.volume = 1 - t
@@ -678,11 +748,23 @@ final class AudioPlayerController {
         isCrossfading = false
 
         attachObservers(to: item)
+        armCrossfadeBoundary()
         extendWaveQueueIfNeeded()
         reportWaveStart(for: song)
         prefetchNext()
         updateNowPlayingInfo()
         loadArtworkIfNeeded(for: song)
+    }
+
+    /// Polls an item to `.readyToPlay`, up to `timeout` seconds.
+    private static func waitUntilReady(_ item: AVPlayerItem, timeout: Double) async -> Bool {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(timeout))
+        while ContinuousClock.now < deadline {
+            if item.status == .readyToPlay { return true }
+            if item.status == .failed { return false }
+            try? await Task.sleep(for: .milliseconds(40))
+        }
+        return item.status == .readyToPlay
     }
 
     private func handleDidFinishPlaying() {
@@ -854,6 +936,10 @@ final class AudioPlayerController {
             player?.removeTimeObserver(timeObserverToken)
         }
         timeObserverToken = nil
+        if let crossfadeBoundaryObserver {
+            player?.removeTimeObserver(crossfadeBoundaryObserver)
+        }
+        crossfadeBoundaryObserver = nil
         if let endObserver {
             NotificationCenter.default.removeObserver(endObserver)
         }
