@@ -54,6 +54,11 @@ router = APIRouter(prefix="/wave", tags=["wave"])
 BUFFER_TARGET = 45
 BUFFER_REFILL_BELOW = 22
 
+# How many recently-served ids to remember for de-duping. Past this the
+# oldest are forgotten, so a long session can eventually replay something
+# rather than run the buffer dry once the station pool is exhausted.
+SERVED_CAP = 600
+
 SEED_LIMIT = 12
 RECENT_EXCLUSION_DAYS = 3
 
@@ -549,9 +554,20 @@ async def _open_session(db, user_id, settings: dict) -> WaveSession:
     await db.flush()
 
     sess.queue = await _fill(db, user_id, sess, want=BUFFER_TARGET)
-    sess.served = [t["id"] for t in sess.queue]
+    sess.served = _extend_served([], [t["id"] for t in sess.queue])
     await db.flush()
     return sess
+
+
+def _extend_served(existing: list[str] | None, new_ids: list[str]) -> list[str]:
+    """Append ids, drop duplicates keeping the most recent, cap the length."""
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for tid in [*(existing or []), *new_ids]:
+        if tid and tid not in seen:
+            seen.add(tid)
+            ordered.append(tid)
+    return ordered[-SERVED_CAP:]
 
 
 def _response(sess: WaveSession, tracks: list[dict], *, personalised: bool) -> WaveSessionResponse:
@@ -611,12 +627,12 @@ async def next_batch(
 
     if len(queue) < BUFFER_REFILL_BELOW:
         sess.queue = queue
-        sess.served = list({*(sess.served or []), *[t["id"] for t in queue]})
+        sess.served = _extend_served(sess.served, [t["id"] for t in queue])
         added = await _fill(session, user.id, sess, want=BUFFER_TARGET - len(queue))
         queue = queue + added
 
     sess.queue = queue
-    sess.served = list({*(sess.served or []), *[t["id"] for t in queue]})
+    sess.served = _extend_served(sess.served, [t["id"] for t in queue])
     await session.commit()
 
     return _response(sess, queue, personalised=True)
@@ -699,10 +715,10 @@ async def change_settings(
     queue = list(sess.queue or [])
     head = queue[:1]
     sess.queue = head
-    sess.served = list({*(sess.served or []), *[t["id"] for t in head]})
+    sess.served = _extend_served(sess.served, [t["id"] for t in head])
     tail = await _fill(session, user.id, sess, want=BUFFER_TARGET - len(head))
     sess.queue = head + tail
-    sess.served = list({*(sess.served or []), *[t["id"] for t in sess.queue]})
+    sess.served = _extend_served(sess.served, [t["id"] for t in sess.queue])
     await session.commit()
 
     return _response(sess, sess.queue, personalised=True)
