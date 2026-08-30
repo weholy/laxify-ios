@@ -18,6 +18,7 @@ from app.models.library import (
     PlaylistCollaborator,
     PlaylistInvite,
     PlaylistItem,
+    SpotifyLink,
     TrackMeta,
     TrackSnapshot,
 )
@@ -53,6 +54,7 @@ __all__ = [
     "PlaylistItem",
     "PushToken",
     "SearchHistoryEntry",
+    "SpotifyLink",
     "TrackMeta",
     "TrackSnapshot",
     "User",

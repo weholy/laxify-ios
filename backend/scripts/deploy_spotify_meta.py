@@ -31,14 +31,18 @@ FILES = [
     "app/models/__init__.py",
     "app/services/spotify_meta.py",
     "app/services/catalog_meta.py",
+    "app/services/sc_resolve.py",
     "app/api/v1/library.py",
     "app/api/v1/catalog.py",
     "app/api/v1/playlists.py",
     "scripts/backfill_track_meta.py",
 ]
 
-SQL_FILE = os.path.join(REPO, "sql", "2026-08-30_track_meta.sql")
-RUN_BACKFILL = True
+SQL_FILES = [
+    os.path.join(REPO, "sql", "2026-08-30_track_meta.sql"),
+    os.path.join(REPO, "sql", "2026-08-31_spotify_links.sql"),
+]
+RUN_BACKFILL = False  # already ran; flip on for a fresh box
 
 
 def sh(client, cmd, timeout=600):
@@ -64,12 +68,13 @@ def main():
 
         sh(client, f"{REMOTE}/.venv/bin/pip install -q spotifyscraper==3.9.2 2>&1 | tail -3")
 
-        with open(SQL_FILE, encoding="utf-8") as fh:
-            sql = fh.read()
-        sftp_sql = f"{REMOTE}/sql_track_meta_tmp.sql"
-        with sftp.open(sftp_sql, "w") as fh:
-            fh.write(sql)
-        sh(client, f"sudo -u postgres psql laxify -v ON_ERROR_STOP=1 -f {sftp_sql} && rm {sftp_sql}")
+        for i, sql_path in enumerate(SQL_FILES):
+            with open(sql_path, encoding="utf-8") as fh:
+                sql = fh.read()
+            sftp_sql = f"{REMOTE}/sql_meta_tmp_{i}.sql"
+            with sftp.open(sftp_sql, "w") as fh:
+                fh.write(sql)
+            sh(client, f"sudo -u postgres psql laxify -v ON_ERROR_STOP=1 -f {sftp_sql} && rm {sftp_sql}")
 
         sh(client, "systemctl restart laxify-api && sleep 5 && systemctl is-active laxify-api")
         sh(client, "curl -s http://127.0.0.1:8100/health")

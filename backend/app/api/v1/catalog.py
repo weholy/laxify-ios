@@ -22,9 +22,39 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.models import ReferenceArtist
-from app.services import audio_cache, authenticity, catalog_meta
+from app.services import audio_cache, authenticity, catalog_meta, spotify_meta
 from app.services.playability import filter_playable
 from app.services.soundcloud import SoundCloudError, soundcloud
+
+
+def _is_spotify_id(value: str) -> bool:
+    """Spotify ids are 22-char base62; SoundCloud ids are all digits."""
+    return bool(value) and not value.isdigit() and len(value) >= 18
+
+
+async def _catalog_from_spotify_tracks(session, sp_tracks: list[dict]) -> list["CatalogTrack"]:
+    """Spotify track dicts -> CatalogTrack, with a SoundCloud stream resolved
+    behind each (unresolved ones come back `playable=False`)."""
+    from app.services import sc_resolve  # lazy: sc_resolve imports this module
+
+    if not sp_tracks:
+        return []
+    links = await sc_resolve.resolve(session, sp_tracks)
+    out: list[CatalogTrack] = []
+    for t in sp_tracks:
+        sc_id = links.get(t.get("spotify_id"))
+        out.append(
+            CatalogTrack(
+                id=sc_id or "",
+                title=t.get("title") or "",
+                artist_id=t.get("artist_id"),
+                artist_name=t.get("artist_name") or "",
+                artwork_url=t.get("cover_url"),
+                duration_seconds=(t.get("duration_ms") or 0) / 1000,
+                playable=bool(sc_id),
+            )
+        )
+    return out
 
 router = APIRouter(prefix="/catalog", tags=["catalog"])
 
@@ -39,6 +69,9 @@ class CatalogTrack(BaseModel):
     permalink: str | None = None
     genre: str | None = None
     playback_count: int | None = None
+    # False when the track comes from Spotify but no SoundCloud stream could be
+    # matched — shown greyed, can't be played or saved.
+    playable: bool = True
 
 
 class CatalogArtist(BaseModel):
@@ -67,6 +100,7 @@ class CatalogPlaylist(BaseModel):
 class SearchResponse(BaseModel):
     tracks: list[CatalogTrack]
     artists: list[CatalogArtist]
+    albums: list[CatalogPlaylist] = []
     playlists: list[CatalogPlaylist]
 
 
@@ -164,6 +198,29 @@ def _guard(error: SoundCloudError) -> HTTPException:
     return HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(error))
 
 
+async def _search_soundcloud(session, q: str, limit: int) -> SearchResponse:
+    """The old path — kept as the fallback when Spotify can't be reached."""
+    try:
+        results = await soundcloud.search_all(q, limit=limit)
+    except SoundCloudError as exc:
+        raise _guard(exc) from exc
+
+    genuine = await authenticity.filter_artists(results["users"], limit=10, session=session)
+    artists = [a for a in (normalise_artist(u) for u in genuine) if a]
+    for artist in artists:
+        artist.is_verified = True
+
+    tracks = _tracks(await authenticity.filter_tracks(session, results["tracks"]))
+    tracks = await catalog_meta.enrich_catalog_tracks(tracks, hide_unmatched=False)
+
+    return SearchResponse(
+        tracks=tracks,
+        artists=artists,
+        albums=[],
+        playlists=[p for p in (normalise_playlist(p) for p in results["playlists"]) if p],
+    )
+
+
 @router.get("/search", response_model=SearchResponse)
 async def search(
     user: CurrentUser,
@@ -171,36 +228,56 @@ async def search(
     q: str = Query(min_length=1, max_length=200),
     limit: int = Query(30, ge=1, le=50),
 ) -> SearchResponse:
-    try:
-        results = await soundcloud.search_all(q, limit=limit)
-    except SoundCloudError as exc:
-        raise _guard(exc) from exc
+    """Spotify-first: tracks / artists / albums / playlists are Spotify's, with
+    a SoundCloud stream resolved behind each track for playback. Falls back to
+    a plain SoundCloud search when Spotify is unreachable."""
+    sp = await spotify_meta.search(q, limit=limit)
+    if not any((sp["tracks"], sp["artists"], sp["albums"], sp["playlists"])):
+        return await _search_soundcloud(session, q, limit)
 
-    # Anyone can open an account under a famous name, and a search for one
-    # used to return a dozen of them beside the real thing.
-    #
-    # Only the artist list is filtered. Tracks are left alone: plenty of good
-    # music is uploaded by people who are not the artist and never claimed to
-    # be, and hiding a song because of who posted it would empty the
-    # catalogue. What is hidden is the impersonation, not the music.
-    genuine = await authenticity.filter_artists(results["users"], limit=10, session=session)
+    tracks = await _catalog_from_spotify_tracks(session, sp["tracks"])
 
-    # Being in that catalogue is what official means here, so the mark
-    # follows the same rule that decided they are shown at all.
-    artists = [a for a in (normalise_artist(u) for u in genuine) if a]
-    for artist in artists:
-        artist.is_verified = True
+    artists = [
+        CatalogArtist(
+            id=a["id"],
+            name=a["name"],
+            avatar_url=a.get("image_url"),
+            followers=a.get("followers"),
+            track_count=None,
+            is_verified=True,
+        )
+        for a in sp["artists"]
+        if a.get("id") and a.get("name")
+    ]
 
-    tracks = _tracks(await authenticity.filter_tracks(session, results["tracks"]))
-    # Clean track titles / artist names / covers from Spotify. Not hiding here:
-    # search should still surface what SoundCloud has, even off-Spotify.
-    tracks = await catalog_meta.enrich_catalog_tracks(tracks, hide_unmatched=False)
+    albums = [
+        CatalogPlaylist(
+            id=a["id"],
+            title=a["title"],
+            artwork_url=a.get("cover_url"),
+            track_count=a.get("total_tracks") or 0,
+            owner_name=a.get("artist_name"),
+            year=int(a["year"]) if (a.get("year") or "").isdigit() else None,
+            kind=a.get("kind") or "album",
+        )
+        for a in sp["albums"]
+        if a.get("id") and a.get("title")
+    ]
 
-    return SearchResponse(
-        tracks=tracks,
-        artists=artists,
-        playlists=[p for p in (normalise_playlist(p) for p in results["playlists"]) if p],
-    )
+    playlists = [
+        CatalogPlaylist(
+            id=p["id"],
+            title=p["title"],
+            artwork_url=p.get("cover_url"),
+            track_count=p.get("track_count") or 0,
+            owner_name=p.get("owner_name"),
+            kind=None,
+        )
+        for p in sp["playlists"]
+        if p.get("id") and p.get("title")
+    ]
+
+    return SearchResponse(tracks=tracks, artists=artists, albums=albums, playlists=playlists)
 
 
 @router.get("/search/tracks", response_model=list[CatalogTrack])
@@ -385,6 +462,18 @@ async def _passthrough(source: str, request: Request) -> StreamingResponse:
 
 @router.get("/artists/{artist_id}", response_model=CatalogArtist)
 async def artist(artist_id: str, user: CurrentUser) -> CatalogArtist:
+    if _is_spotify_id(artist_id):
+        sp = await spotify_meta.artist(artist_id)
+        if sp:
+            return CatalogArtist(
+                id=sp["id"],
+                name=sp["name"],
+                avatar_url=sp.get("image_url"),
+                followers=sp.get("followers"),
+                is_verified=True,
+            )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Исполнитель не найден")
+
     try:
         raw = await soundcloud.user(artist_id)
     except SoundCloudError as exc:
@@ -400,6 +489,7 @@ async def artist(artist_id: str, user: CurrentUser) -> CatalogArtist:
 async def artist_tracks(
     artist_id: str,
     user: CurrentUser,
+    session: SessionDep,
     limit: int = Query(50, ge=1, le=300),
     offset: int = Query(0, ge=0),
 ) -> list[CatalogTrack]:
@@ -409,6 +499,20 @@ async def artist_tracks(
     it once and slices — asking for page three with an offset returns
     nothing useful from that endpoint.
     """
+    if _is_spotify_id(artist_id):
+        # Spotify: the artist's discography flattened, top tracks first.
+        top = await spotify_meta.artist_top_tracks(artist_id)
+        albums = await spotify_meta.discography(artist_id, limit=12)
+        seen: set[str] = {t["spotify_id"] for t in top}
+        pool = list(top)
+        for al in albums[: max(1, (offset + limit) // 12 + 1)]:
+            full = await spotify_meta.album(al["id"])
+            for tr in (full or {}).get("tracks", []):
+                if tr["spotify_id"] not in seen:
+                    seen.add(tr["spotify_id"])
+                    pool.append(tr)
+        return await _catalog_from_spotify_tracks(session, pool[offset : offset + limit])
+
     try:
         profile = await soundcloud.user(artist_id)
     except SoundCloudError as exc:
@@ -518,6 +622,41 @@ class ArtistDetailResponse(BaseModel):
     similar_artists: list[CatalogArtist]
 
 
+async def _spotify_artist_detail(session, artist_id: str) -> ArtistDetailResponse:
+    sp, top, albums = await asyncio.gather(
+        spotify_meta.artist(artist_id),
+        spotify_meta.artist_top_tracks(artist_id),
+        spotify_meta.discography(artist_id, limit=24),
+    )
+    if not sp:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Исполнитель не найден")
+
+    artist_obj = CatalogArtist(
+        id=sp["id"], name=sp["name"], avatar_url=sp.get("image_url"),
+        followers=sp.get("followers"), is_verified=True,
+    )
+    top_tracks = await _catalog_from_spotify_tracks(session, top)
+    releases = [
+        CatalogPlaylist(
+            id=a["id"], title=a["title"], artwork_url=a.get("cover_url"),
+            track_count=a.get("total_tracks") or 0, owner_name=a.get("artist_name") or sp["name"],
+            year=int(a["year"]) if (a.get("year") or "").isdigit() else None,
+            kind=a.get("kind") or "album",
+        )
+        for a in albums
+        if a.get("id") and a.get("title")
+    ]
+    releases.sort(key=lambda item: item.year or 0, reverse=True)
+
+    return ArtistDetailResponse(
+        artist=artist_obj,
+        top_tracks=top_tracks[:10],
+        total_track_count=len(top_tracks),
+        releases=releases,
+        similar_artists=[],
+    )
+
+
 @router.get("/artists/{artist_id}/detail", response_model=ArtistDetailResponse)
 async def artist_detail(
     artist_id: str, user: CurrentUser, session: SessionDep
@@ -527,6 +666,9 @@ async def artist_detail(
     Four separate calls from the app meant four round trips before anything
     could be drawn; fanning them out here makes the screen appear at once.
     """
+    if _is_spotify_id(artist_id):
+        return await _spotify_artist_detail(session, artist_id)
+
     async def safe(coro, default):
         try:
             return await coro
@@ -570,7 +712,17 @@ async def artist_detail(
 
 
 @router.get("/playlists/{playlist_id}/tracks", response_model=list[CatalogTrack])
-async def playlist_tracks(playlist_id: str, user: CurrentUser) -> list[CatalogTrack]:
+async def playlist_tracks(
+    playlist_id: str, user: CurrentUser, session: SessionDep
+) -> list[CatalogTrack]:
+    # A Spotify album or playlist id — serve its tracks, each with a
+    # SoundCloud stream resolved behind it.
+    if _is_spotify_id(playlist_id):
+        detail = await spotify_meta.album(playlist_id) or await spotify_meta.playlist(playlist_id)
+        if detail:
+            return await _catalog_from_spotify_tracks(session, detail.get("tracks") or [])
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Не найдено")
+
     try:
         raw = await soundcloud.playlist(playlist_id)
     except SoundCloudError as exc:

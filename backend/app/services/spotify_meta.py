@@ -258,6 +258,30 @@ async def artist_top_tracks(spotify_id: str) -> list[dict]:
         return []
 
 
+async def discography(spotify_id: str, limit: int = 30) -> list[dict]:
+    """The artist's albums / singles as album dicts."""
+    client = _get_client()
+    if client is None or not spotify_id:
+        return []
+
+    def _run():
+        items = client.get_discography(
+            f"https://open.spotify.com/artist/{spotify_id}"
+        )
+        out = []
+        for al in (items or [])[:limit]:
+            try:
+                out.append(_album_dict(al))
+            except Exception:  # noqa: BLE001
+                continue
+        return out
+
+    try:
+        return await run_in_threadpool(_run)
+    except Exception:  # noqa: BLE001
+        return []
+
+
 async def album(spotify_id: str) -> dict | None:
     client = _get_client()
     if client is None or not spotify_id:

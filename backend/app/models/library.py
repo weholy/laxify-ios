@@ -192,6 +192,21 @@ class TrackMeta(Base, TimestampMixin):
     cover_url: Mapped[str | None] = mapped_column(Text, default=None)
 
 
+class SpotifyLink(Base, TimestampMixin):
+    """Which SoundCloud track streams the audio for a Spotify track.
+
+    The other direction from ``TrackMeta``: search now returns Spotify tracks,
+    and this is the cache of "found a SoundCloud stream for it". ``sc_track_id``
+    NULL means a completed search found nothing playable.
+    """
+
+    __tablename__ = "spotify_links"
+
+    spotify_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    sc_track_id: Mapped[str | None] = mapped_column(String(64), index=True, default=None)
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class ReferenceArtist(Base):
     """An artist a proper music catalogue knows about.
 
