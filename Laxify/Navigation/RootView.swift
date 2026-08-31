@@ -7,7 +7,6 @@ struct RootView: View {
     @Namespace private var playerZoom
     var player = AudioPlayerController.shared
     var router = DeepLinkRouter.shared
-    var interface = InterfaceSettings.shared
 
     private var tabSelection: Binding<AppTab> {
         Binding(
@@ -72,12 +71,10 @@ struct RootView: View {
         }
     }
 
-    /// A `Tab` built from a title always draws that title, and no modifier
-    /// suppresses it — so every tab is built from the `label:` initialiser
-    /// and the label itself decides whether a word appears. Keeping the same
-    /// initialiser either way matters: swapping between two shapes of `Tab`
-    /// would give the `TabView` a new identity and tear down every screen
-    /// inside it the moment the switch is flipped.
+    /// Glyphs only. A `Tab` built from a title always draws that title and no
+    /// modifier suppresses it, so every tab is built from the `label:`
+    /// initialiser with a bare image; the words survive as accessibility
+    /// labels, which is the one job they still had.
     ///
     /// Search keeps its own initialiser — in its search role the system draws
     /// it as a lone magnifier regardless.
@@ -110,16 +107,9 @@ struct RootView: View {
         .tabBarMinimizeBehavior(.onScrollDown)
     }
 
-    @ViewBuilder
     private func tabLabel(_ title: String, systemImage: String) -> some View {
-        if interface.hideTabLabels {
-            // The word still exists for VoiceOver — it is only the drawing
-            // of it that the switch turns off.
-            Image(systemName: systemImage)
-                .accessibilityLabel(title)
-        } else {
-            Label(title, systemImage: systemImage)
-        }
+        Image(systemName: systemImage)
+            .accessibilityLabel(title)
     }
 }
 

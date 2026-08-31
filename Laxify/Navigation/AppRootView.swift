@@ -41,6 +41,10 @@ struct AppRootView: View {
             // Bring the account's listening history down, so the figures the
             // device works out are the same ones the server would.
             await HistoryMirror.sync(context: modelContext)
+
+            // Then bring the *names* in that history up to date, without
+            // losing a single play.
+            await StatsRepair.run(context: modelContext)
         }
         .onChange(of: scenePhase) { _, phase in
             // Coming back to the app is the most likely moment for the

@@ -1046,6 +1046,109 @@ actor LaxifyAPI {
         )
     }
 
+    /// One person, counted — every figure the panel shows on a user.
+    struct AdminUserStatsDTO: Decodable, Sendable {
+        var favorites = 0
+        var disliked = 0
+        var playlists = 0
+        var playlistTracks = 0
+        var playsTotal = 0
+        var plays7d = 0
+        var plays24h = 0
+        var minutesTotal = 0
+        var distinctTracks = 0
+        var distinctArtists = 0
+        var completedPlays = 0
+        var devices = 0
+        var followers = 0
+        var following = 0
+        var comments = 0
+        var searches = 0
+        var downloads = 0
+        var notifications = 0
+        var unreadNotifications = 0
+        var daysWithMusic = 0
+        var firstPlayAt: Date?
+        var lastPlayAt: Date?
+        var topArtist: String?
+        var topTrack: String?
+    }
+
+    struct AdminDayCount: Decodable, Sendable, Identifiable {
+        let day: String
+        let count: Int
+        var id: String { day }
+    }
+
+    struct AdminNamedCount: Decodable, Sendable, Identifiable {
+        let name: String
+        let count: Int
+        var id: String { name }
+    }
+
+    /// The whole service, counted.
+    struct AdminStatsDTO: Decodable, Sendable {
+        var usersTotal = 0
+        var usersToday = 0
+        var users7d = 0
+        var users30d = 0
+        var usersActive24h = 0
+        var usersActive7d = 0
+        var usersBanned = 0
+        var usersAdmin = 0
+        var usersWithAvatar = 0
+        var usersNeverPlayed = 0
+        var playsTotal = 0
+        var plays24h = 0
+        var plays7d = 0
+        var minutesTotal = 0
+        var distinctTracks = 0
+        var distinctArtists = 0
+        var favoritesTotal = 0
+        var playlistsTotal = 0
+        var commentsTotal = 0
+        var notificationsTotal = 0
+        var devicesTotal = 0
+        var downloadsTotal = 0
+        var tokensActive = 0
+        var tokensDisabled = 0
+        var signupsByDay: [AdminDayCount] = []
+        var playsByDay: [AdminDayCount] = []
+        var topTracks: [AdminNamedCount] = []
+        var topArtists: [AdminNamedCount] = []
+    }
+
+    func adminStats() async throws -> AdminStatsDTO {
+        try await send("/admin/stats", method: "GET")
+    }
+
+    func adminUserStats(userId: String) async throws -> AdminUserStatsDTO {
+        try await send("/admin/users/\(escaped(userId))/stats", method: "GET")
+    }
+
+    func adminBroadcast(title: String, body message: String, onlyActive: Bool) async throws -> String {
+        struct Body: Encodable { let title: String; let body: String; let onlyActive: Bool }
+        let response: MessageResponse = try await send(
+            "/admin/broadcast",
+            method: "POST",
+            body: Body(title: title, body: message, onlyActive: onlyActive)
+        )
+        return response.detail
+    }
+
+    func adminSetAdmin(userId: String, isAdmin: Bool) async throws {
+        struct Body: Encodable { let isAdmin: Bool }
+        let _: MessageResponse = try await send(
+            "/admin/users/\(escaped(userId))/admin", method: "POST", body: Body(isAdmin: isAdmin)
+        )
+    }
+
+    func adminDeleteUser(userId: String) async throws {
+        let _: MessageResponse = try await send(
+            "/admin/users/\(escaped(userId))", method: "DELETE"
+        )
+    }
+
     // MARK: Profile likes & linked accounts
 
     struct ProfileLikeDTO: Decodable, Sendable {

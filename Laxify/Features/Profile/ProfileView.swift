@@ -2,7 +2,6 @@ import SwiftUI
 
 struct ProfileView: View {
     @State private var session = SessionStore.shared
-    var background = ProfileBackgroundStore.shared
 
     @State private var isSettingsPresented = false
     @State private var isReplayPresented = false
@@ -87,41 +86,17 @@ struct ProfileView: View {
         ZStack(alignment: .top) {
             LaxifyPalette.background
 
-            if let custom = background.image {
-                Image(uiImage: custom)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(height: 460)
-                    .frame(maxWidth: .infinity)
-                    .clipped()
-                    .overlay {
-                        // Legible header controls up top, a clean seam into the
-                        // page where the stats card begins.
-                        LinearGradient(
-                            stops: [
-                                .init(color: .black.opacity(0.35), location: 0),
-                                .init(color: .black.opacity(0.05), location: 0.35),
-                                .init(color: LaxifyPalette.background.opacity(0.2), location: 0.75),
-                                .init(color: LaxifyPalette.background, location: 1)
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    }
-                    .transition(.opacity)
-            } else {
-                LinearGradient(
-                    colors: [
-                        avatarPalette.accent.opacity(0.55),
-                        avatarPalette.dominant.opacity(0.28),
-                        LaxifyPalette.background.opacity(0)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(height: 460)
-                .animation(.easeInOut(duration: 0.6), value: avatarPalette)
-            }
+            LinearGradient(
+                colors: [
+                    avatarPalette.accent.opacity(0.55),
+                    avatarPalette.dominant.opacity(0.28),
+                    LaxifyPalette.background.opacity(0)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: 460)
+            .animation(.easeInOut(duration: 0.6), value: avatarPalette)
         }
         .ignoresSafeArea()
     }
@@ -159,22 +134,14 @@ struct ProfileView: View {
         .padding(.horizontal, LaxifyMetrics.screenPadding)
     }
 
-    @ViewBuilder
+    /// Through the shared image cache rather than `AsyncImage`.
+    ///
+    /// `AsyncImage` refetches on every appearance, which is why the avatar sat
+    /// blank for a moment each time this screen opened; `CachedImage` keeps
+    /// the decoded picture and is keyed on the url, so a new photo still
+    /// replaces the old one straight away.
     private func avatarView(_ user: BackendUser) -> some View {
-        if let url = user.avatarURL {
-            AsyncImage(url: url) { phase in
-                if let image = phase.image {
-                    image.resizable().scaledToFill()
-                } else {
-                    Circle().fill(LaxifyPalette.surface)
-                }
-            }
-            // A new picture is a new URL, and without an identity of its own
-            // `AsyncImage` keeps showing the one it already loaded until the
-            // screen is rebuilt — which is why a changed avatar used to need
-            // a trip out of the app and back.
-            .id(url)
-        } else {
+        CachedImage(url: user.avatarURL, displaySize: 220) {
             Circle()
                 .fill(LaxifyPalette.surface)
                 .overlay {

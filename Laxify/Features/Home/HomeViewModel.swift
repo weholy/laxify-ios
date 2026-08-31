@@ -174,6 +174,9 @@ final class HomeViewModel {
         do {
             let fresh = try await service.homeContent()
             content = fresh
+            // Anything that arrives settles the question — a failure from an
+            // earlier attempt must not outlive the attempt that worked.
+            errorMessage = nil
             // Only counted as loaded when it actually finished. A load
             // cancelled by navigating away used to mark the feed fresh, so
             // coming back showed nothing and did not try again.

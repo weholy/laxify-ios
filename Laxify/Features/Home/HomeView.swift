@@ -78,7 +78,14 @@ struct HomeView: View {
 
     @ViewBuilder
     private var homeContent: some View {
-        if let errorMessage = viewModel.errorMessage {
+        // The failure is only worth showing once there is nothing else to
+        // show and nothing still on its way. It used to take priority over
+        // both, so a slow first fetch put "Не удалось загрузить главную" on
+        // screen for a second and then replaced it with the feed.
+        if let errorMessage = viewModel.errorMessage,
+           viewModel.content == nil,
+           viewModel.feed.isEmpty,
+           !viewModel.isLoading {
             VStack(alignment: .leading, spacing: 14) {
                 Text(errorMessage)
                     .font(LaxifyTypography.body)

@@ -1,31 +1,34 @@
 import SwiftUI
 
-/// The operator's panel — who has signed up, and what can be done about them.
+/// The operator's panel — who is here, what they do, and what can be done
+/// about them.
 ///
-/// Reloads whenever it is opened, whenever a tab changes, and after every
-/// action, because a list of people that is stale is worse than no list: the
-/// ban you just applied has to be visible or you will apply it twice.
+/// Reloads whenever it opens, whenever the tab changes and after every action,
+/// because a stale list of people is worse than no list: a ban you have
+/// already applied has to be visible or you will apply it twice.
 struct AdminPanelView: View {
     var onBack: () -> Void
 
     private enum Tab: String, CaseIterable, Identifiable {
         case users
         case overview
+        case broadcast
 
         var id: String { rawValue }
 
         @MainActor
         var title: String {
             switch self {
-            case .users: L("admin.users", "Пользователи")
+            case .users: L("admin.users", "Люди")
             case .overview: L("admin.overview", "Обзор")
+            case .broadcast: L("admin.broadcastTab", "Рассылка")
             }
         }
     }
 
     @State private var tab: Tab = .users
     @State private var users: [LaxifyAPI.AdminUserDTO] = []
-    @State private var overview: LaxifyAPI.AdminOverviewDTO?
+    @State private var stats: LaxifyAPI.AdminStatsDTO?
     @State private var query = ""
     @State private var isLoading = false
     @State private var failure: String?
@@ -61,19 +64,18 @@ struct AdminPanelView: View {
         switch tab {
         case .users: userList
         case .overview: overviewList
+        case .broadcast: AdminBroadcastForm()
         }
     }
 
-    // MARK: - Users
+    // MARK: - People
 
     private var userList: some View {
         ScrollView {
-            VStack(spacing: 10) {
+            LazyVStack(spacing: 10) {
                 searchField
 
-                if let failure {
-                    notice(failure)
-                }
+                if let failure { notice(failure) }
 
                 if isLoading && users.isEmpty {
                     ProgressView().padding(.top, 40)
@@ -122,15 +124,22 @@ struct AdminPanelView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .background(
-            LaxifyPalette.surface,
-            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
-        )
+        .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
     private func row(_ user: LaxifyAPI.AdminUserDTO) -> some View {
         HStack(spacing: 12) {
-            avatar(user)
+            CachedImage(url: user.avatarURL, displaySize: 90) {
+                Circle()
+                    .fill(LaxifyPalette.surfaceElevated)
+                    .overlay {
+                        Image(systemName: "person.fill")
+                            .font(.system(size: 16))
+                            .foregroundStyle(LaxifyPalette.textTertiary)
+                    }
+            }
+            .frame(width: 42, height: 42)
+            .clipShape(Circle())
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
@@ -170,63 +179,78 @@ struct AdminPanelView: View {
             Spacer(minLength: 6)
 
             VStack(alignment: .trailing, spacing: 2) {
-                Text(Self.dayFormatter.string(from: user.createdAt))
+                Text(AdminFormat.day.string(from: user.createdAt))
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(LaxifyPalette.textSecondary)
-                Text(Self.timeFormatter.string(from: user.createdAt))
+                Text(AdminFormat.time.string(from: user.createdAt))
                     .font(.system(size: 11))
                     .foregroundStyle(LaxifyPalette.textTertiary)
             }
         }
         .padding(12)
-        .background(
-            LaxifyPalette.surface,
-            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
-        )
+        .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .contentShape(Rectangle())
-    }
-
-    @ViewBuilder
-    private func avatar(_ user: LaxifyAPI.AdminUserDTO) -> some View {
-        Group {
-            if let url = user.avatarURL {
-                AsyncImage(url: url) { phase in
-                    if let image = phase.image {
-                        image.resizable().scaledToFill()
-                    } else {
-                        Circle().fill(LaxifyPalette.surfaceElevated)
-                    }
-                }
-            } else {
-                Circle()
-                    .fill(LaxifyPalette.surfaceElevated)
-                    .overlay {
-                        Image(systemName: "person.fill")
-                            .font(.system(size: 16))
-                            .foregroundStyle(LaxifyPalette.textTertiary)
-                    }
-            }
-        }
-        .frame(width: 42, height: 42)
-        .clipShape(Circle())
     }
 
     // MARK: - Overview
 
-    @ViewBuilder
     private var overviewList: some View {
         ScrollView {
-            VStack(spacing: 10) {
-                if let failure {
-                    notice(failure)
-                }
+            VStack(spacing: 14) {
+                if let failure { notice(failure) }
 
-                if let overview {
-                    stat(L("admin.usersTotal", "Всего аккаунтов"), "\(overview.usersTotal)")
-                    stat(L("admin.usersActive", "Активны за неделю"), "\(overview.usersActive7d)")
-                    stat(L("admin.plays24h", "Прослушиваний за сутки"), "\(overview.plays24h)")
-                    stat(L("admin.playlists", "Плейлистов"), "\(overview.playlistsTotal)")
-                    stat(L("admin.favorites", "В избранном"), "\(overview.favoritesTotal)")
+                if let stats {
+                    AdminStatGrid(
+                        title: L("admin.people", "Люди"),
+                        items: [
+                            .init(L("admin.usersTotal", "Всего"), stats.usersTotal),
+                            .init(L("admin.usersToday", "За сутки"), stats.usersToday),
+                            .init(L("admin.users7d", "За неделю"), stats.users7d),
+                            .init(L("admin.users30d", "За месяц"), stats.users30d),
+                            .init(L("admin.active24h", "Заходили за сутки"), stats.usersActive24h),
+                            .init(L("admin.active7d", "Заходили за неделю"), stats.usersActive7d),
+                            .init(L("admin.banned", "Заблокированы"), stats.usersBanned),
+                            .init(L("admin.admins", "Админы"), stats.usersAdmin),
+                            .init(L("admin.withAvatar", "С аватаркой"), stats.usersWithAvatar),
+                            .init(L("admin.neverPlayed", "Ни разу не слушали"), stats.usersNeverPlayed)
+                        ]
+                    )
+
+                    AdminStatGrid(
+                        title: L("admin.listening", "Прослушивания"),
+                        items: [
+                            .init(L("admin.playsTotal", "Всего"), stats.playsTotal),
+                            .init(L("admin.plays24h", "За сутки"), stats.plays24h),
+                            .init(L("admin.plays7d", "За неделю"), stats.plays7d),
+                            .init(L("admin.minutes", "Минут"), stats.minutesTotal),
+                            .init(L("admin.tracks", "Разных треков"), stats.distinctTracks),
+                            .init(L("admin.artists", "Разных артистов"), stats.distinctArtists)
+                        ]
+                    )
+
+                    AdminStatGrid(
+                        title: L("admin.content", "Контент"),
+                        items: [
+                            .init(L("admin.favorites", "В избранном"), stats.favoritesTotal),
+                            .init(L("admin.playlists", "Плейлистов"), stats.playlistsTotal),
+                            .init(L("admin.comments", "Комментариев"), stats.commentsTotal),
+                            .init(L("admin.downloads", "Загрузок"), stats.downloadsTotal),
+                            .init(L("admin.devices", "Устройств"), stats.devicesTotal),
+                            .init(L("admin.notifications", "Уведомлений"), stats.notificationsTotal)
+                        ]
+                    )
+
+                    AdminBars(
+                        title: L("admin.signups", "Регистрации, 14 дней"),
+                        values: stats.signupsByDay
+                    )
+                    AdminBars(
+                        title: L("admin.playsChart", "Прослушивания, 14 дней"),
+                        values: stats.playsByDay
+                    )
+
+                    AdminRanked(title: L("admin.topTracks", "Топ треков"), rows: stats.topTracks)
+                    AdminRanked(title: L("admin.topArtists", "Топ артистов"), rows: stats.topArtists)
                 } else if isLoading {
                     ProgressView().padding(.top, 40)
                 }
@@ -235,24 +259,6 @@ struct AdminPanelView: View {
             .padding(.bottom, 120)
         }
         .refreshable { await reload() }
-    }
-
-    private func stat(_ title: String, _ value: String) -> some View {
-        HStack {
-            Text(title)
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(LaxifyPalette.textSecondary)
-            Spacer()
-            Text(value)
-                .font(.system(size: 20, weight: .bold))
-                .monospacedDigit()
-                .foregroundStyle(LaxifyPalette.textPrimary)
-        }
-        .padding(16)
-        .background(
-            LaxifyPalette.surface,
-            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
-        )
     }
 
     private func notice(_ text: String) -> some View {
@@ -276,7 +282,9 @@ struct AdminPanelView: View {
             case .users:
                 users = try await LaxifyAPI.shared.adminUsers(query: query)
             case .overview:
-                overview = try await LaxifyAPI.shared.adminOverview()
+                stats = try await LaxifyAPI.shared.adminStats()
+            case .broadcast:
+                break
             }
         } catch APIError.server(_, let detail) {
             failure = detail
@@ -284,10 +292,14 @@ struct AdminPanelView: View {
             failure = L("admin.failed", "Сервер не ответил. Потяните вниз, чтобы повторить")
         }
     }
+}
 
-    /// The operator's own clock — a registration time is only useful next to
-    /// the day you are having.
-    private static let dayFormatter: DateFormatter = {
+// MARK: - Building blocks
+
+/// The operator's own clock — a registration time only means something next
+/// to the day they are having.
+enum AdminFormat {
+    static let day: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = .current
         formatter.timeZone = .current
@@ -295,27 +307,322 @@ struct AdminPanelView: View {
         return formatter
     }()
 
-    private static let timeFormatter: DateFormatter = {
+    static let time: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = .current
         formatter.timeZone = .current
         formatter.setLocalizedDateFormatFromTemplate("HHmm")
         return formatter
     }()
+
+    static let full: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = .current
+        formatter.timeZone = .current
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
 }
 
-/// One account, opened: everything known about them, and the two things that
-/// can be done to them.
+struct AdminStat: Identifiable {
+    let title: String
+    let value: Int
+    var id: String { title }
+
+    init(_ title: String, _ value: Int) {
+        self.title = title
+        self.value = value
+    }
+}
+
+/// A block of counts, two to a row. Numbers first, because that is what is
+/// being read; the words are there to say which number it is.
+private struct AdminStatGrid: View {
+    let title: String
+    let items: [AdminStat]
+
+    private let columns = [
+        GridItem(.flexible(), spacing: 10),
+        GridItem(.flexible(), spacing: 10)
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title.uppercased())
+                .font(.system(size: 11, weight: .heavy))
+                .tracking(0.6)
+                .foregroundStyle(LaxifyPalette.textTertiary)
+                .padding(.horizontal, 4)
+
+            LazyVGrid(columns: columns, spacing: 10) {
+                ForEach(items) { item in
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("\(item.value)")
+                            .font(.system(size: 22, weight: .bold, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundStyle(LaxifyPalette.textPrimary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
+
+                        Text(item.title)
+                            .font(.system(size: 11))
+                            .foregroundStyle(LaxifyPalette.textSecondary)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+                    .background(
+                        LaxifyPalette.surface,
+                        in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    )
+                }
+            }
+        }
+    }
+}
+
+/// Fourteen days as fourteen bars. Enough to see a shape without pretending
+/// to be a charting library.
+private struct AdminBars: View {
+    let title: String
+    let values: [LaxifyAPI.AdminDayCount]
+
+    private var peak: Int { max(values.map(\.count).max() ?? 1, 1) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title.uppercased())
+                .font(.system(size: 11, weight: .heavy))
+                .tracking(0.6)
+                .foregroundStyle(LaxifyPalette.textTertiary)
+                .padding(.horizontal, 4)
+
+            if values.isEmpty {
+                Text(L("admin.noData", "Пока нечего показать"))
+                    .font(LaxifyTypography.footnote)
+                    .foregroundStyle(LaxifyPalette.textTertiary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 20)
+                    .background(
+                        LaxifyPalette.surface,
+                        in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    )
+            } else {
+                HStack(alignment: .bottom, spacing: 4) {
+                    ForEach(values) { entry in
+                        VStack(spacing: 4) {
+                            Text("\(entry.count)")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(LaxifyPalette.textTertiary)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.6)
+
+                            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                .fill(LaxifyPalette.accent)
+                                .frame(height: max(4, 76 * CGFloat(entry.count) / CGFloat(peak)))
+
+                            Text(String(entry.day.suffix(2)))
+                                .font(.system(size: 9))
+                                .foregroundStyle(LaxifyPalette.textTertiary)
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                }
+                .padding(12)
+                .background(
+                    LaxifyPalette.surface,
+                    in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                )
+            }
+        }
+    }
+}
+
+private struct AdminRanked: View {
+    let title: String
+    let rows: [LaxifyAPI.AdminNamedCount]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title.uppercased())
+                .font(.system(size: 11, weight: .heavy))
+                .tracking(0.6)
+                .foregroundStyle(LaxifyPalette.textTertiary)
+                .padding(.horizontal, 4)
+
+            VStack(spacing: 0) {
+                ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                    HStack(spacing: 10) {
+                        Text("\(index + 1)")
+                            .font(.system(size: 12, weight: .bold))
+                            .monospacedDigit()
+                            .foregroundStyle(LaxifyPalette.textTertiary)
+                            .frame(width: 20, alignment: .trailing)
+
+                        Text(row.name)
+                            .font(.system(size: 14))
+                            .foregroundStyle(LaxifyPalette.textPrimary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+
+                        Spacer(minLength: 6)
+
+                        Text("\(row.count)")
+                            .font(.system(size: 14, weight: .semibold))
+                            .monospacedDigit()
+                            .foregroundStyle(LaxifyPalette.textSecondary)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 11)
+
+                    if row.id != rows.last?.id {
+                        SettingsDivider(inset: 44)
+                    }
+                }
+
+                if rows.isEmpty {
+                    Text(L("admin.noData", "Пока нечего показать"))
+                        .font(LaxifyTypography.footnote)
+                        .foregroundStyle(LaxifyPalette.textTertiary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 20)
+                }
+            }
+            .background(
+                LaxifyPalette.surface,
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+            )
+        }
+    }
+}
+
+// MARK: - Broadcast
+
+/// One notice to everyone at once.
+private struct AdminBroadcastForm: View {
+    @State private var title = ""
+    @State private var body_ = ""
+    @State private var onlyActive = false
+    @State private var isBusy = false
+    @State private var result: String?
+    @State private var showsConfirmation = false
+
+    private var canSend: Bool {
+        !title.trimmingCharacters(in: .whitespaces).isEmpty && !isBusy
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 14) {
+                Text(L("admin.broadcast.note", "Уведомление придёт всем, кто не заблокирован. Отменить рассылку нельзя."))
+                    .font(LaxifyTypography.footnote)
+                    .foregroundStyle(LaxifyPalette.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                TextField(L("admin.notify.title", "Заголовок"), text: $title)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 13)
+                    .background(
+                        LaxifyPalette.surface,
+                        in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    )
+
+                TextField(L("admin.notify.body", "Текст"), text: $body_, axis: .vertical)
+                    .lineLimit(4...10)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 13)
+                    .background(
+                        LaxifyPalette.surface,
+                        in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    )
+
+                Toggle(L("admin.onlyActive", "Только тем, кто что-то слушал"), isOn: $onlyActive)
+                    .font(.system(size: 15))
+                    .tint(LaxifyPalette.accent)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(
+                        LaxifyPalette.surface,
+                        in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    )
+
+                Button {
+                    showsConfirmation = true
+                } label: {
+                    HStack(spacing: 8) {
+                        if isBusy { ProgressView().tint(.white) }
+                        Text(L("admin.broadcast.send", "Разослать"))
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.white)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 15)
+                    .glassEffect(.regular.tint(LaxifyPalette.accent).interactive(), in: .capsule)
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(!canSend)
+                .opacity(canSend ? 1 : 0.45)
+
+                if let result {
+                    Text(result)
+                        .font(LaxifyTypography.footnote)
+                        .foregroundStyle(LaxifyPalette.textSecondary)
+                }
+            }
+            .padding(.horizontal, LaxifyMetrics.screenPadding)
+            .padding(.bottom, 120)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .confirmationDialog(
+            L("admin.broadcast.confirm", "Разослать всем?"),
+            isPresented: $showsConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button(L("admin.broadcast.send", "Разослать"), role: .destructive) { send() }
+            Button(L("common.cancel", "Отмена"), role: .cancel) {}
+        }
+    }
+
+    private func send() {
+        isBusy = true
+        Task {
+            defer { isBusy = false }
+            do {
+                result = try await LaxifyAPI.shared.adminBroadcast(
+                    title: title.trimmingCharacters(in: .whitespaces),
+                    body: body_,
+                    onlyActive: onlyActive
+                )
+                title = ""
+                body_ = ""
+            } catch APIError.server(_, let detail) {
+                result = detail
+            } catch {
+                result = L("admin.failed", "Сервер не ответил")
+            }
+        }
+    }
+}
+
+// MARK: - One person
+
+/// Everything known about one account, and everything that can be done to it.
 private struct AdminUserSheet: View {
     let user: LaxifyAPI.AdminUserDTO
     var onChanged: () async -> Void
     var onClose: () -> Void
 
+    @State private var stats: LaxifyAPI.AdminUserStatsDTO?
     @State private var noticeTitle = ""
     @State private var noticeBody = ""
     @State private var isBusy = false
     @State private var result: String?
     @State private var isBanned: Bool
+    @State private var isAdmin: Bool
+    @State private var showsDelete = false
 
     init(
         user: LaxifyAPI.AdminUserDTO,
@@ -326,15 +633,17 @@ private struct AdminUserSheet: View {
         self.onChanged = onChanged
         self.onClose = onClose
         _isBanned = State(initialValue: user.isBanned)
+        _isAdmin = State(initialValue: user.isAdmin)
     }
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 16) {
+                VStack(spacing: 14) {
                     facts
+                    figures
                     notifier
-                    banButton
+                    actions
 
                     if let result {
                         Text(result)
@@ -355,24 +664,36 @@ private struct AdminUserSheet: View {
                 }
             }
         }
+        .task { stats = try? await LaxifyAPI.shared.adminUserStats(userId: user.id) }
+        .confirmationDialog(
+            L("admin.delete.confirm", "Удалить аккаунт навсегда?"),
+            isPresented: $showsDelete,
+            titleVisibility: .visible
+        ) {
+            Button(L("common.delete", "Удалить"), role: .destructive) { deleteAccount() }
+            Button(L("common.cancel", "Отмена"), role: .cancel) {}
+        } message: {
+            Text(L("admin.delete.note", "Вместе с ним пропадут его избранное, история и плейлисты"))
+        }
     }
 
     private var facts: some View {
         VStack(spacing: 0) {
             fact(L("admin.handle", "Юзернейм"), "@\(user.username)")
-            Divider().overlay(LaxifyPalette.separator)
+            SettingsDivider()
             fact(L("settings.email", "Почта"), user.email ?? "—")
-            Divider().overlay(LaxifyPalette.separator)
-            fact(L("admin.registered", "Регистрация"), Self.full.string(from: user.createdAt))
+            SettingsDivider()
+            fact(L("admin.registered", "Регистрация"), AdminFormat.full.string(from: user.createdAt))
             if let seen = user.lastSeenAt {
-                Divider().overlay(LaxifyPalette.separator)
-                fact(L("admin.lastSeen", "Был в сети"), Self.full.string(from: seen))
+                SettingsDivider()
+                fact(L("admin.lastSeen", "Был в сети"), AdminFormat.full.string(from: seen))
+            }
+            if let reason = user.banReason, isBanned {
+                SettingsDivider()
+                fact(L("admin.banReason", "Причина блокировки"), reason)
             }
         }
-        .background(
-            LaxifyPalette.surface,
-            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
-        )
+        .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
     private func fact(_ title: String, _ value: String) -> some View {
@@ -380,7 +701,7 @@ private struct AdminUserSheet: View {
             Text(title)
                 .font(.system(size: 14))
                 .foregroundStyle(LaxifyPalette.textSecondary)
-            Spacer()
+            Spacer(minLength: 10)
             Text(value)
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(LaxifyPalette.textPrimary)
@@ -388,6 +709,54 @@ private struct AdminUserSheet: View {
                 .truncationMode(.middle)
         }
         .padding(14)
+    }
+
+    @ViewBuilder
+    private var figures: some View {
+        if let stats {
+            AdminStatGrid(
+                title: L("admin.hisNumbers", "Его цифры"),
+                items: [
+                    .init(L("admin.favorites", "В избранном"), stats.favorites),
+                    .init(L("admin.disliked", "Не нравится"), stats.disliked),
+                    .init(L("admin.playsTotal", "Прослушиваний"), stats.playsTotal),
+                    .init(L("admin.plays7d", "За неделю"), stats.plays7d),
+                    .init(L("admin.plays24h", "За сутки"), stats.plays24h),
+                    .init(L("admin.minutes", "Минут"), stats.minutesTotal),
+                    .init(L("admin.tracks", "Разных треков"), stats.distinctTracks),
+                    .init(L("admin.artists", "Разных артистов"), stats.distinctArtists),
+                    .init(L("admin.completed", "Дослушал до конца"), stats.completedPlays),
+                    .init(L("admin.daysWithMusic", "Дней с музыкой"), stats.daysWithMusic),
+                    .init(L("admin.playlists", "Плейлистов"), stats.playlists),
+                    .init(L("admin.playlistTracks", "Треков в плейлистах"), stats.playlistTracks),
+                    .init(L("admin.downloads", "Скачано"), stats.downloads),
+                    .init(L("admin.devices", "Устройств"), stats.devices),
+                    .init(L("admin.comments", "Комментариев"), stats.comments),
+                    .init(L("admin.searches", "Поисков"), stats.searches),
+                    .init(L("admin.followers", "Подписчиков"), stats.followers),
+                    .init(L("admin.following", "Подписок"), stats.following),
+                    .init(L("admin.notifications", "Уведомлений"), stats.notifications),
+                    .init(L("admin.unread", "Непрочитанных"), stats.unreadNotifications)
+                ]
+            )
+
+            VStack(spacing: 0) {
+                if let first = stats.firstPlayAt {
+                    fact(L("admin.firstPlay", "Первый трек"), AdminFormat.full.string(from: first))
+                    SettingsDivider()
+                }
+                if let last = stats.lastPlayAt {
+                    fact(L("admin.lastPlay", "Последний трек"), AdminFormat.full.string(from: last))
+                    SettingsDivider()
+                }
+                fact(L("admin.topArtist", "Любимый артист"), stats.topArtist ?? "—")
+                SettingsDivider()
+                fact(L("admin.topTrack", "Любимый трек"), stats.topTrack ?? "—")
+            }
+            .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        } else {
+            ProgressView().padding(.vertical, 20)
+        }
     }
 
     private var notifier: some View {
@@ -413,9 +782,7 @@ private struct AdminUserSheet: View {
                     in: RoundedRectangle(cornerRadius: 14, style: .continuous)
                 )
 
-            Button {
-                send()
-            } label: {
+            Button(action: send) {
                 HStack(spacing: 8) {
                     if isBusy { ProgressView().tint(.white) }
                     Text(L("admin.notify.send", "Отправить"))
@@ -432,76 +799,107 @@ private struct AdminUserSheet: View {
             .opacity(noticeTitle.trimmingCharacters(in: .whitespaces).isEmpty ? 0.45 : 1)
         }
         .padding(16)
-        .background(
-            LaxifyPalette.surface,
-            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
-        )
+        .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
     @ViewBuilder
-    private var banButton: some View {
-        if user.isAdmin {
-            Text(L("admin.cannotBan", "Администратора заблокировать нельзя"))
-                .font(LaxifyTypography.footnote)
-                .foregroundStyle(LaxifyPalette.textTertiary)
-        } else {
-            Button {
-                toggleBan()
-            } label: {
-                Text(isBanned
-                     ? L("admin.unban", "Разблокировать")
-                     : L("admin.ban", "Заблокировать"))
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(isBanned ? LaxifyPalette.accent : .red)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 15)
-                    .glassEffect(
-                        .regular.tint((isBanned ? LaxifyPalette.accent : .red).opacity(0.12)).interactive(),
-                        in: .capsule
-                    )
-                    .contentShape(Capsule())
+    private var actions: some View {
+        VStack(spacing: 10) {
+            pill(
+                isAdmin
+                    ? L("admin.revokeAdmin", "Снять права админа")
+                    : L("admin.grantAdmin", "Выдать права админа"),
+                tint: Color(hex: 0xFFD60A),
+                action: toggleAdmin
+            )
+
+            if !user.isAdmin {
+                pill(
+                    isBanned ? L("admin.unban", "Разблокировать") : L("admin.ban", "Заблокировать"),
+                    tint: isBanned ? LaxifyPalette.accent : .red,
+                    action: toggleBan
+                )
+
+                pill(
+                    L("admin.delete", "Удалить аккаунт"),
+                    tint: .red,
+                    action: { showsDelete = true }
+                )
+            } else {
+                Text(L("admin.cannotBan", "Администратора нельзя заблокировать или удалить"))
+                    .font(LaxifyTypography.footnote)
+                    .foregroundStyle(LaxifyPalette.textTertiary)
+                    .multilineTextAlignment(.center)
             }
-            .buttonStyle(.plain)
-            .disabled(isBusy)
         }
     }
+
+    private func pill(_ title: String, tint: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 15)
+                .glassEffect(.regular.tint(tint.opacity(0.12)).interactive(), in: .capsule)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(isBusy)
+    }
+
+    // MARK: - Doing things
 
     private func send() {
         let title = noticeTitle.trimmingCharacters(in: .whitespaces)
         guard !title.isEmpty else { return }
 
-        isBusy = true
-        Task {
-            defer { isBusy = false }
-            do {
-                try await LaxifyAPI.shared.adminNotify(
-                    userId: user.id, title: title, body: noticeBody
-                )
-                noticeTitle = ""
-                noticeBody = ""
-                result = L("admin.notify.sent", "Отправлено")
-            } catch APIError.server(_, let detail) {
-                result = detail
-            } catch {
-                result = L("admin.failed", "Сервер не ответил")
-            }
+        run {
+            try await LaxifyAPI.shared.adminNotify(userId: user.id, title: title, body: noticeBody)
+            noticeTitle = ""
+            noticeBody = ""
+            result = L("admin.notify.sent", "Отправлено")
         }
     }
 
     private func toggleBan() {
+        run {
+            if isBanned {
+                try await LaxifyAPI.shared.adminUnban(userId: user.id)
+            } else {
+                try await LaxifyAPI.shared.adminBan(
+                    userId: user.id, reason: L("admin.ban.reason", "Нарушение правил")
+                )
+            }
+            isBanned.toggle()
+            await onChanged()
+        }
+    }
+
+    private func toggleAdmin() {
+        run {
+            try await LaxifyAPI.shared.adminSetAdmin(userId: user.id, isAdmin: !isAdmin)
+            isAdmin.toggle()
+            await onChanged()
+        }
+    }
+
+    private func deleteAccount() {
+        run {
+            try await LaxifyAPI.shared.adminDeleteUser(userId: user.id)
+            await onChanged()
+            onClose()
+        }
+    }
+
+    /// Every action here fails the same way and reports it the same way, so
+    /// the reporting lives in one place.
+    private func run(_ work: @escaping () async throws -> Void) {
         isBusy = true
         Task {
             defer { isBusy = false }
             do {
-                if isBanned {
-                    try await LaxifyAPI.shared.adminUnban(userId: user.id)
-                } else {
-                    try await LaxifyAPI.shared.adminBan(
-                        userId: user.id, reason: L("admin.ban.reason", "Нарушение правил")
-                    )
-                }
-                isBanned.toggle()
-                await onChanged()
+                try await work()
             } catch APIError.server(_, let detail) {
                 result = detail
             } catch {
@@ -509,13 +907,4 @@ private struct AdminUserSheet: View {
             }
         }
     }
-
-    private static let full: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = .current
-        formatter.timeZone = .current
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        return formatter
-    }()
 }

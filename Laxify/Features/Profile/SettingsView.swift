@@ -15,13 +15,10 @@ struct SettingsView: View {
 
     @State private var session = SessionStore.shared
     var localization = LocalizationManager.shared
-    var interface = InterfaceSettings.shared
-    var background = ProfileBackgroundStore.shared
 
     @State private var showsSignOutConfirmation = false
     @State private var isSigningOut = false
     @State private var avatarItem: PhotosPickerItem?
-    @State private var backgroundItem: PhotosPickerItem?
     @State private var isUploadingAvatar = false
     @State private var linked: LaxifyAPI.LinkedMethodsDTO?
     @State private var status: String?
@@ -101,15 +98,6 @@ struct SettingsView: View {
         .onChange(of: avatarItem) { _, item in
             guard let item else { return }
             Task { await uploadAvatar(item) }
-        }
-        .onChange(of: backgroundItem) { _, item in
-            guard let item else { return }
-            Task {
-                if let data = try? await item.loadTransferable(type: Data.self) {
-                    background.set(data)
-                }
-                backgroundItem = nil
-            }
         }
         .confirmationDialog(
             L("settings.signout.confirm", "Точно хотите выйти?"),
@@ -216,21 +204,11 @@ struct SettingsView: View {
         .padding(.top, 4)
     }
 
-    @ViewBuilder
+    /// Through the shared image cache. `AsyncImage` refetches every time the
+    /// view appears, which is what made the avatar sit blank for a beat each
+    /// time settings opened.
     private var avatarImage: some View {
-        if let url = user?.avatarURL {
-            AsyncImage(url: url) { phase in
-                if let image = phase.image {
-                    image.resizable().scaledToFill()
-                } else {
-                    avatarPlaceholder
-                }
-            }
-            // Without an identity of its own `AsyncImage` keeps the picture it
-            // already fetched, which is why a new avatar used to appear only
-            // after leaving the screen and coming back.
-            .id(url)
-        } else {
+        CachedImage(url: user?.avatarURL, displaySize: 220) {
             avatarPlaceholder
         }
     }
@@ -285,38 +263,6 @@ struct SettingsView: View {
                 value: "\(localization.language.flag) \(localization.language.nativeName)",
                 showsChevron: true
             ) { page = .language }
-
-            SettingsDivider(inset: Self.rowLabelInset)
-
-            PhotosPicker(selection: $backgroundItem, matching: .images) {
-                SettingsLineRow(
-                    icon: "photo",
-                    title: L("settings.background", "Фон профиля"),
-                    value: background.image == nil
-                        ? L("settings.background.none", "Нет")
-                        : L("settings.background.set", "Свой"),
-                    showsChevron: true
-                )
-            }
-            .buttonStyle(.plain)
-            .contextMenu {
-                if background.image != nil {
-                    Button(L("profile.bg.remove", "Убрать фон"), role: .destructive) {
-                        background.clear()
-                    }
-                }
-            }
-
-            SettingsDivider(inset: Self.rowLabelInset)
-
-            SettingsLineRow(
-                icon: "textformat.size",
-                title: L("settings.hideLabels", "Скрыть подписи в панели"),
-                toggle: Binding(
-                    get: { interface.hideTabLabels },
-                    set: { interface.hideTabLabels = $0 }
-                )
-            )
 
             SettingsDivider(inset: Self.rowLabelInset)
 

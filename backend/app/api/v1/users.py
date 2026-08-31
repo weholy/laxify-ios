@@ -100,10 +100,19 @@ async def complete_onboarding(
 @router.get("/users/username-available", response_model=UsernameAvailability)
 async def check_username(
     session: SessionDep,
+    viewer: OptionalUser,
     username: str = Query(min_length=2, max_length=32),
 ) -> UsernameAvailability:
+    """Is this handle free — for the person asking?
+
+    The caller's own handle has to come back as available. Onboarding shows
+    the auto-generated one already filled in, so without this exclusion the
+    very first thing a new account is told is that its own name is taken.
+    """
     normalised = username.strip().lower()
-    taken = await is_username_taken(session, normalised)
+    taken = await is_username_taken(
+        session, normalised, exclude_id=viewer.id if viewer else None
+    )
     return UsernameAvailability(
         username=normalised,
         available=not taken,
