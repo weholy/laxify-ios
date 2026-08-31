@@ -26,7 +26,7 @@ struct SongRowView: View {
             Spacer(minLength: 8)
 
             if isFavorite {
-                Image(systemName: "star.fill")
+                Image(systemName: "heart.fill")
                     .font(.system(size: 14))
                     .foregroundStyle(LaxifyPalette.accent)
                     .transition(.scale.combined(with: .opacity))

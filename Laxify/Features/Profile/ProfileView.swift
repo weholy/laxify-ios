@@ -1,5 +1,4 @@
 import SwiftUI
-import PhotosUI
 
 struct ProfileView: View {
     @State private var session = SessionStore.shared
@@ -8,7 +7,6 @@ struct ProfileView: View {
     @State private var isSettingsPresented = false
     @State private var isReplayPresented = false
     @State private var avatarPalette: ArtworkPalette = .neutral
-    @State private var backgroundPick: PhotosPickerItem?
     @State private var likeCount: Int?
 
     private var user: BackendUser? { session.user }
@@ -39,19 +37,14 @@ struct ProfileView: View {
         .background(profileBackground)
         .task {
             await session.refreshUser()
-            avatarPalette = await PaletteExtractor.shared.palette(for: session.user?.avatarURL)
             if let id = session.user?.id {
                 likeCount = (try? await LaxifyAPI.shared.profileLikes(userId: id))?.likeCount
             }
         }
-        .onChange(of: backgroundPick) { _, item in
-            guard let item else { return }
-            Task {
-                if let data = try? await item.loadTransferable(type: Data.self) {
-                    background.set(data)
-                }
-                backgroundPick = nil
-            }
+        // Keyed on the picture rather than run once: change the avatar and
+        // the colour wash behind the header follows it immediately.
+        .task(id: session.user?.avatarURL) {
+            avatarPalette = await PaletteExtractor.shared.palette(for: session.user?.avatarURL)
         }
         .fullScreenCover(isPresented: $isSettingsPresented) {
             SettingsView { isSettingsPresented = false }
@@ -66,16 +59,15 @@ struct ProfileView: View {
             Spacer()
 
             if user != nil {
-                backgroundControl
-
                 Button {
                     isSettingsPresented = true
                 } label: {
                     Image(systemName: "gearshape.fill")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: 19, weight: .semibold))
                         .foregroundStyle(LaxifyPalette.textPrimary)
-                        .frame(width: 38, height: 38)
+                        .frame(width: 48, height: 48)
                         .glassEffect(.regular.interactive(), in: .circle)
+                        .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
             }
@@ -83,23 +75,6 @@ struct ProfileView: View {
         .padding(.horizontal, LaxifyMetrics.screenPadding)
         .padding(.top, 8)
         .padding(.bottom, 4)
-    }
-
-    private var backgroundControl: some View {
-        PhotosPicker(selection: $backgroundPick, matching: .images) {
-            Image(systemName: background.image == nil ? "photo" : "photo.fill")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(LaxifyPalette.textPrimary)
-                .frame(width: 38, height: 38)
-                .glassEffect(.regular.interactive(), in: .circle)
-        }
-        .contextMenu {
-            if background.image != nil {
-                Button(L("profile.bg.remove", "Убрать фон"), role: .destructive) {
-                    background.clear()
-                }
-            }
-        }
     }
 
     /// A wash of the avatar's own colour at the top, fading into the page.
@@ -194,6 +169,11 @@ struct ProfileView: View {
                     Circle().fill(LaxifyPalette.surface)
                 }
             }
+            // A new picture is a new URL, and without an identity of its own
+            // `AsyncImage` keeps showing the one it already loaded until the
+            // screen is rebuilt — which is why a changed avatar used to need
+            // a trip out of the app and back.
+            .id(url)
         } else {
             Circle()
                 .fill(LaxifyPalette.surface)

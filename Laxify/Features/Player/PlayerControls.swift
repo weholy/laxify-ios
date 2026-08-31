@@ -40,50 +40,92 @@ struct RepeatButton: View {
     }
 }
 
-/// The favourite star.
+/// The favourite heart.
 ///
-/// Filling in is the whole feedback for the tap, so it is worth doing
-/// properly: the outline fades as the fill grows out of the middle, rather
-/// than one glyph being swapped for another mid-gesture.
-struct FavouriteStar: View {
+/// The tap is the only feedback there is, so it gets a proper one: the fill
+/// springs out of the middle as the outline fades, the whole glyph overshoots
+/// once, and a ring and six sparks push outward and vanish. Nothing happens on
+/// the way out — taking something out of a library should not celebrate.
+struct FavouriteHeart: View {
     let isOn: Bool
     var action: () -> Void
 
-    @State private var pulse = false
+    /// The overshoot on the glyph itself.
+    @State private var pop: CGFloat = 1
+    /// 0 → 1 across one burst; drives the ring and the sparks together.
+    @State private var burst: CGFloat = 0
+    @State private var burstOpacity: Double = 0
 
     var body: some View {
-        Button {
-            action()
-        } label: {
+        Button(action: action) {
             ZStack {
-                Image(systemName: "star")
-                    .foregroundStyle(.white)
-                    .opacity(isOn ? 0 : 1)
-                    .scaleEffect(isOn ? 0.8 : 1)
-
-                Image(systemName: "star.fill")
-                    .foregroundStyle(LaxifyPalette.accent)
-                    .opacity(isOn ? 1 : 0)
-                    .scaleEffect(isOn ? 1 : 0.4)
+                ring
+                sparks
+                glyph
             }
             .font(.system(size: 20, weight: .semibold))
-            .scaleEffect(pulse ? 1.22 : 1)
+            .scaleEffect(pop)
             .frame(width: 40, height: 40)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .animation(.spring(response: 0.32, dampingFraction: 0.62), value: isOn)
+        .animation(.spring(response: 0.34, dampingFraction: 0.55), value: isOn)
         .sensoryFeedback(.impact(weight: .light), trigger: isOn)
         .onChange(of: isOn) { _, added in
-            // A single overshoot on the way in, and nothing on the way out:
-            // removing something should not celebrate.
             guard added else { return }
+            celebrate()
+        }
+    }
 
-            withAnimation(.spring(response: 0.18, dampingFraction: 0.5)) { pulse = true }
-            Task {
-                try? await Task.sleep(for: .milliseconds(140))
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) { pulse = false }
-            }
+    private var glyph: some View {
+        ZStack {
+            Image(systemName: "heart")
+                .foregroundStyle(.white)
+                .opacity(isOn ? 0 : 1)
+                .scaleEffect(isOn ? 0.7 : 1)
+
+            Image(systemName: "heart.fill")
+                .foregroundStyle(LaxifyPalette.accent)
+                .opacity(isOn ? 1 : 0)
+                .scaleEffect(isOn ? 1 : 0.2)
+        }
+    }
+
+    private var ring: some View {
+        Circle()
+            .stroke(LaxifyPalette.accent, lineWidth: 2)
+            .frame(width: 26, height: 26)
+            .scaleEffect(0.4 + burst * 1.5)
+            .opacity(burstOpacity)
+    }
+
+    private var sparks: some View {
+        ForEach(0..<6, id: \.self) { index in
+            Circle()
+                .fill(LaxifyPalette.accent)
+                .frame(width: 3.5, height: 3.5)
+                // Offset first, rotate second: `offset` leaves the layout
+                // frame where it was, so the rotation swings each spark
+                // around the heart rather than around itself.
+                .offset(y: -(10 + burst * 11))
+                .rotationEffect(.degrees(Double(index) * 60))
+                .scaleEffect(1 - burst * 0.7)
+                .opacity(burstOpacity)
+        }
+    }
+
+    private func celebrate() {
+        pop = 1
+        burst = 0
+        burstOpacity = 0.9
+
+        withAnimation(.spring(response: 0.16, dampingFraction: 0.45)) { pop = 1.3 }
+        withAnimation(.easeOut(duration: 0.5)) { burst = 1 }
+        withAnimation(.easeOut(duration: 0.42).delay(0.06)) { burstOpacity = 0 }
+
+        Task {
+            try? await Task.sleep(for: .milliseconds(150))
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.55)) { pop = 1 }
         }
     }
 }

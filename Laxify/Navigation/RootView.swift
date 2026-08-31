@@ -7,6 +7,7 @@ struct RootView: View {
     @Namespace private var playerZoom
     var player = AudioPlayerController.shared
     var router = DeepLinkRouter.shared
+    var interface = InterfaceSettings.shared
 
     private var tabSelection: Binding<AppTab> {
         Binding(
@@ -71,43 +72,54 @@ struct RootView: View {
         }
     }
 
-    /// Glyphs only. A `Tab` built from a title shows that title under the
-    /// icon and there is no modifier to suppress it, so each tab is built
-    /// from the `label:` initialiser with a bare image instead. The words
-    /// survive as accessibility labels, which is the one job they still had.
-    /// Search keeps its own initialiser: in its search role the system draws
-    /// it as a lone magnifier anyway.
+    /// A `Tab` built from a title always draws that title, and no modifier
+    /// suppresses it — so every tab is built from the `label:` initialiser
+    /// and the label itself decides whether a word appears. Keeping the same
+    /// initialiser either way matters: swapping between two shapes of `Tab`
+    /// would give the `TabView` a new identity and tear down every screen
+    /// inside it the moment the switch is flipped.
+    ///
+    /// Search keeps its own initialiser — in its search role the system draws
+    /// it as a lone magnifier regardless.
     private var tabs: some View {
         TabView(selection: tabSelection) {
             Tab(value: AppTab.home) {
                 HomeView()
             } label: {
-                Image(systemName: "house.fill")
-                    .accessibilityLabel(L("tab.home", "Главная"))
+                tabLabel(L("tab.home", "Главная"), systemImage: "house.fill")
             }
             Tab(value: AppTab.myWave) {
                 MyWaveView()
             } label: {
-                Image(systemName: "dot.radiowaves.left.and.right")
-                    .accessibilityLabel(L("tab.wave", "Моя волна"))
+                tabLabel(L("tab.wave", "Моя волна"), systemImage: "dot.radiowaves.left.and.right")
             }
             Tab(value: AppTab.favorites) {
                 LibraryView()
             } label: {
-                Image(systemName: "heart.fill")
-                    .accessibilityLabel(L("tab.favorites", "Избранное"))
+                tabLabel(L("tab.favorites", "Избранное"), systemImage: "heart.fill")
             }
             Tab(value: AppTab.profile) {
                 ProfileView()
             } label: {
-                Image(systemName: "person.fill")
-                    .accessibilityLabel(L("tab.profile", "Профиль"))
+                tabLabel(L("tab.profile", "Профиль"), systemImage: "person.fill")
             }
             Tab(L("search.title", "Поиск"), systemImage: "magnifyingglass", value: AppTab.search, role: .search) {
                 SearchView(onClose: { selectedTab = lastMainTab }, showsCloseButton: false)
             }
         }
         .tabBarMinimizeBehavior(.onScrollDown)
+    }
+
+    @ViewBuilder
+    private func tabLabel(_ title: String, systemImage: String) -> some View {
+        if interface.hideTabLabels {
+            // The word still exists for VoiceOver — it is only the drawing
+            // of it that the switch turns off.
+            Image(systemName: systemImage)
+                .accessibilityLabel(title)
+        } else {
+            Label(title, systemImage: systemImage)
+        }
     }
 }
 

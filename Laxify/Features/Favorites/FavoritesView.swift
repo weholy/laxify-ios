@@ -161,7 +161,7 @@ struct FavoritesView: View {
                     endPoint: .bottomTrailing
                 )
                 .overlay {
-                    Image(systemName: "star.fill")
+                    Image(systemName: "heart.fill")
                         .font(.system(size: 54, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.9))
                 }
@@ -216,7 +216,7 @@ struct FavoritesView: View {
 
     private var emptyState: some View {
         VStack(spacing: 12) {
-            Image(systemName: "star")
+            Image(systemName: "heart")
                 .font(.system(size: 40))
                 .foregroundStyle(LaxifyPalette.textTertiary)
             Text(L("favorites.empty", "Пока нет избранных треков"))

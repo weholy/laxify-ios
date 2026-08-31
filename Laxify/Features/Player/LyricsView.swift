@@ -79,7 +79,7 @@ struct LyricsView: View {
 
             Spacer(minLength: 6)
 
-            FavouriteStar(isOn: isFavorite) { toggleFavorite() }
+            FavouriteHeart(isOn: isFavorite) { toggleFavorite() }
 
             Menu {
                 if let shareableLyrics {

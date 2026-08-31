@@ -113,13 +113,15 @@ struct FullPlayerView: View {
             .animation(.easeInOut(duration: 0.35), value: player.currentSong?.id)
     }
 
+    /// Deliberately quiet: both of these sit over artwork, and at full white
+    /// they were the loudest thing on a screen whose subject is the cover.
     private var topBar: some View {
         HStack {
             Button(action: onClose) {
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 40, height: 40)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.6))
+                    .frame(width: 36, height: 36)
                     .contentShape(Rectangle())
             }
             .buttonStyle(PlayerGlyphButtonStyle())
@@ -182,9 +184,9 @@ struct FullPlayerView: View {
             }
         } label: {
             Image(systemName: "ellipsis")
-                .font(.system(size: 20, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 40, height: 40)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.6))
+                .frame(width: 36, height: 36)
                 .contentShape(Rectangle())
         }
         .disabled(player.currentSong == nil)
@@ -238,7 +240,7 @@ struct FullPlayerView: View {
 
             Spacer()
 
-            FavouriteStar(isOn: isFavorite) {
+            FavouriteHeart(isOn: isFavorite) {
                 toggleFavorite()
             }
         }

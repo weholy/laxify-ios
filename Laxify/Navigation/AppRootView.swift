@@ -11,7 +11,6 @@ struct AppRootView: View {
     var session = SessionStore.shared
     var localization = LocalizationManager.shared
 
-    @State private var hasShownWelcome = false
 
     var body: some View {
         Group {
@@ -76,17 +75,11 @@ struct AppRootView: View {
                     .transition(.opacity)
 
             case .signedIn:
-                if hasShownWelcome {
-                    RootView()
-                        .transition(.opacity)
-                } else {
-                    WelcomeView(name: session.user?.displayName ?? "") {
-                        withAnimation(.easeInOut(duration: 0.35)) {
-                            hasShownWelcome = true
-                        }
-                    }
+                // Straight in. The greeting screen that used to sit here cost
+                // a second of every launch to say something the app already
+                // shows: whose account this is.
+                RootView()
                     .transition(.opacity)
-                }
             }
         }
     }
