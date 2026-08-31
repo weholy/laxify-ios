@@ -1,97 +1,100 @@
 import SwiftUI
+import PhotosUI
 import UIKit
 
-/// Settings, as a short list that opens into the thing you picked.
+/// Settings, as one page: who you are at the top, then three short blocks —
+/// the account, what the app does, and the two things you can act on.
 ///
-/// Everything on one screen meant scrolling past three groups to reach the
-/// fourth. Four entries that each open their own page is faster to read and
-/// leaves room inside each one to say what a switch actually does.
+/// The earlier version was a menu of five entries that each opened a page,
+/// which meant two taps to read a value that fits on the line itself. Here the
+/// language, the theme and the address sit on the page; only the entries with
+/// something to explain still open.
 struct SettingsView: View {
     var onClose: () -> Void
 
+    @Environment(\.openURL) private var openURL
+
     @State private var session = SessionStore.shared
+    @State private var appearance = AppearanceSettings.shared
+    var localization = LocalizationManager.shared
+
     @State private var showsSignOutConfirmation = false
     @State private var isSigningOut = false
+    @State private var avatarItem: PhotosPickerItem?
+    @State private var isUploadingAvatar = false
+    @State private var linked: LaxifyAPI.LinkedMethodsDTO?
+    @State private var status: String?
+
+    private var user: BackendUser? { session.user }
 
     private enum Page: String, Identifiable {
         case language
-        case info
         case privacy
         case about
         case account
         case appearance
+        case editProfile
         case export
         case diagnostics
+        case info
 
         var id: String { rawValue }
-
-        var titleKey: String {
-            switch self {
-            case .language: "settings.language"
-            case .info: "settings.info"
-            case .privacy: "settings.privacy"
-            case .about: "settings.about"
-            case .account: "settings.account"
-            case .appearance: "settings.appearance"
-            case .export: "settings.export"
-            case .diagnostics: "settings.diagnostics"
-            }
-        }
-
-        var subtitleKey: String { titleKey + ".sub" }
-
-        var title: String {
-            switch self {
-            case .language: "Язык"
-            case .info: "Информация"
-            case .privacy: "Конфиденциальность"
-            case .about: "О себе"
-            case .account: "Аккаунт"
-            case .appearance: "Дизайн"
-            case .export: "Выгрузка артистов"
-            case .diagnostics: "Диагностика"
-            }
-        }
-
-        var subtitle: String {
-            switch self {
-            case .language: "Язык приложения"
-            case .info: "Telegram-канал, поддержать проект"
-            case .privacy: "Кто видит ваш профиль и что вы слушаете"
-            case .about: "Пара строк для вашей страницы"
-            case .account: "Имя пользователя и сессии"
-            case .appearance: "Тема и подписи в панели"
-            case .export: "Список исполнителей файлом"
-            case .diagnostics: "Что не работает и почему"
-            }
-        }
     }
 
     @State private var page: Page?
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .top) {
             LaxifyPalette.background.ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                SettingsHeader(title: L("settings.title", "Настройки"), onBack: onClose)
+            ScrollView {
+                VStack(spacing: 16) {
+                    identity
+                        .padding(.bottom, 6)
 
-                ScrollView {
-                    VStack(spacing: 12) {
-                        // .info is hidden for now — re-add to this list to show it.
-                        let entries: [Page] = [.language, .privacy, .about, .account, .appearance]
-                        ForEach(entries) { entry in
-                            SettingsCard { entryRow(entry) }
-                        }
+                    accountGroup
+                    preferencesGroup
+                    actionsGroup
 
-                        signOutButton
-                            .padding(.top, 8)
-                    }
-                    .padding(.horizontal, LaxifyMetrics.screenPadding)
-                    .padding(.top, 4)
-                    .padding(.bottom, 120)
+                    telegramButton
+                        .padding(.top, 14)
+
+                    footer
+                        .padding(.top, 6)
                 }
+                .padding(.horizontal, LaxifyMetrics.screenPadding)
+                .padding(.top, 10)
+                .padding(.bottom, 40)
             }
+            .scrollIndicators(.hidden)
+
+            // Pinned rather than scrolled away: this is the only way out.
+            HStack {
+                Spacer()
+                LaxifyCloseButton(style: .xmark, tinted: false, action: onClose)
+            }
+            .padding(.horizontal, LaxifyMetrics.screenPadding)
+            .padding(.top, 10)
+
+            if let status {
+                VStack {
+                    Spacer()
+                    Text(status)
+                        .font(LaxifyTypography.footnote)
+                        .foregroundStyle(LaxifyPalette.textPrimary)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 12)
+                        .glassEffect(.regular, in: .capsule)
+                        .padding(.bottom, 40)
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .allowsHitTesting(false)
+            }
+        }
+        .task { linked = try? await LaxifyAPI.shared.linkedMethods() }
+        .onChange(of: avatarItem) { _, item in
+            guard let item else { return }
+            Task { await uploadAvatar(item) }
         }
         .confirmationDialog(
             L("settings.signout.confirm", "Точно хотите выйти?"),
@@ -105,8 +108,6 @@ struct SettingsView: View {
             switch entry {
             case .language:
                 LanguageSettingsView { page = nil }
-            case .info:
-                InfoSettingsView { page = nil }
             case .privacy:
                 PrivacySettingsView { page = nil }
             case .about:
@@ -115,34 +116,285 @@ struct SettingsView: View {
                 AccountSettingsView { page = nil }
             case .appearance:
                 AppearanceSettingsView { page = nil }
+            case .editProfile:
+                EditProfileView { page = nil }
             case .export:
                 CatalogExportView { page = nil }
             case .diagnostics:
                 DiagnosticsView { page = nil }
+            case .info:
+                InfoSettingsView { page = nil }
             }
         }
     }
 
-    private var signOutButton: some View {
-        Button {
-            showsSignOutConfirmation = true
-        } label: {
-            HStack(spacing: 8) {
-                if isSigningOut {
-                    ProgressView().tint(.red)
-                }
-                Text(isSigningOut
-                     ? L("settings.signingOut", "Выходим…")
-                     : L("settings.signout", "Выйти из аккаунта"))
-                    .font(.system(size: 16, weight: .semibold))
+    // MARK: - Identity
+
+    private var identity: some View {
+        VStack(spacing: 12) {
+            PhotosPicker(selection: $avatarItem, matching: .images) {
+                avatarImage
+                    .frame(width: 108, height: 108)
+                    .clipShape(Circle())
+                    .overlay { Circle().stroke(LaxifyPalette.separator, lineWidth: 1) }
+                    .overlay(alignment: .bottomTrailing) {
+                        Image(systemName: "pencil")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 36, height: 36)
+                            .glassEffect(
+                                .regular.tint(LaxifyPalette.accent).interactive(),
+                                in: .circle
+                            )
+                            .contentShape(Circle())
+                            .offset(x: 2, y: 2)
+                    }
+                    .overlay {
+                        if isUploadingAvatar {
+                            ZStack {
+                                Circle().fill(.black.opacity(0.45))
+                                ProgressView().tint(.white)
+                            }
+                        }
+                    }
             }
-            .foregroundStyle(.red)
-            .frame(maxWidth: .infinity)
+            .buttonStyle(.plain)
+            .disabled(isUploadingAvatar)
+
+            VStack(spacing: 3) {
+                Text(user?.displayName ?? "")
+                    .font(.system(size: 26, weight: .bold))
+                    .foregroundStyle(LaxifyPalette.textPrimary)
+                    .lineLimit(1)
+
+                Text("@\(user?.username ?? "")")
+                    .font(LaxifyTypography.subheadline)
+                    .foregroundStyle(LaxifyPalette.textSecondary)
+                    .lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 4)
+    }
+
+    @ViewBuilder
+    private var avatarImage: some View {
+        if let url = user?.avatarURL {
+            AsyncImage(url: url) { phase in
+                if let image = phase.image {
+                    image.resizable().scaledToFill()
+                } else {
+                    avatarPlaceholder
+                }
+            }
+        } else {
+            avatarPlaceholder
+        }
+    }
+
+    private var avatarPlaceholder: some View {
+        Circle()
+            .fill(LaxifyPalette.surface)
+            .overlay {
+                Image(systemName: "person.fill")
+                    .font(.system(size: 38))
+                    .foregroundStyle(LaxifyPalette.textTertiary)
+            }
+    }
+
+    // MARK: - Groups
+
+    private var accountGroup: some View {
+        SettingsCard {
+            SettingsLineRow(
+                icon: "person",
+                title: L("settings.username", "Юзернейм"),
+                value: user?.username,
+                showsChevron: true
+            ) { page = .editProfile }
+
+            SettingsDivider(inset: Self.rowLabelInset)
+
+            SettingsLineRow(
+                icon: "envelope",
+                title: L("settings.email", "Почта"),
+                value: user?.email
+            )
+
+            SettingsDivider(inset: Self.rowLabelInset)
+
+            SettingsLineRow(
+                logo: signIn.logo,
+                title: signIn.title,
+                value: L("settings.signedIn.value", "Выполнен"),
+                showsCheck: true
+            )
+        }
+    }
+
+    private var preferencesGroup: some View {
+        SettingsCard {
+            SettingsLineRow(
+                icon: "globe",
+                title: L("settings.language", "Язык"),
+                value: "\(localization.language.flag) \(localization.language.nativeName)",
+                showsChevron: true
+            ) { page = .language }
+
+            SettingsDivider(inset: Self.rowLabelInset)
+
+            SettingsLineRow(
+                icon: "paintbrush",
+                title: L("settings.appearance", "Дизайн"),
+                value: appearance.theme.title,
+                showsChevron: true
+            ) { page = .appearance }
+
+            SettingsDivider(inset: Self.rowLabelInset)
+
+            SettingsLineRow(
+                icon: "lock",
+                title: L("settings.privacy", "Конфиденциальность"),
+                showsChevron: true
+            ) { page = .privacy }
+
+            SettingsDivider(inset: Self.rowLabelInset)
+
+            SettingsLineRow(
+                icon: "text.quote",
+                title: L("settings.about", "О себе"),
+                showsChevron: true
+            ) { page = .about }
+
+            SettingsDivider(inset: Self.rowLabelInset)
+
+            SettingsLineRow(
+                icon: "key",
+                title: L("settings.account", "Аккаунт"),
+                showsChevron: true
+            ) { page = .account }
+        }
+    }
+
+    private var actionsGroup: some View {
+        SettingsCard {
+            SettingsLineRow(
+                icon: "heart",
+                title: L("info.support", "Поддержать проект")
+            ) { openURL(AppLinks.support) }
+
+            SettingsDivider(inset: Self.rowLabelInset)
+
+            SettingsLineRow(
+                icon: "rectangle.portrait.and.arrow.right",
+                title: isSigningOut
+                    ? L("settings.signingOut", "Выходим…")
+                    : L("settings.signout", "Выйти из аккаунта"),
+                tint: .red,
+                isBusy: isSigningOut
+            ) {
+                guard !isSigningOut else { return }
+                showsSignOutConfirmation = true
+            }
+        }
+    }
+
+    /// The mark and the line for however this account actually signed in —
+    /// Google for nearly everyone, but the row should never claim it blindly.
+    private var signIn: (logo: AnyView, title: String) {
+        switch linked?.primary ?? "google" {
+        case "telegram":
+            return (
+                AnyView(TelegramLogoView(size: 21, color: Color(hex: 0x2AABEE))),
+                L("settings.signedIn.telegram", "Вход через Telegram")
+            )
+        case "email":
+            return (
+                AnyView(
+                    Image(systemName: "envelope.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(LaxifyPalette.accent)
+                ),
+                L("settings.signedIn.email", "Вход по почте")
+            )
+        default:
+            return (
+                AnyView(GoogleLogoView(size: 20)),
+                L("settings.signedIn.google", "Вход через Google")
+            )
+        }
+    }
+
+    /// Dividers start where the labels do, not under the glyphs.
+    private static let rowLabelInset: CGFloat = 56
+
+    // MARK: - Bottom
+
+    private var telegramButton: some View {
+        Button {
+            openURL(AppLinks.telegramChannel)
+        } label: {
+            HStack(spacing: 10) {
+                TelegramLogoView(size: 21, color: Color(hex: 0x2AABEE))
+                Text("Telegram")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(LaxifyPalette.textPrimary)
+            }
+            .padding(.horizontal, 40)
             .padding(.vertical, 16)
-            .glassEffect(.regular.tint(.red.opacity(0.12)).interactive(), in: .capsule)
+            .glassEffect(
+                .regular.tint(Color(hex: 0x2AABEE).opacity(0.22)).interactive(),
+                in: .capsule
+            )
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .disabled(isSigningOut)
+        .frame(maxWidth: .infinity)
+    }
+
+    private var footer: some View {
+        HStack(spacing: 7) {
+            // A long press here is the way back into the diagnostics log,
+            // which has no business taking a row of its own.
+            Text("Laxify v \(AppVersion.short) (Beta)")
+                .onLongPressGesture(minimumDuration: 1.2) { page = .diagnostics }
+
+            Text("·")
+
+            Button {
+                openURL(AppLinks.support)
+            } label: {
+                Text(L("settings.contact", "Связаться с нами"))
+                    .font(.system(size: 13))
+                    .foregroundStyle(LaxifyPalette.textTertiary)
+            }
+            .buttonStyle(.plain)
+        }
+        .font(.system(size: 13))
+        .foregroundStyle(LaxifyPalette.textTertiary)
+        .frame(maxWidth: .infinity)
+    }
+
+    // MARK: - Actions
+
+    private func uploadAvatar(_ item: PhotosPickerItem) async {
+        isUploadingAvatar = true
+        defer { isUploadingAvatar = false; avatarItem = nil }
+
+        guard let data = try? await item.loadTransferable(type: Data.self), !data.isEmpty else {
+            flash(L("settings.photo.unreadable", "Не удалось прочитать фото"))
+            return
+        }
+        do {
+            let url = try await LaxifyAPI.shared.uploadMedia(
+                data, filename: "avatar.jpg", mimeType: "image/jpeg"
+            )
+            if let failure = await session.updateProfile(avatarURL: url.absoluteString) {
+                flash(failure)
+            }
+        } catch {
+            flash(L("settings.photo.failed", "Не удалось загрузить фото"))
+        }
     }
 
     private func signOut() {
@@ -153,35 +405,117 @@ struct SettingsView: View {
         }
     }
 
-    private func entryRow(_ entry: Page) -> some View {
-        Button {
-            page = entry
-        } label: {
-            HStack(spacing: 14) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(L(entry.titleKey, entry.title))
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(LaxifyPalette.textPrimary)
-
-                    Text(L(entry.subtitleKey, entry.subtitle))
-                        .font(LaxifyTypography.footnote)
-                        .foregroundStyle(LaxifyPalette.textSecondary)
-                        .lineLimit(1)
-                }
-
-                Spacer(minLength: 4)
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(LaxifyPalette.textTertiary)
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 17)
-            .contentShape(Rectangle())
+    private func flash(_ message: String) {
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { status = message }
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            withAnimation(.easeOut(duration: 0.25)) { status = nil }
         }
-        .buttonStyle(.plain)
+    }
+}
+
+/// One line of the settings list: a glyph, what the line is, and what it is
+/// currently set to. Rows without an action are read-only and don't highlight.
+private struct SettingsLineRow: View {
+    var icon: String?
+    var logo: AnyView?
+    var title: String
+    var value: String?
+    var showsChevron = false
+    var showsCheck = false
+    var tint: Color?
+    var isBusy = false
+    var action: (() -> Void)?
+
+    init(
+        icon: String? = nil,
+        logo: AnyView? = nil,
+        title: String,
+        value: String? = nil,
+        showsChevron: Bool = false,
+        showsCheck: Bool = false,
+        tint: Color? = nil,
+        isBusy: Bool = false,
+        action: (() -> Void)? = nil
+    ) {
+        self.icon = icon
+        self.logo = logo
+        self.title = title
+        self.value = value
+        self.showsChevron = showsChevron
+        self.showsCheck = showsCheck
+        self.tint = tint
+        self.isBusy = isBusy
+        self.action = action
     }
 
+    var body: some View {
+        if let action {
+            Button(action: action) { line }
+                .buttonStyle(SettingsRowPressStyle())
+        } else {
+            line
+        }
+    }
+
+    private var line: some View {
+        HStack(spacing: 14) {
+            ZStack {
+                if let logo {
+                    logo
+                } else if let icon {
+                    Image(systemName: icon)
+                        .font(.system(size: 17, weight: .regular))
+                        .foregroundStyle(tint ?? LaxifyPalette.textSecondary)
+                }
+            }
+            .frame(width: 24, height: 24)
+
+            Text(title)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(tint ?? LaxifyPalette.textPrimary)
+                .lineLimit(1)
+                .layoutPriority(1)
+
+            Spacer(minLength: 8)
+
+            if isBusy {
+                ProgressView().tint(tint ?? LaxifyPalette.textSecondary)
+            }
+
+            if let value {
+                Text(value)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(LaxifyPalette.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .minimumScaleFactor(0.75)
+            }
+
+            if showsCheck {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 19))
+                    .foregroundStyle(LaxifyPalette.accent)
+            }
+
+            if showsChevron {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(LaxifyPalette.textTertiary)
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
+        .contentShape(Rectangle())
+    }
+}
+
+private struct SettingsRowPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.5 : 1)
+            .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+    }
 }
 
 // MARK: - Privacy
@@ -738,10 +1072,14 @@ struct SettingsRow: View {
 }
 
 struct SettingsDivider: View {
+    /// Where the line starts. Rows with a glyph column pass the width of that
+    /// column, so the rule begins under the label rather than under the icon.
+    var inset: CGFloat = 16
+
     var body: some View {
         Rectangle()
             .fill(LaxifyPalette.separator)
             .frame(height: 1)
-            .padding(.leading, 16)
+            .padding(.leading, inset)
     }
 }
