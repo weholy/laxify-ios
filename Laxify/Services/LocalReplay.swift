@@ -141,7 +141,11 @@ enum LocalReplay {
             .map { _, value in
                 ReplayTrack(
                     id: value.record.trackId,
-                    title: value.record.title,
+                    // History predates the cleaner, so rows recorded with an
+                    // upload's raw file name are tidied on the way out —
+                    // otherwise the year in review reads like a folder
+                    // listing.
+                    title: TrackTitle.clean(value.record.title),
                     artistName: value.record.artistName,
                     artworkUrl: value.record.coverURL,
                     plays: value.plays,

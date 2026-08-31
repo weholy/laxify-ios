@@ -32,6 +32,7 @@ struct SettingsView: View {
     private enum Page: String, Identifiable {
         case language
         case privacy
+        case admin
         case export
         case diagnostics
         case info
@@ -138,6 +139,8 @@ struct SettingsView: View {
                 LanguageSettingsView { page = nil }
             case .privacy:
                 PrivacySettingsView { page = nil }
+            case .admin:
+                AdminPanelView { page = nil }
             case .export:
                 CatalogExportView { page = nil }
             case .diagnostics:
@@ -327,6 +330,20 @@ struct SettingsView: View {
 
     private var actionsGroup: some View {
         SettingsCard {
+            // Only an operator sees this, and only because the server says so
+            // — the flag comes down on the profile, not out of a list of
+            // addresses baked into the app.
+            if user?.isAdmin == true {
+                SettingsLineRow(
+                    icon: "crown",
+                    title: L("settings.admin", "VIP-панель"),
+                    showsChevron: true,
+                    tint: Color(hex: 0xFFD60A)
+                ) { page = .admin }
+
+                SettingsDivider(inset: Self.rowLabelInset)
+            }
+
             SettingsLineRow(
                 icon: "heart",
                 title: L("info.support", "Поддержать проект")

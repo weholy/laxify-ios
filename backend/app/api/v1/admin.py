@@ -11,12 +11,12 @@ from app.models import (
     Device,
     Favorite,
     ListeningEvent,
+    Notification,
     Playlist,
     User,
     YandexToken,
 )
 from app.schemas.common import MessageOut, Page
-from app.schemas.user import UserPublic
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -53,6 +53,33 @@ class BanIn(BaseModel):
     reason: str = Field(max_length=500)
 
 
+class AdminUserOut(BaseModel):
+    """What the panel needs in order to recognise someone and act on them.
+
+    Deliberately more than `UserPublic`: an operator identifies an account by
+    its address, and a list you ban from is useless without the ban flag.
+    """
+
+    model_config = {"from_attributes": True}
+
+    id: UUID
+    username: str
+    display_name: str
+    email: str
+    avatar_url: str | None = None
+    google_avatar_url: str | None = None
+    is_banned: bool = False
+    ban_reason: str | None = None
+    is_admin: bool = False
+    created_at: datetime
+    last_seen_at: datetime | None = None
+
+
+class NotifyIn(BaseModel):
+    title: str = Field(max_length=160)
+    body: str = Field(default="", max_length=2000)
+
+
 @router.get("/overview", response_model=OverviewOut)
 async def overview(admin: AdminUser, session: SessionDep) -> OverviewOut:
     now = datetime.now(UTC)
@@ -84,20 +111,24 @@ async def overview(admin: AdminUser, session: SessionDep) -> OverviewOut:
     )
 
 
-@router.get("/users", response_model=Page[UserPublic])
+@router.get("/users", response_model=Page[AdminUserOut])
 async def list_users(
     admin: AdminUser,
     session: SessionDep,
     q: str | None = Query(default=None, max_length=64),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-) -> Page[UserPublic]:
+) -> Page[AdminUserOut]:
     stmt = select(User)
     count_stmt = select(func.count()).select_from(User)
 
     if q:
         pattern = f"%{q.lower()}%"
-        condition = func.lower(User.username).like(pattern) | func.lower(User.email).like(pattern)
+        condition = (
+            func.lower(User.username).like(pattern)
+            | func.lower(User.email).like(pattern)
+            | func.lower(User.display_name).like(pattern)
+        )
         stmt = stmt.where(condition)
         count_stmt = count_stmt.where(condition)
 
@@ -106,11 +137,45 @@ async def list_users(
         await session.scalars(stmt.order_by(User.created_at.desc()).limit(limit).offset(offset))
     ).all()
     return Page(
-        items=[UserPublic.model_validate(row) for row in rows],
+        items=[AdminUserOut.model_validate(row) for row in rows],
         total=total,
         limit=limit,
         offset=offset,
     )
+
+
+@router.post("/users/{user_id}/notify", response_model=MessageOut)
+async def notify_user(
+    user_id: UUID, payload: NotifyIn, admin: AdminUser, session: SessionDep
+) -> MessageOut:
+    """Drops a notice into one person's bell feed.
+
+    Written as `kind="system"` so it renders the same as anything else the
+    app sends itself — the recipient has no reason to be told which human
+    pressed the button.
+    """
+    target = await session.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Пользователь не найден")
+
+    session.add(
+        Notification(
+            user_id=user_id,
+            kind="system",
+            title=payload.title,
+            body=payload.body,
+        )
+    )
+    session.add(
+        AuditLog(
+            actor_id=admin.id,
+            action="admin.notify",
+            target_type="user",
+            target_id=str(user_id),
+            payload={"title": payload.title},
+        )
+    )
+    return MessageOut(detail="Уведомление отправлено")
 
 
 @router.post("/users/{user_id}/ban", response_model=MessageOut)

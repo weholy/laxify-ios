@@ -98,32 +98,49 @@ struct AppNotification: Identifiable, Sendable, Hashable {
 struct NotificationRow: View {
     let item: AppNotification
 
+    /// Two lines in the list, everything on a tap. A notice worth sending is
+    /// often longer than a row, and truncating it with no way to read the
+    /// rest makes the row worse than useless.
+    @State private var isExpanded = false
+
     var body: some View {
-        HStack(spacing: 12) {
-            leading
+        Button {
+            withAnimation(.snappy(duration: 0.28)) { isExpanded.toggle() }
+        } label: {
+            HStack(alignment: isExpanded ? .top : .center, spacing: 12) {
+                leading
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(item.title)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(LaxifyPalette.textPrimary)
-                    .lineLimit(1)
-                Text(item.body)
-                    .font(.system(size: 13))
-                    .foregroundStyle(LaxifyPalette.textSecondary)
-                    .lineLimit(2)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(item.title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(LaxifyPalette.textPrimary)
+                        .lineLimit(isExpanded ? nil : 1)
+                        .multilineTextAlignment(.leading)
+
+                    if !item.body.isEmpty {
+                        Text(item.body)
+                            .font(.system(size: 13))
+                            .foregroundStyle(LaxifyPalette.textSecondary)
+                            .lineLimit(isExpanded ? nil : 2)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                Spacer(minLength: 0)
+
+                if !item.isRead {
+                    Circle().fill(LaxifyPalette.accent).frame(width: 8, height: 8)
+                }
             }
-
-            Spacer(minLength: 0)
-
-            if !item.isRead {
-                Circle().fill(LaxifyPalette.accent).frame(width: 8, height: 8)
-            }
+            .padding(12)
+            .background(
+                LaxifyPalette.surface,
+                in: RoundedRectangle(cornerRadius: LaxifyMetrics.cardCornerRadius, style: .continuous)
+            )
+            .contentShape(Rectangle())
         }
-        .padding(12)
-        .background(
-            LaxifyPalette.surface,
-            in: RoundedRectangle(cornerRadius: LaxifyMetrics.cardCornerRadius, style: .continuous)
-        )
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder

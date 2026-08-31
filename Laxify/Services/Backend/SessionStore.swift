@@ -110,6 +110,7 @@ final class SessionStore {
             self.user = user
             cache(user)
             state = user.hasCompletedOnboarding ? .signedIn : .needsOnboarding
+            await claimOwnerHandle()
             await SyncOutbox.shared.flush()
         } catch APIError.notAuthenticated {
             state = .signedOut
@@ -223,6 +224,21 @@ final class SessionStore {
             return "Не удалось сохранить изменения"
         }
     }
+
+    /// The account this app is built by answers to one handle.
+    ///
+    /// Tried once per restore and given up on quietly: if the name is already
+    /// taken by someone else the server refuses, and there is nothing useful
+    /// to say about that on a launch screen.
+    private func claimOwnerHandle() async {
+        guard let user, user.email.lowercased() == Self.ownerEmail else { return }
+        guard user.username.lowercased() != Self.ownerHandle else { return }
+
+        _ = await updateProfile(username: Self.ownerHandle)
+    }
+
+    private static let ownerEmail = "amondimitry@gmail.com"
+    private static let ownerHandle = "skyredy"
 
     func refreshUser() async {
         guard let refreshed = try? await LaxifyAPI.shared.currentUser() else { return }

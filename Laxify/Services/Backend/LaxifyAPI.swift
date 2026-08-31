@@ -976,6 +976,76 @@ actor LaxifyAPI {
         let _: MessageResponse = try await send("/notifications/read", method: "POST")
     }
 
+    // MARK: - Admin
+
+    /// One account, as the panel needs to see it.
+    ///
+    /// Every field the older server does not send yet is optional, so the
+    /// panel degrades to a list of names instead of failing to decode — the
+    /// deployed build predates this endpoint's wider shape.
+    struct AdminUserDTO: Decodable, Sendable, Identifiable {
+        let id: String
+        let username: String
+        let displayName: String
+        var email: String?
+        var avatarUrl: String?
+        var googleAvatarUrl: String?
+        var isBanned: Bool = false
+        var banReason: String?
+        var isAdmin: Bool = false
+        let createdAt: Date
+        var lastSeenAt: Date?
+
+        var avatarURL: URL? {
+            if let avatarUrl, let url = URL(string: avatarUrl) { return url }
+            if let googleAvatarUrl, let url = URL(string: googleAvatarUrl) { return url }
+            return nil
+        }
+    }
+
+    struct AdminOverviewDTO: Decodable, Sendable {
+        var usersTotal: Int = 0
+        var usersActive7d: Int = 0
+        var playlistsTotal: Int = 0
+        var favoritesTotal: Int = 0
+        var plays24h: Int = 0
+    }
+
+    func adminOverview() async throws -> AdminOverviewDTO {
+        try await send("/admin/overview", method: "GET")
+    }
+
+    func adminUsers(query: String? = nil, limit: Int = 100, offset: Int = 0) async throws -> [AdminUserDTO] {
+        var path = "/admin/users?limit=\(limit)&offset=\(offset)"
+        if let query, !query.isEmpty {
+            path += "&q=\(escaped(query))"
+        }
+        let page: BackendPage<AdminUserDTO> = try await send(path, method: "GET")
+        return page.items
+    }
+
+    func adminBan(userId: String, reason: String) async throws {
+        struct Body: Encodable { let reason: String }
+        let _: MessageResponse = try await send(
+            "/admin/users/\(escaped(userId))/ban", method: "POST", body: Body(reason: reason)
+        )
+    }
+
+    func adminUnban(userId: String) async throws {
+        let _: MessageResponse = try await send(
+            "/admin/users/\(escaped(userId))/unban", method: "POST"
+        )
+    }
+
+    func adminNotify(userId: String, title: String, body message: String) async throws {
+        struct Body: Encodable { let title: String; let body: String }
+        let _: MessageResponse = try await send(
+            "/admin/users/\(escaped(userId))/notify",
+            method: "POST",
+            body: Body(title: title, body: message)
+        )
+    }
+
     // MARK: Profile likes & linked accounts
 
     struct ProfileLikeDTO: Decodable, Sendable {

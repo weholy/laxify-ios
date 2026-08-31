@@ -592,13 +592,20 @@ struct SCItem: Decodable {
         // A blocked track will not play, so it should never be offered.
         guard policy != "BLOCK", streamable != false else { return nil }
 
+        // What the release credits, before who uploaded it. An account is
+        // called "☆LiL PEEP☆" or "everlov3d"; the release says "Lil Peep".
+        // The second is the artist, the first is a username — and when there
+        // is no credit at all, the title itself usually carries the name.
+        let cleaned = TrackTitle.clean(
+            title: title,
+            artist: credited ?? user?.username,
+            artistIsCredited: credited != nil
+        )
+
         return Song(
             id: "\(id)",
-            title: title,
-            // What the release credits, before who uploaded it. An account
-            // is called "☆LiL PEEP☆" or "everlov3d"; the release says
-            // "Lil Peep". The second is the artist, the first is a username.
-            artistName: credited ?? user?.username ?? "Неизвестный исполнитель",
+            title: cleaned.title,
+            artistName: cleaned.artist ?? "Неизвестный исполнитель",
             artistId: user?.id.map(String.init),
             albumTitle: publisherMetadata?.albumTitle,
             // full_duration is the real length; duration can be a preview
