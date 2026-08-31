@@ -983,7 +983,7 @@ actor LaxifyAPI {
     /// Every field the older server does not send yet is optional, so the
     /// panel degrades to a list of names instead of failing to decode — the
     /// deployed build predates this endpoint's wider shape.
-    struct AdminUserDTO: Decodable, Sendable, Identifiable {
+    struct AdminUserDTO: Codable, Sendable, Identifiable {
         let id: String
         let username: String
         let displayName: String
