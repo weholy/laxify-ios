@@ -5,6 +5,9 @@ struct FavoritesView: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var allFavorites: [FavoriteTrack]
     @State private var sortOption: SortOption = .recent
+    @State private var showsClearDownloads = false
+
+    var downloads = DownloadManager.shared
 
     enum SortOption: String, CaseIterable {
         case recent
@@ -70,6 +73,20 @@ struct FavoritesView: View {
             await SyncService.shared.pullLibrary(into: modelContext)
             await backfillDurations()
         }
+        .confirmationDialog(
+            L("download.clearConfirm", "Удалить загруженные треки?"),
+            isPresented: $showsClearDownloads,
+            titleVisibility: .visible
+        ) {
+            Button(L("common.delete", "Удалить"), role: .destructive) {
+                for favorite in allFavorites {
+                    downloads.remove(favorite.id)
+                }
+            }
+            Button(L("common.cancel", "Отмена"), role: .cancel) {}
+        } message: {
+            Text(L("download.clearNote", "Треки останутся в избранном, но перестанут играть без интернета"))
+        }
     }
 
     /// Older favourites were saved before track length was carried through and
@@ -102,11 +119,13 @@ struct FavoritesView: View {
                     .foregroundStyle(LaxifyPalette.textSecondary)
             }
 
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 Button {
                     playAll(shuffled: false)
                 } label: {
                     Label(L("favorites.listen", "Слушать"), systemImage: "play.fill")
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.laxifyPrimary)
@@ -115,9 +134,17 @@ struct FavoritesView: View {
                     playAll(shuffled: true)
                 } label: {
                     Label(L("favorites.shuffle", "Перемешать"), systemImage: "shuffle")
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.laxifySecondary)
+
+                DownloadRingButton(
+                    progress: downloads.batchProgress,
+                    isDone: allDownloaded,
+                    action: downloadOrClear
+                )
             }
             .padding(.horizontal, LaxifyMetrics.screenPadding)
         }
@@ -209,6 +236,12 @@ struct FavoritesView: View {
                             favorite.song, queue: sortedFavorites.map(\.song)
                         )
                     }
+                    .trackContextMenu(
+                        song: favorite.song,
+                        removeTitle: L("favorites.remove", "Удалить из избранного")
+                    ) {
+                        removeFavorite(favorite)
+                    }
             }
         }
         .padding(.horizontal, LaxifyMetrics.screenPadding)
@@ -232,6 +265,30 @@ struct FavoritesView: View {
         if shuffled { songs.shuffle() }
         guard let first = songs.first else { return }
         AudioPlayerController.shared.play(first, queue: songs)
+    }
+
+    /// Every favourite is on the device — the state the tick stands for.
+    private var allDownloaded: Bool {
+        !allFavorites.isEmpty && allFavorites.allSatisfy { downloads.isDownloaded($0.id) }
+    }
+
+    /// One button, two meanings, decided by what is already here: save the
+    /// list, or ask before throwing the saved copies away.
+    private func downloadOrClear() {
+        if allDownloaded {
+            showsClearDownloads = true
+        } else {
+            downloads.download(sortedFavorites.map(\.song))
+        }
+    }
+
+    private func removeFavorite(_ favorite: FavoriteTrack) {
+        let id = favorite.id
+        withAnimation(.easeOut(duration: 0.2)) {
+            modelContext.delete(favorite)
+        }
+        try? modelContext.save()
+        SyncService.shared.favoriteRemoved(trackId: id)
     }
 
     private var formattedTotalDuration: String {

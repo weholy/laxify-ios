@@ -26,7 +26,8 @@ struct LaxifyApp: App {
 
         do {
             container = try ModelContainer(
-                for: FavoriteTrack.self, SearchHistoryEntry.self, DislikedTrack.self, PlayRecord.self
+                for: FavoriteTrack.self, SearchHistoryEntry.self, DislikedTrack.self,
+                PlayRecord.self, DownloadedTrack.self
             )
         } catch {
             fatalError("Не удалось создать локальное хранилище: \(error)")

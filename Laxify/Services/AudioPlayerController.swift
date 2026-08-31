@@ -446,6 +446,14 @@ final class AudioPlayerController {
     /// and move on. The media host answers ranges correctly and quickly, so
     /// the player is better left to do this itself.
     private static func streamingItem(for trackId: String) async throws -> (AVPlayerItem, StreamLoader?) {
+        // A saved copy first, always. It starts instantly, it costs nothing,
+        // and it is the only thing that plays when there is no network at all
+        // — which is the entire point of having downloaded it.
+        if let local = DownloadManager.localURL(for: trackId) {
+            let asset = AVURLAsset(url: local)
+            return (AVPlayerItem(asset: asset), nil)
+        }
+
         if let direct = try? await SoundCloudDirect.shared.streamURL(for: trackId) {
             let asset = AVURLAsset(
                 url: direct,

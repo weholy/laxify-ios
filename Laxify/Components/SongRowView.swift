@@ -3,8 +3,8 @@ import SwiftUI
 struct SongRowView: View {
     let song: Song
     var isFavorite: Bool = false
-    /// Shown in the library, where saving for offline is the point;
-    /// hidden in search results, where it would be noise.
+
+    var downloads = DownloadManager.shared
 
     var body: some View {
         HStack(spacing: 12) {
@@ -25,6 +25,8 @@ struct SongRowView: View {
 
             Spacer(minLength: 8)
 
+            downloadMark
+
             if isFavorite {
                 Image(systemName: "heart.fill")
                     .font(.system(size: 14))
@@ -41,6 +43,25 @@ struct SongRowView: View {
             }
         }
         .contentShape(Rectangle())
+    }
+
+    /// Small and grey on purpose: this says the track will play with the
+    /// network off, which is worth knowing and not worth announcing.
+    @ViewBuilder
+    private var downloadMark: some View {
+        if let fraction = downloads.progress[song.id] {
+            Circle()
+                .trim(from: 0, to: max(0.05, fraction))
+                .stroke(LaxifyPalette.accent, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .frame(width: 13, height: 13)
+                .animation(.linear(duration: 0.3), value: fraction)
+        } else if downloads.isDownloaded(song.id) {
+            Image(systemName: "arrow.down.circle.fill")
+                .font(.system(size: 13))
+                .foregroundStyle(LaxifyPalette.textTertiary)
+                .transition(.scale.combined(with: .opacity))
+        }
     }
 
     private var formattedDuration: String {

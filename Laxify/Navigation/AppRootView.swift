@@ -28,6 +28,10 @@ struct AppRootView: View {
             // only a view has the context to do it with.
             session.modelContext = modelContext
             AudioPlayerController.shared.modelContext = modelContext
+            DownloadManager.shared.modelContext = modelContext
+            // Read what is already on disk before anything can ask, so a row
+            // never shows "not downloaded" for a file that is right there.
+            DownloadManager.shared.refreshSaved()
             await restore()
 
             // Anything played while the server was out of reach goes up

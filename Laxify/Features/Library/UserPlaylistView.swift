@@ -45,12 +45,11 @@ struct UserPlaylistView: View {
                                 .onTapGesture {
                                     AudioPlayerController.shared.play(song, queue: songs)
                                 }
-                                .contextMenu {
-                                    Button(role: .destructive) {
-                                        remove(song)
-                                    } label: {
-                                        Label(L("playlist.removeTrack", "Убрать из плейлиста"), systemImage: "trash")
-                                    }
+                                .trackContextMenu(
+                                    song: song,
+                                    removeTitle: L("playlist.removeTrack", "Убрать из плейлиста")
+                                ) {
+                                    remove(song)
                                 }
                         }
                     }
