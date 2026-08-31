@@ -7,8 +7,6 @@ struct RootView: View {
     @Namespace private var playerZoom
     var player = AudioPlayerController.shared
     var router = DeepLinkRouter.shared
-    var announcements = AnnouncementService.shared
-    var appearance = AppearanceSettings.shared
 
     private var tabSelection: Binding<AppTab> {
         Binding(
@@ -22,15 +20,6 @@ struct RootView: View {
 
     var body: some View {
         playerAwareTabView
-            .overlay(alignment: .bottom) {
-                if appearance.needsRestart {
-                    RestartBanner()
-                        .padding(.horizontal, 12)
-                        .padding(.bottom, 96)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-            }
-            .animation(.spring(response: 0.4, dampingFraction: 0.85), value: appearance.needsRestart)
             .fullScreenCover(isPresented: $isPlayerPresented) {
                 FullPlayerView { isPlayerPresented = false }
                     .navigationTransition(.zoom(sourceID: MiniPlayerBar.zoomID, in: playerZoom))
@@ -54,12 +43,6 @@ struct RootView: View {
                 set: { router.pendingCollection = $0 }
             )) { collection in
                 PlaylistDetailView(collection: collection) { router.pendingCollection = nil }
-            }
-            .sheet(item: Binding(
-                get: { announcements.current },
-                set: { if $0 == nil { announcements.markSeen() } }
-            )) { item in
-                LaunchAnnouncementView(announcement: item) { announcements.markSeen() }
             }
     }
 
@@ -88,19 +71,37 @@ struct RootView: View {
         }
     }
 
+    /// Glyphs only. A `Tab` built from a title shows that title under the
+    /// icon and there is no modifier to suppress it, so each tab is built
+    /// from the `label:` initialiser with a bare image instead. The words
+    /// survive as accessibility labels, which is the one job they still had.
+    /// Search keeps its own initialiser: in its search role the system draws
+    /// it as a lone magnifier anyway.
     private var tabs: some View {
         TabView(selection: tabSelection) {
-            Tab(L("tab.home", "Главная"), systemImage: "house.fill", value: AppTab.home) {
+            Tab(value: AppTab.home) {
                 HomeView()
+            } label: {
+                Image(systemName: "house.fill")
+                    .accessibilityLabel(L("tab.home", "Главная"))
             }
-            Tab(L("tab.wave", "Моя волна"), systemImage: "dot.radiowaves.left.and.right", value: AppTab.myWave) {
+            Tab(value: AppTab.myWave) {
                 MyWaveView()
+            } label: {
+                Image(systemName: "dot.radiowaves.left.and.right")
+                    .accessibilityLabel(L("tab.wave", "Моя волна"))
             }
-            Tab(L("tab.favorites", "Избранное"), systemImage: "heart.fill", value: AppTab.favorites) {
+            Tab(value: AppTab.favorites) {
                 LibraryView()
+            } label: {
+                Image(systemName: "heart.fill")
+                    .accessibilityLabel(L("tab.favorites", "Избранное"))
             }
-            Tab(L("tab.profile", "Профиль"), systemImage: "person.fill", value: AppTab.profile) {
+            Tab(value: AppTab.profile) {
                 ProfileView()
+            } label: {
+                Image(systemName: "person.fill")
+                    .accessibilityLabel(L("tab.profile", "Профиль"))
             }
             Tab(L("search.title", "Поиск"), systemImage: "magnifyingglass", value: AppTab.search, role: .search) {
                 SearchView(onClose: { selectedTab = lastMainTab }, showsCloseButton: false)

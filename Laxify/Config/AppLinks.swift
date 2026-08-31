@@ -6,8 +6,8 @@ enum AppLinks {
     /// The project's Telegram channel — announcements, new builds.
     static let telegramChannel = URL(string: "https://t.me/laxifyapp")!
 
-    /// Where "поддержать проект" goes.
-    static let support = URL(string: "https://t.me/laxifyapp")!
+    /// Where "поддержать проект" and "связаться с нами" go.
+    static let support = URL(string: "https://t.me/skyredy")!
 
     /// Bot used for Telegram sign-in and subscription confirmation (later).
     static let telegramBot = "LaxifyAppBot"

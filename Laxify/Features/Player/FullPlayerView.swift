@@ -12,7 +12,6 @@ struct FullPlayerView: View {
 
     @State private var isLyricsPresented = false
     @State private var isAddToPlaylistPresented = false
-    @State private var isCommentsPresented = false
     @State private var selectedArtistId: String?
     @State private var palette: ArtworkPalette = .neutral
 
@@ -59,11 +58,6 @@ struct FullPlayerView: View {
         }
         .sheet(isPresented: $isLyricsPresented) {
             LyricsView()
-        }
-        .sheet(isPresented: $isCommentsPresented) {
-            if let song = player.currentSong {
-                CommentsView(track: song) { isCommentsPresented = false }
-            }
         }
         .sheet(isPresented: $isAddToPlaylistPresented) {
             if let song = player.currentSong {
@@ -196,23 +190,21 @@ struct FullPlayerView: View {
         .disabled(player.currentSong == nil)
     }
 
+    /// Three glyphs, each centred in its own third of the row — with a
+    /// `Spacer` between them the outer two hugged the screen edges and the
+    /// gaps came out uneven the moment one of them changed width.
     private var bottomIconRow: some View {
         HStack(spacing: 0) {
             glyphButton("text.alignleft") { isLyricsPresented = true }
-
-            Spacer()
-
-            glyphButton("message.fill") { isCommentsPresented = true }
-
-            Spacer()
+                .frame(maxWidth: .infinity)
 
             AirPlayRouteButton()
                 .frame(width: 40, height: 40)
-
-            Spacer()
+                .frame(maxWidth: .infinity)
 
             RepeatButton()
                 .frame(width: 40, height: 40)
+                .frame(maxWidth: .infinity)
         }
         .padding(.horizontal, 6)
     }

@@ -5,17 +5,15 @@ import UIKit
 /// Settings, as one page: who you are at the top, then three short blocks —
 /// the account, what the app does, and the two things you can act on.
 ///
-/// The earlier version was a menu of five entries that each opened a page,
-/// which meant two taps to read a value that fits on the line itself. Here the
-/// language, the theme and the address sit on the page; only the entries with
-/// something to explain still open.
+/// Nothing here opens a screen to change one word. The name and the handle
+/// are edited in a sheet that sits over this page, so the list you were
+/// reading stays where it was.
 struct SettingsView: View {
     var onClose: () -> Void
 
     @Environment(\.openURL) private var openURL
 
     @State private var session = SessionStore.shared
-    @State private var appearance = AppearanceSettings.shared
     var localization = LocalizationManager.shared
 
     @State private var showsSignOutConfirmation = false
@@ -27,13 +25,10 @@ struct SettingsView: View {
 
     private var user: BackendUser? { session.user }
 
+    /// The screens that still earn one.
     private enum Page: String, Identifiable {
         case language
         case privacy
-        case about
-        case account
-        case appearance
-        case editProfile
         case export
         case diagnostics
         case info
@@ -41,7 +36,16 @@ struct SettingsView: View {
         var id: String { rawValue }
     }
 
+    /// The one-line things, edited in place.
+    private enum Field: String, Identifiable {
+        case username
+        case name
+
+        var id: String { rawValue }
+    }
+
     @State private var page: Page?
+    @State private var field: Field?
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -56,11 +60,8 @@ struct SettingsView: View {
                     preferencesGroup
                     actionsGroup
 
-                    telegramButton
-                        .padding(.top, 14)
-
                     footer
-                        .padding(.top, 6)
+                        .padding(.top, 22)
                 }
                 .padding(.horizontal, LaxifyMetrics.screenPadding)
                 .padding(.top, 10)
@@ -104,20 +105,36 @@ struct SettingsView: View {
             Button(L("settings.signout", "Выйти"), role: .destructive) { signOut() }
             Button(L("settings.signout.stay", "Остаться"), role: .cancel) {}
         }
+        .sheet(item: $field) { entry in
+            switch entry {
+            case .username:
+                SettingsFieldSheet(
+                    title: L("settings.username", "Юзернейм"),
+                    hint: L("settings.username.hint", "По нему вас находят в поиске и открывают ваш профиль"),
+                    placeholder: "username",
+                    value: user?.username ?? "",
+                    prefix: "@",
+                    lowercased: true,
+                    onSave: { await session.updateProfile(username: $0) },
+                    onClose: { field = nil }
+                )
+            case .name:
+                SettingsFieldSheet(
+                    title: L("settings.name", "Имя"),
+                    hint: L("settings.name.hint", "Так вас видят на вашей странице и в комментариях к плейлистам"),
+                    placeholder: L("settings.name", "Имя"),
+                    value: user?.displayName ?? "",
+                    onSave: { await session.updateProfile(displayName: $0) },
+                    onClose: { field = nil }
+                )
+            }
+        }
         .fullScreenCover(item: $page) { entry in
             switch entry {
             case .language:
                 LanguageSettingsView { page = nil }
             case .privacy:
                 PrivacySettingsView { page = nil }
-            case .about:
-                AboutSettingsView { page = nil }
-            case .account:
-                AccountSettingsView { page = nil }
-            case .appearance:
-                AppearanceSettingsView { page = nil }
-            case .editProfile:
-                EditProfileView { page = nil }
             case .export:
                 CatalogExportView { page = nil }
             case .diagnostics:
@@ -161,17 +178,29 @@ struct SettingsView: View {
             .buttonStyle(.plain)
             .disabled(isUploadingAvatar)
 
-            VStack(spacing: 3) {
-                Text(user?.displayName ?? "")
-                    .font(.system(size: 26, weight: .bold))
-                    .foregroundStyle(LaxifyPalette.textPrimary)
-                    .lineLimit(1)
+            // The name under the picture is the control for changing it —
+            // the pencil next to a second name would say the same thing twice.
+            Button { field = .name } label: {
+                VStack(spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text(user?.displayName ?? "")
+                            .font(.system(size: 26, weight: .bold))
+                            .foregroundStyle(LaxifyPalette.textPrimary)
+                            .lineLimit(1)
 
-                Text("@\(user?.username ?? "")")
-                    .font(LaxifyTypography.subheadline)
-                    .foregroundStyle(LaxifyPalette.textSecondary)
-                    .lineLimit(1)
+                        Image(systemName: "pencil")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(LaxifyPalette.textTertiary)
+                    }
+
+                    Text("@\(user?.username ?? "")")
+                        .font(LaxifyTypography.subheadline)
+                        .foregroundStyle(LaxifyPalette.textSecondary)
+                        .lineLimit(1)
+                }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 4)
@@ -211,7 +240,7 @@ struct SettingsView: View {
                 title: L("settings.username", "Юзернейм"),
                 value: user?.username,
                 showsChevron: true
-            ) { page = .editProfile }
+            ) { field = .username }
 
             SettingsDivider(inset: Self.rowLabelInset)
 
@@ -226,7 +255,7 @@ struct SettingsView: View {
             SettingsLineRow(
                 logo: signIn.logo,
                 title: signIn.title,
-                value: L("settings.signedIn.value", "Выполнен"),
+                subtitle: L("settings.signedIn.value", "Вход выполнен"),
                 showsCheck: true
             )
         }
@@ -244,35 +273,10 @@ struct SettingsView: View {
             SettingsDivider(inset: Self.rowLabelInset)
 
             SettingsLineRow(
-                icon: "paintbrush",
-                title: L("settings.appearance", "Дизайн"),
-                value: appearance.theme.title,
-                showsChevron: true
-            ) { page = .appearance }
-
-            SettingsDivider(inset: Self.rowLabelInset)
-
-            SettingsLineRow(
                 icon: "lock",
                 title: L("settings.privacy", "Конфиденциальность"),
                 showsChevron: true
             ) { page = .privacy }
-
-            SettingsDivider(inset: Self.rowLabelInset)
-
-            SettingsLineRow(
-                icon: "text.quote",
-                title: L("settings.about", "О себе"),
-                showsChevron: true
-            ) { page = .about }
-
-            SettingsDivider(inset: Self.rowLabelInset)
-
-            SettingsLineRow(
-                icon: "key",
-                title: L("settings.account", "Аккаунт"),
-                showsChevron: true
-            ) { page = .account }
         }
     }
 
@@ -306,7 +310,7 @@ struct SettingsView: View {
         case "telegram":
             return (
                 AnyView(TelegramLogoView(size: 21, color: Color(hex: 0x2AABEE))),
-                L("settings.signedIn.telegram", "Вход через Telegram")
+                "Telegram"
             )
         case "email":
             return (
@@ -315,42 +319,15 @@ struct SettingsView: View {
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(LaxifyPalette.accent)
                 ),
-                L("settings.signedIn.email", "Вход по почте")
+                L("settings.email", "Почта")
             )
         default:
-            return (
-                AnyView(GoogleLogoView(size: 20)),
-                L("settings.signedIn.google", "Вход через Google")
-            )
+            return (AnyView(GoogleLogoView(size: 20)), "Google")
         }
     }
 
     /// Dividers start where the labels do, not under the glyphs.
     private static let rowLabelInset: CGFloat = 56
-
-    // MARK: - Bottom
-
-    private var telegramButton: some View {
-        Button {
-            openURL(AppLinks.telegramChannel)
-        } label: {
-            HStack(spacing: 10) {
-                TelegramLogoView(size: 21, color: Color(hex: 0x2AABEE))
-                Text("Telegram")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(LaxifyPalette.textPrimary)
-            }
-            .padding(.horizontal, 40)
-            .padding(.vertical, 16)
-            .glassEffect(
-                .regular.tint(Color(hex: 0x2AABEE).opacity(0.22)).interactive(),
-                in: .capsule
-            )
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .frame(maxWidth: .infinity)
-    }
 
     private var footer: some View {
         HStack(spacing: 7) {
@@ -415,11 +392,14 @@ struct SettingsView: View {
 }
 
 /// One line of the settings list: a glyph, what the line is, and what it is
-/// currently set to. Rows without an action are read-only and don't highlight.
+/// currently set to. A `subtitle` stacks under the title instead — for the
+/// sign-in row, where "Вход выполнен" is a state and not a value you set.
+/// Rows without an action are read-only and don't highlight.
 private struct SettingsLineRow: View {
     var icon: String?
     var logo: AnyView?
     var title: String
+    var subtitle: String?
     var value: String?
     var showsChevron = false
     var showsCheck = false
@@ -431,6 +411,7 @@ private struct SettingsLineRow: View {
         icon: String? = nil,
         logo: AnyView? = nil,
         title: String,
+        subtitle: String? = nil,
         value: String? = nil,
         showsChevron: Bool = false,
         showsCheck: Bool = false,
@@ -441,6 +422,7 @@ private struct SettingsLineRow: View {
         self.icon = icon
         self.logo = logo
         self.title = title
+        self.subtitle = subtitle
         self.value = value
         self.showsChevron = showsChevron
         self.showsCheck = showsCheck
@@ -471,11 +453,20 @@ private struct SettingsLineRow: View {
             }
             .frame(width: 24, height: 24)
 
-            Text(title)
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(tint ?? LaxifyPalette.textPrimary)
-                .lineLimit(1)
-                .layoutPriority(1)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(tint ?? LaxifyPalette.textPrimary)
+                    .lineLimit(1)
+
+                if let subtitle {
+                    Text(subtitle)
+                        .font(LaxifyTypography.footnote)
+                        .foregroundStyle(LaxifyPalette.textSecondary)
+                        .lineLimit(1)
+                }
+            }
+            .layoutPriority(1)
 
             Spacer(minLength: 8)
 
@@ -505,7 +496,7 @@ private struct SettingsLineRow: View {
             }
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 16)
+        .padding(.vertical, subtitle == nil ? 16 : 13)
         .contentShape(Rectangle())
     }
 }
@@ -515,6 +506,123 @@ private struct SettingsRowPressStyle: ButtonStyle {
         configuration.label
             .opacity(configuration.isPressed ? 0.5 : 1)
             .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+    }
+}
+
+/// One field, one line of explanation, one button — over the settings page
+/// rather than instead of it. Used for the name and the handle, which are the
+/// only two things here worth typing.
+private struct SettingsFieldSheet: View {
+    let title: String
+    let hint: String
+    let placeholder: String
+    var prefix: String?
+    var lowercased = false
+    var onSave: (String) async -> String?
+    var onClose: () -> Void
+
+    @State private var text: String
+    @State private var isSaving = false
+    @State private var error: String?
+    @FocusState private var isFocused: Bool
+
+    init(
+        title: String,
+        hint: String,
+        placeholder: String,
+        value: String,
+        prefix: String? = nil,
+        lowercased: Bool = false,
+        onSave: @escaping (String) async -> String?,
+        onClose: @escaping () -> Void
+    ) {
+        self.title = title
+        self.hint = hint
+        self.placeholder = placeholder
+        self.prefix = prefix
+        self.lowercased = lowercased
+        self.onSave = onSave
+        self.onClose = onClose
+        _text = State(initialValue: value)
+    }
+
+    private var trimmed: String {
+        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return lowercased ? value.lowercased() : value
+    }
+
+    private var canSave: Bool { trimmed.count >= 2 && !isSaving }
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Text(title)
+                .font(.system(size: 19, weight: .bold))
+                .foregroundStyle(LaxifyPalette.textPrimary)
+                .padding(.top, 26)
+
+            HStack(spacing: 2) {
+                if let prefix {
+                    Text(prefix)
+                        .foregroundStyle(LaxifyPalette.textTertiary)
+                }
+                TextField(placeholder, text: $text)
+                    .foregroundStyle(LaxifyPalette.textPrimary)
+                    .autocorrectionDisabled(lowercased)
+                    .textInputAutocapitalization(lowercased ? .never : .words)
+                    .focused($isFocused)
+                    .submitLabel(.done)
+                    .onSubmit(save)
+            }
+            .font(.system(size: 17))
+            .padding(.horizontal, 18)
+            .padding(.vertical, 15)
+            .laxGlassCapsule()
+
+            Text(error ?? hint)
+                .font(LaxifyTypography.footnote)
+                .foregroundStyle(error == nil ? LaxifyPalette.textSecondary : .red)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button(action: save) {
+                HStack(spacing: 8) {
+                    if isSaving { ProgressView().tint(.white) }
+                    Text(L("common.save", "Сохранить"))
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 16)
+                .glassEffect(.regular.tint(LaxifyPalette.accent).interactive(), in: .capsule)
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(!canSave)
+            .opacity(canSave ? 1 : 0.45)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, LaxifyMetrics.screenPadding)
+        .presentationDetents([.height(300)])
+        .presentationDragIndicator(.visible)
+        .presentationBackground(.regularMaterial)
+        .onAppear { isFocused = true }
+    }
+
+    private func save() {
+        guard canSave else { return }
+        isSaving = true
+        error = nil
+        let value = trimmed
+        Task {
+            let failure = await onSave(value)
+            isSaving = false
+            if let failure {
+                withAnimation { error = failure }
+            } else {
+                onClose()
+            }
+        }
     }
 }
 
@@ -574,303 +682,6 @@ struct PrivacySettingsView: View {
         Task {
             try? await Task.sleep(for: .seconds(2))
             withAnimation(.easeOut(duration: 0.25)) { status = nil }
-        }
-    }
-}
-
-// MARK: - About
-
-struct AboutSettingsView: View {
-    var onBack: () -> Void
-
-    @State private var session = SessionStore.shared
-    @State private var bio = ""
-    @State private var saved = ""
-    @State private var status: String?
-    @FocusState private var isEditing: Bool
-
-    private let limit = 160
-
-    var body: some View {
-        SettingsPage(title: L("settings.about", "О себе"), status: status, onBack: onBack) {
-            SettingsCard {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(L("about.hint", "Эти строки увидят те, кто откроет ваш профиль"))
-                        .font(LaxifyTypography.footnote)
-                        .foregroundStyle(LaxifyPalette.textSecondary)
-
-                    TextField(L("about.placeholder", "Расскажите о себе"), text: $bio, axis: .vertical)
-                        .font(.system(size: 16))
-                        .foregroundStyle(LaxifyPalette.textPrimary)
-                        .lineLimit(3...6)
-                        .focused($isEditing)
-
-                    Text("\(bio.count) / \(limit)")
-                        .font(.system(size: 12))
-                        .foregroundStyle(bio.count > limit ? .red : LaxifyPalette.textTertiary)
-                }
-                .padding(16)
-            }
-
-            if bio != saved {
-                Button {
-                    isEditing = false
-                    save()
-                } label: {
-                    Text(L("common.save", "Сохранить"))
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(LaxifyPalette.background)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(LaxifyPalette.textPrimary, in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .disabled(bio.count > limit)
-                .opacity(bio.count > limit ? 0.45 : 1)
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
-            }
-        }
-        .animation(.easeOut(duration: 0.2), value: bio != saved)
-        .onAppear {
-            bio = session.user?.bio ?? ""
-            saved = bio
-            isEditing = true
-        }
-    }
-
-    private func save() {
-        let value = String(bio.prefix(limit))
-        Task {
-            let failure = await session.updateProfile(bio: value)
-            if let failure {
-                flash(failure)
-            } else {
-                saved = value
-                bio = value
-                flash(L("privacy.saved", "Сохранено"))
-            }
-        }
-    }
-
-    private func flash(_ message: String) {
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { status = message }
-        Task {
-            try? await Task.sleep(for: .seconds(2))
-            withAnimation(.easeOut(duration: 0.25)) { status = nil }
-        }
-    }
-}
-
-// MARK: - Account
-
-struct AccountSettingsView: View {
-    var onBack: () -> Void
-
-    @State private var session = SessionStore.shared
-    @State private var isEditPresented = false
-    @State private var showsLogoutAll = false
-    @State private var status: String?
-
-    private var user: BackendUser? { session.user }
-
-    var body: some View {
-        SettingsPage(title: L("settings.account", "Аккаунт"), status: status, onBack: onBack) {
-            SettingsGroup(header: L("account.profile", "Профиль")) {
-                Button {
-                    UIPasteboard.general.string = user?.username
-                    flash(L("account.copied", "Скопировано"))
-                } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: "at")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(LaxifyPalette.textSecondary)
-                            .frame(width: 24)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(L("account.username", "Имя пользователя"))
-                                .font(.system(size: 16, weight: .medium))
-                                .foregroundStyle(LaxifyPalette.textPrimary)
-                            Text("@\(user?.username ?? "")")
-                                .font(LaxifyTypography.caption)
-                                .foregroundStyle(LaxifyPalette.textSecondary)
-                        }
-                        Spacer()
-                        Image(systemName: "doc.on.doc")
-                            .font(.system(size: 14))
-                            .foregroundStyle(LaxifyPalette.textTertiary)
-                    }
-                    .padding(16)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-
-                SettingsDivider()
-
-                Button { isEditPresented = true } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: "person.crop.circle")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(LaxifyPalette.textSecondary)
-                            .frame(width: 24)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(L("account.name", "Имя и фото"))
-                                .font(.system(size: 16, weight: .medium))
-                                .foregroundStyle(LaxifyPalette.textPrimary)
-                            Text(user?.displayName ?? "—")
-                                .font(LaxifyTypography.caption)
-                                .foregroundStyle(LaxifyPalette.textSecondary)
-                                .lineLimit(1)
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(LaxifyPalette.textTertiary)
-                    }
-                    .padding(16)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-
-            LinkedAccountsCard()
-
-            SettingsGroup(header: L("account.sessions", "Сессии")) {
-                SettingsRow(
-                    title: L("account.logoutAll", "Выйти на всех устройствах"),
-                    description: L("account.logoutAll.sub", "Завершит все сессии, включая эту"),
-                    showsChevron: false
-                ) {
-                    showsLogoutAll = true
-                }
-            }
-        }
-        .fullScreenCover(isPresented: $isEditPresented) {
-            EditProfileView { isEditPresented = false }
-        }
-        .confirmationDialog(
-            L("account.logoutAll", "Выйти на всех устройствах"),
-            isPresented: $showsLogoutAll,
-            titleVisibility: .visible
-        ) {
-            Button(L("account.logoutAll.confirm", "Выйти везде"), role: .destructive) {
-                Task {
-                    _ = try? await LaxifyAPI.shared.signOutEverywhere()
-                    await session.signOut()
-                }
-            }
-            Button(L("common.cancel", "Отмена"), role: .cancel) {}
-        }
-    }
-
-    private func flash(_ message: String) {
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { status = message }
-        Task {
-            try? await Task.sleep(for: .seconds(2))
-            withAnimation(.easeOut(duration: 0.25)) { status = nil }
-        }
-    }
-}
-
-// MARK: - Appearance
-
-struct AppearanceSettingsView: View {
-    var onBack: () -> Void
-
-    @State private var appearance = AppearanceSettings.shared
-
-    var body: some View {
-        SettingsPage(title: L("settings.appearance", "Дизайн"), status: nil, onBack: onBack) {
-            SettingsGroup {
-                ForEach(AppearanceSettings.Theme.allCases, id: \.self) { theme in
-                    themeRow(theme)
-                    if theme != AppearanceSettings.Theme.allCases.last {
-                        SettingsDivider()
-                    }
-                }
-            }
-
-            SettingsGroup(footer: L("appearance.hideLabels.sub", "Оставить в нижней панели только иконки")) {
-                SettingsToggle(
-                    title: L("appearance.hideLabels", "Скрыть подписи в панели"),
-                    isOn: Binding(
-                        get: { appearance.hideTabLabels },
-                        set: { appearance.hideTabLabels = $0 }
-                    )
-                )
-            }
-        }
-    }
-
-    private func themeRow(_ theme: AppearanceSettings.Theme) -> some View {
-        let isSelected = appearance.theme == theme
-
-        return Button {
-            withAnimation(.snappy(duration: 0.25)) { appearance.theme = theme }
-        } label: {
-            HStack(spacing: 14) {
-                ThemePreview(theme: theme)
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(theme.title)
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(LaxifyPalette.textPrimary)
-
-                    Text(theme.explanation)
-                        .font(LaxifyTypography.footnote)
-                        .foregroundStyle(LaxifyPalette.textSecondary)
-                }
-
-                Spacer(minLength: 4)
-            }
-            .padding(16)
-            .overlay(alignment: .trailing) {
-                if isSelected {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(LaxifyPalette.accent)
-                        .padding(.trailing, 16)
-                }
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-/// A miniature of the app, so a theme can be recognised rather than read.
-private struct ThemePreview: View {
-    let theme: AppearanceSettings.Theme
-
-    var body: some View {
-        ZStack {
-            switch theme {
-            case .light:
-                panel(.white, bar: Color(white: 0.88))
-            case .dark:
-                panel(.black, bar: Color(white: 0.24))
-            case .system:
-                // Split down the middle, which is what "follow the system"
-                // amounts to without knowing what the system is set to.
-                HStack(spacing: 0) {
-                    panel(.white, bar: Color(white: 0.88))
-                    panel(.black, bar: Color(white: 0.24))
-                }
-            }
-        }
-        .frame(width: 42, height: 42)
-        .clipShape(RoundedRectangle(cornerRadius: LaxifyMetrics.cardCornerRadius, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: LaxifyMetrics.cardCornerRadius, style: .continuous)
-                .stroke(LaxifyPalette.separator, lineWidth: 1)
-        }
-    }
-
-    private func panel(_ background: Color, bar: Color) -> some View {
-        background.overlay(alignment: .bottom) {
-            Capsule()
-                .fill(bar)
-                .frame(height: 6)
-                .padding(.horizontal, 5)
-                .padding(.bottom, 6)
         }
     }
 }
@@ -1020,54 +831,6 @@ struct SettingsToggle: View {
                 .tint(LaxifyPalette.accent)
         }
         .padding(16)
-    }
-}
-
-struct SettingsRow: View {
-    let title: String
-    let description: String
-    var badge: String?
-    var showsChevron = true
-    var action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 14) {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 8) {
-                        Text(title)
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundStyle(LaxifyPalette.textPrimary)
-
-                        if let badge {
-                            Text(badge)
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(.orange)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .background(.orange.opacity(0.15), in: Capsule())
-                        }
-                    }
-
-                    Text(description)
-                        .font(LaxifyTypography.footnote)
-                        .foregroundStyle(LaxifyPalette.textSecondary)
-                        .lineLimit(1)
-                }
-
-                Spacer(minLength: 4)
-
-                if showsChevron {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(LaxifyPalette.textTertiary)
-                }
-            }
-            .padding(16)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(!showsChevron)
     }
 }
 

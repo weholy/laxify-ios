@@ -33,8 +33,6 @@ struct LaxifyApp: App {
         }
     }
 
-    @State private var appearance = AppearanceSettings.shared
-
     /// Loads and caches the covers the sign-in wall is built from.
     private static func warmSignInArtwork() async {
         guard let showcase = try? await LaxifyAPI.shared.showcase(limit: 60) else { return }
@@ -49,9 +47,10 @@ struct LaxifyApp: App {
     var body: some Scene {
         WindowGroup {
             AppRootView()
-                // nil follows the system, which is the default and what most
-                // people leave it on.
-                .preferredColorScheme(appearance.theme.colorScheme)
+                // Laxify is a dark app and only a dark app. Following the
+                // system meant a light phone got a half-drawn version of
+                // screens that were composed against black.
+                .preferredColorScheme(.dark)
         }
         .modelContainer(container)
     }

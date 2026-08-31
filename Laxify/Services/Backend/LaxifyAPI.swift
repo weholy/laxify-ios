@@ -948,60 +948,7 @@ actor LaxifyAPI {
         return response.queries
     }
 
-    // MARK: - Comments & social
-
-    struct CommentDTO: Decodable, Sendable {
-        struct Author: Decodable, Sendable {
-            let id: String
-            let username: String
-            let displayName: String
-            let avatarUrl: String?
-        }
-        let id: String
-        let parentId: String?
-        let author: Author
-        let body: String?
-        let mediaUrl: String?
-        let gifUrl: String?
-        let likeCount: Int
-        let dislikeCount: Int
-        let myReaction: String
-        let createdAt: Date
-        let replies: [CommentDTO]
-        let replyCount: Int
-        let canDelete: Bool
-    }
-
-    func comments(trackId: String, limit: Int = 30, offset: Int = 0) async throws -> [CommentDTO] {
-        try await send(
-            "/tracks/\(escaped(trackId))/comments?limit=\(limit)&offset=\(offset)", method: "GET"
-        )
-    }
-
-    func postComment(
-        trackId: String, body: String?, parentId: String?, mediaUrl: String?, gifUrl: String?
-    ) async throws -> CommentDTO {
-        struct Body: Encodable {
-            let body: String?
-            let parentId: String?
-            let mediaUrl: String?
-            let gifUrl: String?
-        }
-        return try await send(
-            "/tracks/\(escaped(trackId))/comments", method: "POST",
-            body: Body(body: body, parentId: parentId, mediaUrl: mediaUrl, gifUrl: gifUrl)
-        )
-    }
-
-    @discardableResult
-    func reactToComment(id: String, value: String) async throws -> CommentDTO {
-        struct Body: Encodable { let value: String }
-        return try await send("/comments/\(escaped(id))/reaction", method: "POST", body: Body(value: value))
-    }
-
-    func deleteComment(id: String) async throws {
-        let _: MessageResponse = try await send("/comments/\(escaped(id))", method: "DELETE")
-    }
+    // MARK: - Notifications
 
     struct NotificationDTO: Decodable, Sendable {
         let id: String
@@ -1027,16 +974,6 @@ actor LaxifyAPI {
 
     func markNotificationsRead() async throws {
         let _: MessageResponse = try await send("/notifications/read", method: "POST")
-    }
-
-    struct GifDTO: Decodable, Sendable {
-        let id: String
-        let url: String
-        let previewUrl: String
-    }
-
-    func searchGifs(_ query: String, limit: Int = 24) async throws -> [GifDTO] {
-        try await send("/gif/search?q=\(escaped(query))&limit=\(limit)", method: "GET")
     }
 
     // MARK: Profile likes & linked accounts
