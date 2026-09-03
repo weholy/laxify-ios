@@ -691,16 +691,56 @@ final class AudioPlayerController {
 
         prepared = nil
         Task { [weak self] in
-            guard let (item, loader) = try? await Self.streamingItem(for: nextId, known: Self.known(nextSong)) else { return }
-            guard let self, self.queue.indices.contains(self.currentIndex + 1),
-                  self.queue[self.currentIndex + 1].id == nextId
-            else { return }
+            do {
+                let (item, loader) = try await Self.streamingItem(
+                    for: nextId, known: Self.known(nextSong)
+                )
+                guard let self, self.queue.indices.contains(self.currentIndex + 1),
+                      self.queue[self.currentIndex + 1].id == nextId
+                else { return }
 
-            // Nudges the asset into loading its first bytes now rather than
-            // on first play.
-            item.preferredForwardBufferDuration = 4
-            self.prepared = (nextId, item, loader)
+                // Nudges the asset into loading its first bytes now rather than
+                // on first play.
+                item.preferredForwardBufferDuration = 4
+                self.prepared = (nextId, item, loader)
+            } catch {
+                // The next track cannot be played and we found out before the
+                // listener reached it. Taking it out of the queue here is the
+                // difference between a track that is never seen and one that
+                // flashes up and vanishes — which is what "it skips" is.
+                guard Self.isUnplayable(error) else { return }
+                await self?.dropFromQueue(nextId, reason: "не открылся заранее")
+            }
         }
+    }
+
+    /// Quietly removes a track that has already proven unplayable, and tells
+    /// the server so it stops being handed out at all.
+    private func dropFromQueue(_ trackId: String, reason: String) async {
+        guard let index = queue.firstIndex(where: { $0.id == trackId }), index != currentIndex else {
+            return
+        }
+
+        let song = queue[index]
+        queue.remove(at: index)
+        if index < currentIndex { currentIndex -= 1 }
+        unplayableTrackIds.insert(trackId)
+
+        RemoteLog.shared.warn(
+            "трек убран из очереди до показа",
+            category: "playback",
+            context: [
+                "track": trackId,
+                "title": song.title,
+                "artist": song.artistName,
+                "причина": reason
+            ]
+        )
+
+        await LaxifyAPI.shared.reportUnplayable(trackIds: [trackId], reason: reason)
+
+        // The queue is one shorter; warm whatever moved up into the slot.
+        prefetchNext()
     }
 
     /// The prepared item for a track, if it is the one we warmed and it has

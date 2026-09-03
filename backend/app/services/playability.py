@@ -112,10 +112,29 @@ def _looks_blocked(track: dict) -> bool:
         return True
 
     media = track.get("media")
-    if isinstance(media, dict) and media.get("transcodings") == []:
+    if not isinstance(media, dict):
+        return False
+
+    transcodings = media.get("transcodings")
+    if transcodings == []:
         return True
 
-    return False
+    if not isinstance(transcodings, list):
+        return False
+
+    # DRM. A track carrying `cbc-encrypted-hls` / `ctr-encrypted-hls` has had
+    # its plain variants withdrawn: `progressive` and `hls` stay listed and
+    # both answer 404, while the encrypted ones resolve to FairPlay, Widevine
+    # and PlayReady manifests that only the source's own player has licences
+    # for. Checked against forty tracks pulled from search, the rule held
+    # every time — encrypted present meant the plain variant was dead,
+    # encrypted absent meant it played. Free, and exact, so it runs on
+    # everything before anything is listed.
+    return any(
+        "encrypted" in ((item.get("format") or {}).get("protocol") or "")
+        for item in transcodings
+        if isinstance(item, dict)
+    )
 
 
 def _schedule_verification(tracks: list[dict]) -> None:
