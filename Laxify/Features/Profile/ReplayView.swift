@@ -283,11 +283,19 @@ struct ReplayView: View {
             AsyncCoverImage(url: artist.artworkURL, cornerRadius: 38, displaySize: 180)
                 .frame(width: 168, height: 210)
 
-            // A gradient rather than a flat scrim: the name has to stay
-            // legible over artwork that could be any colour at all.
+            // A vignette at both ends rather than only the bottom. A shadow
+            // alone kept the rank number readable on a dark cover and lost it
+            // completely on a light one — the Lil Peep manga art is mostly
+            // cream-white, and a white "1" over cream had nothing to sit on.
             LinearGradient(
-                colors: [.clear, .black.opacity(0.15), .black.opacity(0.75)],
-                startPoint: .center,
+                stops: [
+                    .init(color: .black.opacity(0.45), location: 0),
+                    .init(color: .clear, location: 0.32),
+                    .init(color: .clear, location: 0.5),
+                    .init(color: .black.opacity(0.18), location: 0.66),
+                    .init(color: .black.opacity(0.78), location: 1)
+                ],
+                startPoint: .top,
                 endPoint: .bottom
             )
 
@@ -303,11 +311,18 @@ struct ReplayView: View {
             }
             .padding(14)
 
+            // A solid badge rather than bare shadowed text — it reads the
+            // same on every cover instead of only on dark ones.
             Text("\(rank)")
-                .font(.system(size: 40, weight: .heavy))
-                .foregroundStyle(.white.opacity(0.9))
-                .shadow(color: .black.opacity(0.4), radius: 8)
-                .padding(14)
+                .font(.system(size: 15, weight: .heavy, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(.white)
+                .frame(width: 28, height: 28)
+                .background(.black.opacity(0.55), in: Circle())
+                .overlay {
+                    Circle().stroke(.white.opacity(0.25), lineWidth: 1)
+                }
+                .padding(10)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .frame(width: 168, height: 210)

@@ -58,6 +58,7 @@ class NotificationOut(ORMModel):
     body: str
     actor_avatar_url: str | None = None
     actor_username: str | None = None
+    icon_url: str | None = None
     payload: dict = Field(default_factory=dict)
     is_read: bool
     created_at: datetime

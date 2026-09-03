@@ -15,7 +15,6 @@ struct SettingsView: View {
 
     @State private var session = SessionStore.shared
     var localization = LocalizationManager.shared
-    var player = AudioPlayerController.shared
 
     @State private var showsSignOutConfirmation = false
     @State private var isSigningOut = false
@@ -271,39 +270,7 @@ struct SettingsView: View {
                 value: "\(localization.language.flag) \(localization.language.nativeName)",
                 showsChevron: true
             ) { page = .language }
-
-            SettingsDivider(inset: Self.rowLabelInset)
-
-            // A menu rather than another page: four values, and the change is
-            // audible on the track already playing.
-            Menu {
-                ForEach(AudioPlayerController.CrossfadeDuration.allCases) { option in
-                    Button {
-                        player.crossfadeDuration = option
-                    } label: {
-                        if player.crossfadeDuration == option {
-                            Label(Self.crossfadeLabel(option), systemImage: "checkmark")
-                        } else {
-                            Text(Self.crossfadeLabel(option))
-                        }
-                    }
-                }
-            } label: {
-                SettingsLineRow(
-                    icon: "waveform.path",
-                    title: L("player.crossfade", "Кроссфейд"),
-                    value: Self.crossfadeLabel(player.crossfadeDuration),
-                    showsChevron: true
-                )
-            }
         }
-    }
-
-    @MainActor
-    private static func crossfadeLabel(_ option: AudioPlayerController.CrossfadeDuration) -> String {
-        option == .off
-            ? L("player.crossfade.off", "Выкл")
-            : "\(option.rawValue) \(L("unit.sec", "с"))"
     }
 
     private var actionsGroup: some View {

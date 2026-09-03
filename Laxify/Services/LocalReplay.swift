@@ -102,15 +102,26 @@ enum LocalReplay {
 
         let seconds = plays.reduce(0) { $0 + $1.secondsPlayed }
 
-        // Grouped by whoever was credited: an artist without an id is still
-        // an artist, and dropping them would undercount the very people
-        // someone listens to most.
+        // Grouped by the *credited name*, not by id. Keying on `artistId`
+        // looked more precise and was the actual bug: the same person came
+        // through with an id on some plays and without one on others — a
+        // locally recorded play carries it, one pulled down from server
+        // history does not always — so one artist split into two rows, an id
+        // key and a name key, both reading "Lil Peep" and both looking like a
+        // repeat. A joined credit ("Lil Peep, Lil Tracy, Horse Head") made it
+        // worse: that string is its own key, distinct from the solo "Lil
+        // Peep" one, so a collaborator split off into a third row.
+        //
+        // The fix is to stop trusting the id and use only the first credited
+        // name, folded to one case. That is also the name a listener judges
+        // "repeated" by — they read the card, not the id behind it.
         var byArtist: [String: (name: String, cover: String?, seconds: Double, plays: Int)] = [:]
         var byTrack: [String: (record: PlayRecord, plays: Int, seconds: Double)] = [:]
 
         for play in plays {
-            let artistKey = play.artistId ?? play.artistName
-            var artist = byArtist[artistKey] ?? (play.artistName, play.coverURL, 0, 0)
+            let primaryName = Self.primaryArtist(play.artistName)
+            let artistKey = primaryName.lowercased()
+            var artist = byArtist[artistKey] ?? (primaryName, play.coverURL, 0, 0)
             artist.seconds += play.secondsPlayed
             artist.plays += 1
             if artist.cover == nil { artist.cover = play.coverURL }
@@ -250,5 +261,18 @@ enum LocalReplay {
         }
 
         return longest
+    }
+
+    /// The first credited name out of a joined credit line.
+    ///
+    /// `Song.artistName` joins every credited artist with ", " — right for a
+    /// track row, wrong for an artist ranking, where "Lil Peep, Lil Tracy,
+    /// Horse Head" is a different string from "Lil Peep" and would otherwise
+    /// stand as its own artist rather than folding into the one this device
+    /// actually plays most.
+    private static func primaryArtist(_ credited: String) -> String {
+        let first = credited.split(separator: ",", maxSplits: 1).first ?? Substring(credited)
+        let trimmed = first.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty ? credited : trimmed
     }
 }

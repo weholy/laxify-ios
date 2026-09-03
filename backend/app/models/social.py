@@ -92,6 +92,11 @@ class Notification(Base, UUIDMixin, TimestampMixin):
     actor_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), default=None
     )
+    # Set only on notices an operator sent with an image attached — a social
+    # notification (like/reply) always shows the actor's own avatar instead,
+    # and a plain system notice falls back to the app's own mark on the
+    # client. Never both at once.
+    icon_url: Mapped[str | None] = mapped_column(Text, default=None)
     payload: Mapped[dict] = mapped_column(JSONB, default=dict)
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 

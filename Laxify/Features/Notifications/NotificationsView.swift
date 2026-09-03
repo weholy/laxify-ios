@@ -76,6 +76,9 @@ struct AppNotification: Identifiable, Sendable, Hashable {
     let title: String
     let body: String
     let avatarURL: URL?
+    /// An image an operator attached to this one notice — a broadcast or a
+    /// direct notify, never a social one. Takes priority over everything.
+    var iconURL: URL?
     let createdAt: Date
     var isRead: Bool
 
@@ -143,9 +146,13 @@ struct NotificationRow: View {
         .buttonStyle(.plain)
     }
 
+    /// A picture, always. A custom icon an operator attached wins; a social
+    /// notice shows who did it; a plain system notice shows the app's own
+    /// mark — never the bare sparkle glyph that used to stand in for it,
+    /// which read as a placeholder nobody had gotten around to replacing.
     @ViewBuilder
     private var leading: some View {
-        if let url = item.avatarURL {
+        if let url = item.iconURL ?? item.avatarURL {
             AsyncCoverImage(url: url, cornerRadius: 20, displaySize: 80)
                 .frame(width: 40, height: 40)
                 .clipShape(Circle())
@@ -154,10 +161,12 @@ struct NotificationRow: View {
                 .fill(LaxifyPalette.accentMuted)
                 .frame(width: 40, height: 40)
                 .overlay {
-                    Image(systemName: item.icon)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(LaxifyPalette.accent)
+                    Image("LaxifyLogo")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 20, height: 20)
                 }
+                .clipShape(Circle())
         }
     }
 }
@@ -169,6 +178,7 @@ extension AppNotification {
         title = dto.title
         body = dto.body
         avatarURL = dto.actorAvatarUrl.flatMap(URL.init(string:))
+        iconURL = dto.iconUrl.flatMap(URL.init(string:))
         createdAt = dto.createdAt
         isRead = dto.isRead
     }

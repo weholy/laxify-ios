@@ -218,7 +218,16 @@ final class AudioPlayerController {
         // and `currentTime()` reports the old position the whole time it is in
         // flight — long enough on a streaming asset to see the lyrics keep
         // highlighting the line you scrubbed away from, and then jump.
-        pendingSeek = time
+        //
+        // The deadline is the half of this that matters. AVPlayer does not
+        // guarantee its completion handler runs if the player itself is
+        // deallocated first — and `teardownPlayer` does exactly that the
+        // moment a scrub is followed by a track change, which is an ordinary
+        // thing to do. Without the deadline a dropped completion left this
+        // stuck at one scrubbed position for the rest of the session: every
+        // lyric on every track after it would read against a frozen number,
+        // which is exactly what "text stopped keeping up" was.
+        pendingSeek = PendingSeek(target: time, expiresAt: .now + 2)
 
         player?.seek(to: CMTime(seconds: time, preferredTimescale: 600)) { [weak self] _ in
             Task { @MainActor in self?.pendingSeek = nil }
@@ -228,8 +237,14 @@ final class AudioPlayerController {
         updateNowPlayingInfo()
     }
 
-    /// Where a seek sent the player, until it gets there.
-    private var pendingSeek: TimeInterval?
+    private struct PendingSeek {
+        let target: TimeInterval
+        let expiresAt: ContinuousClock.Instant
+    }
+
+    /// Where a seek sent the player, until it gets there or the deadline
+    /// passes — whichever comes first.
+    private var pendingSeek: PendingSeek?
 
     func setPlaybackRate(_ rate: Double) {
         playbackRate = rate
@@ -325,9 +340,13 @@ final class AudioPlayerController {
         // While a seek is in flight the player's own clock is still reporting
         // where it was, so anything drawn against it — the lyrics most
         // visibly — would lag and then snap. Answer with where it is going
-        // until it is close enough that its own clock is the better answer.
-        if let pendingSeek, abs(seconds - pendingSeek) > 0.45 {
-            return pendingSeek
+        // until it is close enough that its own clock is the better answer,
+        // or until the deadline says the seek is never going to confirm.
+        if let pendingSeek {
+            if ContinuousClock.now < pendingSeek.expiresAt, abs(seconds - pendingSeek.target) > 0.45 {
+                return pendingSeek.target
+            }
+            self.pendingSeek = nil
         }
 
         return seconds
@@ -366,6 +385,9 @@ final class AudioPlayerController {
         duration = song.duration
         isLoading = true
         errorMessage = nil
+        // A new track starts with a clean clock, never one still answering
+        // for wherever the last track's scrubber was pointed.
+        pendingSeek = nil
         teardownPlayer()
 
         // The session goes live before the fetch, not after it. Until iOS has
@@ -432,7 +454,7 @@ final class AudioPlayerController {
                 // The moment that actually matters: not when the player was
                 // handed an item, but when sound could come out of it.
                 Task { [weak self] in
-                    await self?.awaitPlayback(of: item, trace: trace)
+                    await self?.awaitPlayback(of: item, for: song, trace: trace)
                 }
                 AppLogger.log("play: done")
             } catch {
@@ -441,7 +463,16 @@ final class AudioPlayerController {
                 RemoteLog.shared.error(
                     "не удалось запустить трек",
                     category: "playback",
-                    context: ["track": song.id, "error": "\(error)"]
+                    // Title and artist alongside the bare id — the id is
+                    // what code needs, the name is what a person reading
+                    // Випка actually recognises.
+                    context: [
+                        "track": song.id,
+                        "title": song.title,
+                        "artist": song.artistName,
+                        "error": "\(error)",
+                        "unplayable": "\(Self.isUnplayable(error))"
+                    ]
                 )
                 isLoading = false
                 isPlaying = false
@@ -602,17 +633,37 @@ final class AudioPlayerController {
     ///
     /// Everything up to this point is bookkeeping; this is the part a
     /// listener experiences as the wait.
-    private func awaitPlayback(of item: AVPlayerItem, trace: Trace) async {
+    /// Confirms the track that was just handed to `AVPlayer` actually makes
+    /// sound, and moves on if it doesn't.
+    ///
+    /// This used to only log the two ways that can fail — the asset refusing
+    /// to open, or thirty seconds passing with nothing ready — and then
+    /// return, leaving `isPlaying` sitting at `true` over a track producing
+    /// no audio at all with no error shown and nothing scheduled next. That
+    /// silent hang, not a failure to start at all, is what "трек молчит"
+    /// actually was: the early failure path (`loadAndPlayCurrent`'s own
+    /// catch) only ever saw resolve errors, never an asset that resolved
+    /// fine and then would not play.
+    private func awaitPlayback(of item: AVPlayerItem, for song: Song, trace: Trace) async {
         let deadline = ContinuousClock.now.advanced(by: .seconds(30))
 
         while ContinuousClock.now < deadline {
+            // Overtaken by a later track — nothing here is still relevant.
+            guard currentSong?.id == song.id else { return }
+
             if item.status == .failed {
                 trace.finish("ассет не открылся")
                 RemoteLog.shared.error(
                     "ассет не открылся",
                     category: "playback",
-                    context: ["error": item.error.map { "\($0)" } ?? "неизвестно"]
+                    context: [
+                        "track": song.id,
+                        "title": song.title,
+                        "artist": song.artistName,
+                        "error": item.error.map { "\($0)" } ?? "неизвестно"
+                    ]
                 )
+                failSilentTrack(song)
                 return
             }
 
@@ -624,8 +675,26 @@ final class AudioPlayerController {
             try? await Task.sleep(for: .milliseconds(50))
         }
 
+        guard currentSong?.id == song.id else { return }
+
         trace.finish("не дождались")
-        RemoteLog.shared.warn("трек не начал играть за 30 с", category: "playback")
+        RemoteLog.shared.warn(
+            "трек не начал играть за 30 с",
+            category: "playback",
+            context: ["track": song.id, "title": song.title, "artist": song.artistName]
+        )
+        failSilentTrack(song)
+    }
+
+    /// What happens to a track that reached the player and then produced
+    /// nothing: treated exactly like one that never resolved at all — marked
+    /// dead for this session and skipped, so the listener gets the next song
+    /// instead of a silent one sitting under a "playing" label.
+    private func failSilentTrack(_ song: Song) {
+        isPlaying = false
+        if !advancePastUnplayable(song) {
+            errorMessage = "Не удалось воспроизвести трек"
+        }
     }
 
     private func attachObservers(to item: AVPlayerItem) {
@@ -853,6 +922,7 @@ final class AudioPlayerController {
         isLoading = false
         crossfadeArmedForTrackId = nil
         isCrossfading = false
+        pendingSeek = nil
 
         attachObservers(to: item)
         armCrossfadeBoundary()

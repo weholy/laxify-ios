@@ -1,3 +1,4 @@
+from app.models.config import AppConfig
 from app.models.activity import (
     AuditLog,
     ClientLog,
@@ -31,6 +32,7 @@ from app.models.social import (
 from app.models.user import Device, EmailVerification, Follow, PushToken, User
 
 __all__ = [
+    "AppConfig",
     "ReferenceArtist",
     "LyricsCache",
     "ClientLog",

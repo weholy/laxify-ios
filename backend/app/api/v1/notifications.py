@@ -22,6 +22,7 @@ def _serialise(row: Notification) -> NotificationOut:
         body=row.body,
         actor_avatar_url=actor.avatar_url if actor else None,
         actor_username=actor.username if actor else None,
+        icon_url=row.icon_url,
         payload=row.payload or {},
         is_read=row.read_at is not None,
         created_at=row.created_at,

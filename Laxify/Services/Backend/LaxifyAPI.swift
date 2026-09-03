@@ -957,6 +957,7 @@ actor LaxifyAPI {
         let body: String
         let actorAvatarUrl: String?
         let actorUsername: String?
+        var iconUrl: String?
         let payload: [String: String]?
         let isRead: Bool
         let createdAt: Date
@@ -1037,12 +1038,12 @@ actor LaxifyAPI {
         )
     }
 
-    func adminNotify(userId: String, title: String, body message: String) async throws {
-        struct Body: Encodable { let title: String; let body: String }
+    func adminNotify(userId: String, title: String, body message: String, iconUrl: String? = nil) async throws {
+        struct Body: Encodable { let title: String; let body: String; let iconUrl: String? }
         let _: MessageResponse = try await send(
             "/admin/users/\(escaped(userId))/notify",
             method: "POST",
-            body: Body(title: title, body: message)
+            body: Body(title: title, body: message, iconUrl: iconUrl)
         )
     }
 
@@ -1146,12 +1147,16 @@ actor LaxifyAPI {
         try await send("/admin/users/\(escaped(userId))/stats", method: "GET")
     }
 
-    func adminBroadcast(title: String, body message: String, onlyActive: Bool) async throws -> String {
-        struct Body: Encodable { let title: String; let body: String; let onlyActive: Bool }
+    func adminBroadcast(
+        title: String, body message: String, onlyActive: Bool, iconUrl: String? = nil
+    ) async throws -> String {
+        struct Body: Encodable {
+            let title: String; let body: String; let onlyActive: Bool; let iconUrl: String?
+        }
         let response: MessageResponse = try await send(
             "/admin/broadcast",
             method: "POST",
-            body: Body(title: title, body: message, onlyActive: onlyActive)
+            body: Body(title: title, body: message, onlyActive: onlyActive, iconUrl: iconUrl)
         )
         return response.detail
     }
@@ -1226,6 +1231,86 @@ actor LaxifyAPI {
 
     func adminLog(limit: Int = 100) async throws -> [AdminLogRow] {
         try await send("/admin/log?limit=\(limit)", method: "GET")
+    }
+
+    // MARK: - Diagnostics feed
+
+    /// One line from `RemoteLog`/`CrashReporter`, as the operator reads it —
+    /// what happened, on whose phone, and how long it took when that matters.
+    struct AdminDiagnosticRow: Decodable, Sendable, Identifiable {
+        let id: String
+        let sessionId: String
+        let level: String
+        let category: String
+        let message: String
+        var durationMs: Int?
+        var context: [String: String] = [:]
+        var appVersion: String?
+        var deviceModel: String?
+        let happenedAt: Date
+    }
+
+    /// Filtered, paginated read of every line the app has ever phoned home
+    /// with — the answer to "make every error visible to you". `nil`
+    /// filters mean "any".
+    func adminDiagnostics(
+        category: String? = nil,
+        level: String? = nil,
+        sessionId: String? = nil,
+        limit: Int = 100,
+        offset: Int = 0
+    ) async throws -> [AdminDiagnosticRow] {
+        var path = "/admin/logs?limit=\(limit)&offset=\(offset)"
+        if let category { path += "&category=\(escaped(category))" }
+        if let level { path += "&level=\(escaped(level))" }
+        if let sessionId { path += "&session_id=\(escaped(sessionId))" }
+        let page: BackendPage<AdminDiagnosticRow> = try await send(path, method: "GET")
+        return page.items
+    }
+
+    struct AdminTimingRow: Decodable, Sendable, Identifiable {
+        let message: String
+        let samples: Int
+        let medianMs: Int
+        let p90Ms: Int
+        let worstMs: Int
+        var id: String { message }
+    }
+
+    /// The slow steps, ranked — a median next to a ninetieth percentile says
+    /// whether something is slow for everyone or slow occasionally.
+    func adminTimings(category: String = "playback", limit: Int = 20) async throws -> [AdminTimingRow] {
+        try await send(
+            "/admin/logs/timings?category=\(escaped(category))&limit=\(limit)", method: "GET"
+        )
+    }
+
+    // MARK: - App config (force update)
+
+    struct AppConfigDTO: Decodable, Sendable {
+        var minSupportedVersion: String = ""
+    }
+
+    /// Unauthenticated on purpose — this is asked before anything else,
+    /// including before a sign-in attempt.
+    func appConfig() async throws -> AppConfigDTO {
+        try await send("/app/config", method: "GET", authenticated: false)
+    }
+
+    func adminReadMinVersion() async throws -> String {
+        struct Out: Decodable { let minSupportedVersion: String }
+        let out: Out = try await send("/admin/config", method: "GET")
+        return out.minSupportedVersion
+    }
+
+    @discardableResult
+    func adminSetMinVersion(_ version: String) async throws -> String {
+        struct Body: Encodable { let minSupportedVersion: String }
+        struct Out: Decodable { let minSupportedVersion: String }
+        let out: Out = try await send(
+            "/admin/config", method: "PUT", body: Body(minSupportedVersion: version)
+        )
+        return out.minSupportedVersion
     }
 
     // MARK: Profile likes & linked accounts

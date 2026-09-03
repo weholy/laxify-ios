@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 
 from app.api.deps import AdminUser, SessionDep
 from app.models import (
+    AppConfig,
     AuditLog,
     Device,
     DislikedTrack,
@@ -85,6 +86,7 @@ class AdminUserOut(BaseModel):
 class NotifyIn(BaseModel):
     title: str = Field(max_length=160)
     body: str = Field(default="", max_length=2000)
+    icon_url: str | None = Field(default=None, max_length=2000)
 
 
 @router.get("/overview", response_model=OverviewOut)
@@ -171,6 +173,7 @@ async def notify_user(
             kind="system",
             title=payload.title,
             body=payload.body,
+            icon_url=payload.icon_url,
         )
     )
     session.add(
@@ -647,6 +650,7 @@ async def service_stats(admin: AdminUser, session: SessionDep) -> StatsOut:
 class BroadcastIn(BaseModel):
     title: str = Field(max_length=160)
     body: str = Field(default="", max_length=2000)
+    icon_url: str | None = Field(default=None, max_length=2000)
     # Skip accounts that never played anything: a changelog is for listeners,
     # not for rows in a table.
     only_active: bool = False
@@ -663,7 +667,13 @@ async def broadcast(payload: BroadcastIn, admin: AdminUser, session: SessionDep)
     recipients = (await session.scalars(stmt)).all()
     for user_id in recipients:
         session.add(
-            Notification(user_id=user_id, kind="system", title=payload.title, body=payload.body)
+            Notification(
+                user_id=user_id,
+                kind="system",
+                title=payload.title,
+                body=payload.body,
+                icon_url=payload.icon_url,
+            )
         )
 
     session.add(
@@ -945,3 +955,45 @@ async def admin_log(
         )
         for entry, username in rows
     ]
+
+
+class ConfigOut(BaseModel):
+    min_supported_version: str = ""
+
+
+class ConfigIn(BaseModel):
+    min_supported_version: str = Field(default="", max_length=32)
+
+
+@router.get("/config", response_model=ConfigOut)
+async def read_config(admin: AdminUser, session: SessionDep) -> ConfigOut:
+    row = await session.get(AppConfig, "min_supported_version")
+    return ConfigOut(min_supported_version=row.value if row else "")
+
+
+@router.put("/config", response_model=ConfigOut)
+async def write_config(payload: ConfigIn, admin: AdminUser, session: SessionDep) -> ConfigOut:
+    """Sets the floor every launch is checked against.
+
+    An empty string is not "version zero" — it is "no floor at all", the
+    normal state. Setting it only matters the day there is an old build
+    worth locking out; nothing about deploying this endpoint changes what
+    anyone sees until that value is actually written.
+    """
+    value = payload.min_supported_version.strip()
+
+    row = await session.get(AppConfig, "min_supported_version")
+    if row is None:
+        row = AppConfig(key="min_supported_version", value=value)
+        session.add(row)
+    else:
+        row.value = value
+
+    session.add(
+        AuditLog(
+            actor_id=admin.id,
+            action="admin.set_min_version",
+            payload={"min_supported_version": value},
+        )
+    )
+    return ConfigOut(min_supported_version=value)

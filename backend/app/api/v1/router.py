@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.api.v1 import (
     activity,
     admin,
+    appconfig,
     auth,
     catalog,
     comments,
@@ -22,6 +23,7 @@ from app.api.v1 import (
 )
 
 api_router = APIRouter()
+api_router.include_router(appconfig.router)
 api_router.include_router(auth.router)
 api_router.include_router(email_auth.router)
 api_router.include_router(users.router)

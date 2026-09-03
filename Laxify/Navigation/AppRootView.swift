@@ -10,11 +10,18 @@ struct AppRootView: View {
 
     var session = SessionStore.shared
     var localization = LocalizationManager.shared
-
+    var versionGate = VersionGate.shared
 
     var body: some View {
         Group {
-            if !localization.hasPicked {
+            // Ahead of the language picker, ahead of sign-in — a retired
+            // build has nothing else worth showing. The check that sets this
+            // runs in the background below and fails open, so a normal
+            // launch never waits on it.
+            if versionGate.isBlocked {
+                UpdateRequiredView()
+                    .transition(.opacity)
+            } else if !localization.hasPicked {
                 LanguagePickerView()
                     .transition(.opacity)
             } else {
@@ -23,6 +30,8 @@ struct AppRootView: View {
         }
         .animation(.easeInOut(duration: 0.35), value: localization.hasPicked)
         .animation(.easeInOut(duration: 0.35), value: session.state)
+        .animation(.easeInOut(duration: 0.3), value: versionGate.isBlocked)
+        .task { await versionGate.check() }
         .task {
             // Signing out has to be able to clear the on-device library, and
             // only a view has the context to do it with.

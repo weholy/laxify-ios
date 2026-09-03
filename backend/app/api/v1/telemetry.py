@@ -15,7 +15,7 @@ from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, select
 
-from app.api.deps import CurrentUser, OptionalUser, SessionDep
+from app.api.deps import AdminUser, OptionalUser, SessionDep
 from app.models import ClientLog
 from app.schemas.common import MessageOut, Page
 
@@ -96,7 +96,7 @@ class LogOut(BaseModel):
 
 @router.get("/admin/logs", response_model=Page[LogOut])
 async def recent(
-    user: CurrentUser,
+    admin: AdminUser,
     session: SessionDep,
     category: str | None = Query(None, max_length=32),
     level: str | None = Query(None, max_length=16),
@@ -153,7 +153,7 @@ class TimingSummary(BaseModel):
 
 @router.get("/admin/logs/timings", response_model=list[TimingSummary])
 async def timings(
-    user: CurrentUser,
+    admin: AdminUser,
     session: SessionDep,
     category: str = Query("playback", max_length=32),
     limit: int = Query(20, ge=1, le=50),
