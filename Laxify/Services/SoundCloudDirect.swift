@@ -451,9 +451,14 @@ actor SoundCloudDirect {
         // Anything the source declined to describe at all is left alone: an
         // id missing from the answer may simply not have been returned, and
         // guessing it dead would silently empty a queue.
+        //
+        // Locked tracks are left in too. They are not dead — substitution
+        // finds the same recording under another upload at the moment of
+        // playing, and it usually does. Only what nothing can rescue goes:
+        // blocked in this country, or withdrawn outright.
         for item in items {
             guard let id = item.id.map(String.init) else { continue }
-            if item.isDRMOnly || item.policy == "BLOCK" || item.streamable == false {
+            if item.policy == "BLOCK" || item.streamable == false {
                 dead.insert(id)
             }
         }
@@ -920,7 +925,13 @@ struct SCItem: Decodable {
         guard kind == "track", let id, let title else { return nil }
         // A blocked track will not play, so it should never be offered.
         guard policy != "BLOCK", streamable != false else { return nil }
-        guard !isDRMOnly else { return nil }
+        // Note: `isDRMOnly` is deliberately *not* a reason to hide a track.
+        // On an artist's own page nineteen of twenty uploads can be locked —
+        // filtering here emptied MORGENSHTERN's page down to a single song.
+        // The same recording is almost always up elsewhere unlocked, so these
+        // are played by substitution at the moment of playing instead. Only a
+        // track with no substitute anywhere is dropped, and that is decided
+        // then, not here.
 
         // What the release credits, before who uploaded it. An account is
         // called "☆LiL PEEP☆" or "everlov3d"; the release says "Lil Peep".

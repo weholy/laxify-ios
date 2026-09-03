@@ -755,21 +755,28 @@ async def _shape(
     fresh = _bias_to_front(fresh, MOOD_GENRES.get(settings.get("mood_energy", "all"), []))
     fresh = _apply_diversity(fresh, settings.get("diversity", "default"), taste_artists, rng)
     fresh = _spread_artists(fresh)
-    fresh = await filter_playable(fresh, want)
+    # Three times the run, not the run itself. Narrowing to exactly `want`
+    # here and *then* asking the catalogue gate to drop what it does not know
+    # left that gate no slack at all: its own safety rule — never take most of
+    # a listing — fired on nearly every batch and stood down, which is how
+    # uploads by artists the catalogue has never heard of kept turning up
+    # between real ones. Cut to length after the gate has had its say.
+    fresh = await filter_playable(fresh, want * 3)
 
-    tracks = [t for t in (normalise_track(raw) for raw in fresh) if t][:want]
+    tracks = [t for t in (normalise_track(raw) for raw in fresh) if t][: want * 3]
 
     # Only what the proper catalogue knows: the app should never surface a
-    # random upload. `want` is asked for generously upstream, so dropping the
-    # unknown ones still leaves a full run.
-    known = await catalog_meta.spotify_only(tracks)
+    # random upload. Strict here — a track nobody has looked up yet is held
+    # back rather than shown on trust, which a wave can afford and a search
+    # result cannot.
+    known = await catalog_meta.spotify_only(tracks, drop_unchecked=True)
 
     # And one last spread, by the name the listener will actually read.
     # `_spread_artists` above keys on the uploader's account id, but three
     # different accounts can all resolve to "Lil Peep" once the catalogue has
     # named them — which is how the same artist appeared three times in a run
     # that was supposed to cap at two.
-    return _spread_by_name(known)
+    return _spread_by_name(known)[:want]
 
 
 def _spread_by_name(tracks: list[CatalogTrack], max_per_artist: int = 2) -> list[CatalogTrack]:

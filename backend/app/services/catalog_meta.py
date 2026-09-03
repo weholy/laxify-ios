@@ -70,7 +70,9 @@ def _cover(meta: TrackMeta, fallback: str | None) -> str | None:
     return meta.cover_url or fallback
 
 
-async def enrich(rows: list, *, name_of, id_of, apply, hide_unmatched: bool) -> list:
+async def enrich(
+    rows: list, *, name_of, id_of, apply, hide_unmatched: bool, drop_unchecked: bool = False
+) -> list:
     """Generic enrichment over a list of anything track-shaped.
 
     - ``id_of(row)``   -> the SoundCloud track id
@@ -118,7 +120,16 @@ async def enrich(rows: list, *, name_of, id_of, apply, hide_unmatched: bool) -> 
             artist, title, dur = name_of(row)
             if tid and len(missing) < _MAX_SCHEDULED:
                 missing.append((tid, artist, title, dur))
-            out.append(row)  # unchecked — leave it as-is, show it
+            if drop_unchecked:
+                # Somewhere with more candidates than places — the wave picks
+                # forty-five out of four hundred. There, showing a row nobody
+                # has checked yet is a choice, not a necessity: it is how
+                # uploads the catalogue has never heard of kept appearing
+                # between real artists. Held back, and the background pass
+                # below will have an answer by the time it comes round again.
+                hidden.append(row)
+            else:
+                out.append(row)  # unchecked — leave it as-is, show it
             continue
 
         if meta.matched:
@@ -266,7 +277,9 @@ def apply_track_out(t, m: TrackMeta) -> None:
         t.cover_url = cover
 
 
-async def enrich_catalog_tracks(tracks: list, *, hide_unmatched: bool = True) -> list:
+async def enrich_catalog_tracks(
+    tracks: list, *, hide_unmatched: bool = True, drop_unchecked: bool = False
+) -> list:
     """For `CatalogTrack` pydantic models (search, wave, feed)."""
     return await enrich(
         tracks,
@@ -274,17 +287,25 @@ async def enrich_catalog_tracks(tracks: list, *, hide_unmatched: bool = True) ->
         name_of=lambda t: (t.artist_name or "", t.title or "", t.duration_seconds or 0),
         apply=apply_catalog_track,
         hide_unmatched=hide_unmatched,
+        drop_unchecked=drop_unchecked,
     )
 
 
-async def spotify_only(tracks: list) -> list:
+async def spotify_only(tracks: list, *, drop_unchecked: bool = False) -> list:
     """The single gate every SoundCloud-sourced listing passes through.
 
     A track the proper catalogue has never heard of does not reach the app at
     all; everything else is shown with Spotify's spelling and cover. This is
     what makes the catalogue look like one service rather than two.
+
+    ``drop_unchecked`` also holds back rows nobody has looked up yet. Only
+    worth asking for where there are far more candidates than places — a
+    search result has to show *something*, but a wave choosing forty-five out
+    of four hundred can afford to wait for an answer.
     """
-    return await enrich_catalog_tracks(tracks, hide_unmatched=True)
+    return await enrich_catalog_tracks(
+        tracks, hide_unmatched=True, drop_unchecked=drop_unchecked
+    )
 
 
 async def enrich_snapshot_rows(rows: list, *, id_of, apply, hide_unmatched: bool = False) -> list:
