@@ -22,10 +22,11 @@ struct MiniPlayerBar: View {
                 .frame(width: 40, height: 40)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text(song.title)
-                    .font(LaxifyTypography.subheadline)
-                    .foregroundStyle(LaxifyPalette.textPrimary)
-                    .lineLimit(1)
+                MarqueeText(
+                    text: song.title,
+                    font: LaxifyTypography.subheadline,
+                    color: LaxifyPalette.textPrimary
+                )
                 Text(player.errorMessage ?? song.artistName)
                     .font(LaxifyTypography.caption)
                     .foregroundStyle(player.errorMessage == nil ? LaxifyPalette.textSecondary : LaxifyPalette.accent)

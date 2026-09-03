@@ -236,10 +236,11 @@ struct FullPlayerView: View {
     private var titleBlock: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(player.currentSong?.title ?? "")
-                    .font(LaxifyTypography.playerTitle)
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
+                MarqueeText(
+                    text: player.currentSong?.title ?? "",
+                    font: LaxifyTypography.playerTitle,
+                    color: .white
+                )
 
                 artistRow
             }

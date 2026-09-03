@@ -53,7 +53,12 @@ final class LyricsViewModel {
         let latency = session.outputLatency + session.ioBufferDuration
         // A floor, because some routes report zero, and a ceiling so a bad
         // reading cannot throw the whole lyric out of step.
-        return min(max(latency + 0.12, 0.15), 0.6)
+        //
+        // The constant on top is deliberately a little more than the measured
+        // latency alone. A highlight that arrives a breath early reads as the
+        // line being announced; the same distance late reads as the app
+        // lagging behind the song, which is far more noticeable.
+        return min(max(latency + 0.2, 0.2), 0.6)
     }
 
     func activeLineIndex(at time: TimeInterval) -> Int? {
@@ -80,17 +85,23 @@ final class LyricsViewModel {
     /// The longest a single line is treated as being sung for.
     ///
     /// Past this the gap to the next line is a pause in the song, not a slow
-    /// delivery of these words.
-    private static let maxSungSeconds: TimeInterval = 8
+    /// delivery of these words. Eight seconds was too generous: a line before
+    /// an instrumental break had its fill stretched across the whole gap, so
+    /// the words crawled for several seconds after the singer had finished
+    /// them. Finishing the line and then waiting reads as correct; crawling
+    /// reads as broken.
+    private static let maxSungSeconds: TimeInterval = 5
 
     /// How many of a line's words have been sung, as a fractional count.
     ///
-    /// Spread by *length*, not by word count. "I" and "everything" are one
-    /// word each and take wildly different amounts of time to sing, so a
-    /// uniform split drifts within every long line — the highlight arrives
-    /// early on short words and late on long ones. Weighting by characters is
-    /// crude but tracks speech closely enough that the drift stops being
-    /// visible.
+    /// The source gives one timestamp per line, never per word, so the
+    /// position inside a line is worked out here. It is worked out from
+    /// *syllables* rather than letters: singing time follows syllables closely
+    /// and letters only loosely. "Straight" is eight letters and one syllable;
+    /// "уезжаю" is six letters and three. Weighting by letters made the
+    /// highlight linger on long single-syllable words and race through short
+    /// many-syllable ones, which is exactly where the drift inside a line was
+    /// coming from.
     func spokenWordCount(in words: [String], at time: TimeInterval) -> Double {
         guard !words.isEmpty else { return 0 }
 
@@ -98,9 +109,7 @@ final class LyricsViewModel {
         guard progress > 0 else { return 0 }
         guard progress < 1 else { return Double(words.count) }
 
-        // A word costs its letters plus one for the breath after it, so a
-        // short word is never free.
-        let weights = words.map { Double($0.count) + 1 }
+        let weights = words.map(Self.syllableWeight)
         let total = weights.reduce(0, +)
         guard total > 0 else { return progress * Double(words.count) }
 
@@ -120,6 +129,30 @@ final class LyricsViewModel {
         }
 
         return spoken
+    }
+
+    /// Roughly how long a word takes to sing, in syllables.
+    ///
+    /// A syllable is one run of vowels, in either alphabet — good enough that
+    /// the count is right for almost every ordinary word, and wrong only by
+    /// one on the awkward ones. The half-syllable added on top is the breath
+    /// after the word, so that a line of short words does not race.
+    private static func syllableWeight(_ word: String) -> Double {
+        let vowels = Set("aeiouyаеёиоуыэюяAEIOUYАЕЁИОУЫЭЮЯ")
+
+        var groups = 0
+        var inVowelRun = false
+        for character in word where character.isLetter {
+            if vowels.contains(character) {
+                if !inVowelRun { groups += 1 }
+                inVowelRun = true
+            } else {
+                inVowelRun = false
+            }
+        }
+
+        // A word with no vowels at all still takes time to say.
+        return Double(max(groups, 1)) + 0.5
     }
 
     /// LRCLIB only provides line-level timestamps, not per-word ones. This
