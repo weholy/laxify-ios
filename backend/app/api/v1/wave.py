@@ -46,7 +46,7 @@ from app.models import (
     TrackSnapshot,
     WaveSession,
 )
-from app.services import catalog_meta
+from app.services import catalog_meta, tagging
 from app.services.playability import filter_playable
 from app.services.soundcloud import SoundCloudError, soundcloud
 
@@ -64,7 +64,7 @@ BUFFER_REFILL_BELOW = 22
 SERVED_CAP = 600
 
 SEED_LIMIT = 8
-RECENT_EXCLUSION_DAYS = 2
+RECENT_EXCLUSION_DAYS = 7
 
 # Yandex limits free skips to a handful an hour. We aren't gating a
 # subscription — the cap only exists so a burst of angry skips doesn't tear the
@@ -282,6 +282,62 @@ async def _taste_genres(session, user_id) -> list[str]:
     ).all()
     return [row[0] for row in rows if row[0]]
 
+
+
+async def _taste_tags(session, user_id) -> list[str]:
+    """The listener's taste as a handful of canonical tags, strongest first.
+
+    Built from what they saved and what they finished, not from everything
+    that ever played: a track skipped after ten seconds says nothing about
+    taste, and letting it vote is how the wave drifts.
+
+    A favourite counts three times, a completed play twice, an ordinary play
+    once. The result is what the wave goes looking for — which is the whole
+    point of tags: "more emo-rap, more of the quiet ones, in Russian" reaches
+    a hundred artists, where "more of this artist" reaches one.
+    """
+    weights: dict[str, float] = {}
+
+    def add(text: str, weight: float) -> None:
+        for tag in tagging.derive({"title": text}):
+            weights[tag] = weights.get(tag, 0) + weight
+
+    favourites = (
+        await session.execute(
+            select(TrackSnapshot.title, TrackSnapshot.artist_name, TrackSnapshot.genre)
+            .join(Favorite, Favorite.track_id == TrackSnapshot.track_id)
+            .where(Favorite.user_id == user_id)
+            .limit(200)
+        )
+    ).all()
+    for title, artist, genre in favourites:
+        add(f"{title} {artist} {genre or ''}", 3)
+
+    cutoff = datetime.now(UTC) - timedelta(days=60)
+    played = (
+        await session.execute(
+            select(
+                TrackSnapshot.title,
+                TrackSnapshot.artist_name,
+                TrackSnapshot.genre,
+                ListeningEvent.completed,
+            )
+            .join(ListeningEvent, ListeningEvent.track_id == TrackSnapshot.track_id)
+            .where(ListeningEvent.user_id == user_id, ListeningEvent.played_at >= cutoff)
+            .limit(500)
+        )
+    ).all()
+    for title, artist, genre, completed in played:
+        add(f"{title} {artist} {genre or ''}", 2 if completed else 1)
+
+    # Language is derived for every single track, so it always wins on count
+    # and would crowd out everything that actually describes the music. It is
+    # useful, but as a hint rather than as the headline.
+    ordered = sorted(weights.items(), key=lambda pair: pair[1], reverse=True)
+    styles = [tag for tag, _ in ordered if tag not in ("ru", "en")]
+    languages = [tag for tag, _ in ordered if tag in ("ru", "en")]
+
+    return styles[:8] + languages[:1]
 
 async def _excluded_track_ids(session, user_id) -> set[str]:
     """Disliked tracks always; tracks played in the last couple of days for
@@ -643,6 +699,30 @@ def _spread_artists(items: list[dict], max_per_artist: int = 2) -> list[dict]:
     return lead + trail
 
 
+def _bias_by_tags(items: list[dict], taste: list[str]) -> list[dict]:
+    """Move tracks that share tags with the listener to the front.
+
+    Scored rather than partitioned: a track matching three of someone's tags
+    should come before one matching a single tag, and both before one that
+    matches none. Sorting is stable, so within a score the pool keeps whatever
+    order the sources gave it.
+
+    This is what makes the wave wide. An artist-based wave asks "who else is
+    like this artist" and gets a handful of names; a tag-based one asks "what
+    else is quiet, Russian and emo-rap" and reaches everybody who ever made
+    something quiet, Russian and emo-rap.
+    """
+    if not taste:
+        return items
+
+    wanted = set(taste)
+
+    def score(raw: dict) -> int:
+        return len(wanted & set(tagging.derive(raw)))
+
+    return sorted(items, key=score, reverse=True)
+
+
 async def _shape(
     pool: list[dict],
     *,
@@ -652,6 +732,7 @@ async def _shape(
     suppressed_artists: set[str],
     want: int,
     rng: random.Random,
+    taste_tags: list[str] | None = None,
 ) -> list[CatalogTrack]:
     """The full pipeline from raw pool to a finished run of CatalogTracks.
 
@@ -669,6 +750,7 @@ async def _shape(
     ]
 
     fresh = _apply_language(fresh, settings.get("language", "any"))
+    fresh = _bias_by_tags(fresh, taste_tags or [])
     fresh = _bias_to_front(fresh, ACTIVITY_GENRES.get(settings.get("activity", "none"), []))
     fresh = _bias_to_front(fresh, MOOD_GENRES.get(settings.get("mood_energy", "all"), []))
     fresh = _apply_diversity(fresh, settings.get("diversity", "default"), taste_artists, rng)
@@ -680,7 +762,36 @@ async def _shape(
     # Only what the proper catalogue knows: the app should never surface a
     # random upload. `want` is asked for generously upstream, so dropping the
     # unknown ones still leaves a full run.
-    return await catalog_meta.spotify_only(tracks)
+    known = await catalog_meta.spotify_only(tracks)
+
+    # And one last spread, by the name the listener will actually read.
+    # `_spread_artists` above keys on the uploader's account id, but three
+    # different accounts can all resolve to "Lil Peep" once the catalogue has
+    # named them — which is how the same artist appeared three times in a run
+    # that was supposed to cap at two.
+    return _spread_by_name(known)
+
+
+def _spread_by_name(tracks: list[CatalogTrack], max_per_artist: int = 2) -> list[CatalogTrack]:
+    counts: dict[str, int] = {}
+    kept: list[CatalogTrack] = []
+    overflow: list[CatalogTrack] = []
+
+    for track in tracks:
+        name = (track.artist_name or "").strip().lower()
+        if not name:
+            kept.append(track)
+            continue
+
+        if counts.get(name, 0) < max_per_artist:
+            counts[name] = counts.get(name, 0) + 1
+            kept.append(track)
+        else:
+            # Held back rather than dropped: a run that is short because one
+            # artist was popular is worse than one that repeats them at the end.
+            overflow.append(track)
+
+    return kept + overflow
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -757,6 +868,7 @@ async def _fill(
         suppressed_artists=suppressed,
         want=want,
         rng=rng,
+        taste_tags=await _taste_tags(db, user_id),
     )
     return [t.model_dump() for t in tracks]
 
@@ -1023,6 +1135,7 @@ async def build_wave(
         suppressed_artists=set(),
         want=limit,
         rng=rng,
+        taste_tags=await _taste_tags(session, user_id),
     )
 
     return WaveResponse(
@@ -1212,6 +1325,7 @@ async def _block_playlist_of_the_day(
         suppressed_artists=set(),
         want=40,
         rng=rng,
+        taste_tags=await _taste_tags(session, user_id),
     )
     if len(tracks) < 8:
         return None
