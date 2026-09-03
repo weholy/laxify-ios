@@ -391,8 +391,15 @@ final class AudioPlayerController {
                 // and then having the server resolve it again was most of the
                 // wait between a tap and the first sound.
                 // Warmed while the previous track played, when there is one.
-                let (item, loader) = takePrepared(for: song.id)
-                    ?? (try await Self.streamingItem(for: song.id))
+                // Written out rather than with `??`: the fallback is an async
+                // throwing call, and an autoclosure cannot carry either.
+                let item: AVPlayerItem
+                let loader: StreamLoader?
+                if let ready = takePrepared(for: song.id) {
+                    (item, loader) = ready
+                } else {
+                    (item, loader) = try await Self.streamingItem(for: song.id)
+                }
                 // Held so the download can be stopped when the track changes;
                 // a loader with nothing referencing it is deallocated
                 // mid-flight.
@@ -458,12 +465,21 @@ final class AudioPlayerController {
 
     /// True when the source cannot produce a stream for this track at all,
     /// as opposed to the network being down.
+    ///
+    /// `notFound` belongs here and was missing, which is the whole reason
+    /// some tracks never started: the direct resolve fails for a blocked or
+    /// withdrawn upload, the proxy behind it is switched off, and what comes
+    /// out is `notFound` — not a 502. It read as "something went wrong",
+    /// so the player showed an error and sat on a track it was never going to
+    /// play instead of moving to the next one.
     private static func isUnplayable(_ error: Error) -> Bool {
+        if case MusicServiceError.notFound = error { return true }
+
         guard case MusicServiceError.underlying(let underlying) = error,
               case APIError.server(let status, _) = underlying else {
             return false
         }
-        return status == 502 || status == 404
+        return status == 502 || status == 404 || status == 403
     }
 
     /// Skips to the next track that has not already failed.
