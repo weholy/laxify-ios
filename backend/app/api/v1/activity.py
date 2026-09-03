@@ -18,6 +18,30 @@ from app.schemas.activity import (
     StatsOut,
 )
 from app.schemas.common import MessageOut, Page, TrackIn
+
+# Accounts whose listening time is recorded at a multiple of what actually
+# played, and by how much.
+#
+# Deliberate and temporary, set at the owner's request; to end it, empty this
+# mapping. Written here rather than on the device so it does not depend on
+# which build someone is running, and kept as data rather than scattered
+# conditions so that turning it off is one edit.
+#
+# Note what it does *not* do: it changes what is written, so it applies from
+# now on and never rewrites what is already stored, and every figure built
+# from these rows — the year in review, the top lists, anything another
+# listener can see on this profile — carries the multiple with it.
+LISTENING_TIME_FACTORS: dict[str, float] = {
+    "stuffiny": 2.0,
+    "stuffinydev@gmail.com": 2.0,
+}
+
+
+def _listening_factor(user) -> float:
+    for key in (user.username or "", user.email or ""):
+        if factor := LISTENING_TIME_FACTORS.get(key.strip().lower()):
+            return factor
+    return 1.0
 from app.services.stats import apply_events, get_or_create_stats, refresh_top_lists
 from app.services.tracks import upsert_track, upsert_tracks
 
@@ -51,13 +75,15 @@ async def record_playback(
         ).all()
     ) if incoming else set()
 
+    factor = _listening_factor(user)
+
     rows = [
         ListeningEvent(
             user_id=user.id,
             track_id=event.track.track_id,
             artist_id=event.track.artist_id,
             played_at=event.played_at,
-            seconds_played=event.seconds_played,
+            seconds_played=event.seconds_played * factor,
             completed=event.completed,
             source=event.source,
         )

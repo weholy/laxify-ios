@@ -84,7 +84,22 @@ struct MyWaveView: View {
                 .padding(.trailing, LaxifyMetrics.screenPadding)
                 .padding(.top, 6)
         }
-        .task { await viewModel.loadIfNeeded() }
+        // A fresh run on every visit rather than a cached one. The server
+        // builds each batch from what has been listened to since the last,
+        // so opening the tab is the moment to ask again — a quarter of an
+        // hour of cache meant coming back after listening showed the same
+        // wave that was there before any of it.
+        //
+        // Unless the wave is already the thing playing: then the deck is
+        // showing the live queue, and replacing what is behind it would open
+        // a second session for nobody to hear.
+        .task {
+            if player.isPlayingWave {
+                await viewModel.loadIfNeeded()
+            } else {
+                await viewModel.load()
+            }
+        }
         .task(id: focus?.id) {
             await viewModel.updateBackdrop(for: focus)
         }
