@@ -1237,7 +1237,7 @@ actor LaxifyAPI {
 
     /// One line from `RemoteLog`/`CrashReporter`, as the operator reads it —
     /// what happened, on whose phone, and how long it took when that matters.
-    struct AdminDiagnosticRow: Decodable, Sendable, Identifiable {
+    struct AdminDiagnosticRow: Codable, Sendable, Identifiable {
         let id: String
         let sessionId: String
         let level: String
