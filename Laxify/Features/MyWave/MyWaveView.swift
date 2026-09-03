@@ -202,9 +202,18 @@ struct MyWaveView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .center, spacing: 16) {
                 ForEach(windowed, id: \.id) { song in
-                    WaveTrackCard(song: song, isCurrent: song.id == focus?.id)
-                        .id(song.id)
-                        .onTapGesture { playFrom(song) }
+                    WaveTrackCard(
+                        song: song,
+                        isCurrent: song.id == focus?.id,
+                        // Being the card in the middle and being the track
+                        // coming out of the speaker are two different things:
+                        // with anything else playing, the deck still focuses
+                        // its first card, and that card used to claim to be
+                        // playing while the mini player showed another song.
+                        isPlaying: player.isPlayingWave && song.id == player.currentSong?.id
+                    )
+                    .id(song.id)
+                    .onTapGesture { playFrom(song) }
                 }
             }
             .scrollTargetLayout()
@@ -335,7 +344,10 @@ struct MyWaveView: View {
 /// rest sit smaller and dimmed so the eye lands on what's playing.
 private struct WaveTrackCard: View {
     let song: Song
+    /// The card the deck holds in the middle.
     let isCurrent: Bool
+    /// Whether this track is the one actually sounding.
+    let isPlaying: Bool
 
     private var side: CGFloat { isCurrent ? 208 : 140 }
 
@@ -348,7 +360,7 @@ private struct WaveTrackCard: View {
                         .stroke(.white.opacity(isCurrent ? 0.9 : 0), lineWidth: 2)
                 }
                 .overlay(alignment: .topLeading) {
-                    if isCurrent {
+                    if isPlaying {
                         Text(L("wave.nowPlaying", "Сейчас играет"))
                             .font(.system(size: 10, weight: .bold))
                             .foregroundStyle(.black)
