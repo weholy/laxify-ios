@@ -396,6 +396,9 @@ struct AdminStat: Identifiable {
 
     init(_ title: String, _ value: Int) {
         self.title = title
+        self.value = value
+    }
+}
 
 /// The top of the overview: the whole service in one card.
 ///
@@ -485,9 +488,6 @@ private struct AdminHeadline: View {
                 .foregroundStyle(LaxifyPalette.textSecondary)
         }
         .frame(maxWidth: .infinity)
-    }
-}
-        self.value = value
     }
 }
 
