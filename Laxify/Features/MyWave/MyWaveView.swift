@@ -68,10 +68,13 @@ struct MyWaveView: View {
                     controls
                 }
                 .padding(.horizontal, LaxifyMetrics.screenPadding)
-                // Clear the mini player with room to spare. The controls were
-                // almost touching it, and a row you press by feel needs the
-                // gap more than the layout needs the height.
-                .padding(.bottom, LaxifyMetrics.tabBarHeight + LaxifyMetrics.miniPlayerHeight + 96)
+                // Clear of the mini player, and no further. Ninety-six points
+                // on top of it was over-corrected from an earlier version that
+                // had them almost touching: it left the thumbs and the play
+                // button stranded up in the middle of the screen, a long way
+                // from where a thumb rests. Twenty-four keeps them off the
+                // mini player and puts them back down within reach.
+                .padding(.bottom, LaxifyMetrics.tabBarHeight + LaxifyMetrics.miniPlayerHeight + 24)
             }
         }
         .overlay(alignment: .topTrailing) {
