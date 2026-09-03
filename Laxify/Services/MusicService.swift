@@ -11,6 +11,11 @@ enum MusicServiceError: Error {
     /// source can complete that exchange, so this is permanent for this
     /// track until the source itself changes what it serves.
     case drmProtected
+    /// The source was throttling or wobbling — nothing to do with this track.
+    /// Kept apart from `notFound` because the player strikes a track off the
+    /// queue for the rest of the session on that one, and doing so over a 429
+    /// that clears a second later is how a working song gets written off.
+    case temporarilyUnavailable
     case underlying(Error)
 }
 

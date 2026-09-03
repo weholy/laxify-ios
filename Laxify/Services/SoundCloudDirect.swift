@@ -297,7 +297,8 @@ actor SoundCloudDirect {
         _ path: String,
         query: [URLQueryItem] = [],
         absolute: String? = nil,
-        retrying: Bool = false
+        retrying: Bool = false,
+        attempt: Int = 0
     ) async throws -> Data {
         guard let clientId = await key(refreshing: retrying) else {
             throw MusicServiceError.notFound
@@ -348,6 +349,28 @@ actor SoundCloudDirect {
         if (status == 401 || status == 403), !retrying {
             // The key rotated; read a fresh one and try once more.
             return try await request(path, query: query, absolute: absolute, retrying: true)
+        }
+
+        // Being throttled, or catching the source mid-wobble, says nothing
+        // about this track. It used to: every non-2xx became `notFound`, the
+        // player reads that as "this one will never play", and the track was
+        // struck off for the session over a 429 that would have cleared in a
+        // second. Wait, then ask again — twice, briefly, because a listener
+        // is waiting on the other end of this.
+        if status == 429 || (500..<600).contains(status) {
+            guard attempt < 2 else {
+                RemoteLog.shared.error(
+                    "источник: источник не отвечает, попытки исчерпаны",
+                    category: "source",
+                    context: ["path": label, "status": "\(status)"]
+                )
+                throw MusicServiceError.temporarilyUnavailable
+            }
+
+            try? await Task.sleep(for: .milliseconds(attempt == 0 ? 400 : 1200))
+            return try await request(
+                path, query: query, absolute: absolute, retrying: retrying, attempt: attempt + 1
+            )
         }
 
         guard (200..<300).contains(status) else {
@@ -473,18 +496,46 @@ actor SoundCloudDirect {
     /// though, and the other copies stream normally. So a dead upload is not
     /// a dead song: when the listed one refuses, the same recording is found
     /// among the rest and played from there.
-    func streamURL(for trackId: String) async throws -> URL {
+    /// What the app already knows about the song, from its own catalogue.
+    ///
+    /// Carried in so that a dead id is not the end of the road: when the
+    /// source will not even describe the track, the title and length the app
+    /// is already displaying are enough to go and find the same recording
+    /// somewhere else.
+    struct KnownTrack: Sendable {
+        let title: String
+        let artist: String
+        /// Seconds, as the app has it.
+        let duration: TimeInterval
+    }
+
+    func streamURL(for trackId: String, known: KnownTrack? = nil) async throws -> URL {
         // A substitution found earlier in this launch is reused directly:
         // the url itself expires and cannot be kept, but knowing *which*
         // upload to open saves the failed resolve and the search behind it
         // every time the track comes round again.
-        if let known = substitutions[trackId],
-           let cached = try? await track(known),
-           let url = await resolveStream(of: cached, trackId: known) {
+        if let previous = substitutions[trackId],
+           let cached = try? await track(previous),
+           let url = await resolveStream(of: cached, trackId: previous) {
             return url
         }
 
-        let track = try await track(trackId)
+        let track: SCItem
+        do {
+            track = try await self.track(trackId)
+        } catch {
+            // The source will not even describe it. If the app knows what the
+            // song is, that is still enough to look for another copy.
+            if let known, let rescued = await substituteStream(
+                title: known.title,
+                artist: known.artist,
+                durationMs: known.duration * 1000,
+                excluding: trackId
+            ) {
+                return rescued
+            }
+            throw error
+        }
 
         if let url = await resolveStream(of: track, trackId: trackId) {
             return url
@@ -571,10 +622,19 @@ actor SoundCloudDirect {
     private func substituteStream(for track: SCItem, excluding trackId: String) async -> URL? {
         guard let title = track.title else { return nil }
 
-        let wanted = (track.fullDuration ?? track.duration) ?? 0
+        return await substituteStream(
+            title: title,
+            artist: track.publisherMetadata?.artist ?? track.user?.username ?? "",
+            durationMs: (track.fullDuration ?? track.duration) ?? 0,
+            excluding: trackId
+        )
+    }
+
+    private func substituteStream(
+        title: String, artist: String, durationMs wanted: Double, excluding trackId: String
+    ) async -> URL? {
         guard wanted > 0 else { return nil }
 
-        let artist = track.publisherMetadata?.artist ?? track.user?.username ?? ""
         let query = "\(artist) \(title)".trimmingCharacters(in: .whitespaces)
 
         guard let page: SCPage<SCItem> = try? await decode(

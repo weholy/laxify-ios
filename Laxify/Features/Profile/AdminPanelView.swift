@@ -120,7 +120,65 @@ struct AdminPanelView: View {
                 diagnosticsLevel = "warn"
                 Task { await reload() }
             }
+
             Spacer()
+
+            // Everything on screen as one file. Reading a fault out of a
+            // screenshot means retyping ids and truncated error strings by
+            // hand; the file carries the whole context that makes a report
+            // actionable.
+            if !diagnostics.isEmpty, let dump = diagnosticsDump() {
+                ShareLink(item: dump) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(LaxifyPalette.accent)
+                        .frame(width: 32, height: 32)
+                        .background(LaxifyPalette.surface, in: Circle())
+                }
+            }
+        }
+    }
+
+    /// Writes the loaded diagnostics to a file for the share sheet.
+    ///
+    /// Plain text rather than JSON: this gets pasted into a chat as often as
+    /// it gets attached, and it has to stay readable when it does.
+    private func diagnosticsDump() -> URL? {
+        var lines: [String] = [
+            "Laxify — диагностика",
+            "Выгружено: \(AdminFormat.full.string(from: Date()))",
+            "Фильтр: \(diagnosticsLevel ?? "все")",
+            "Записей: \(diagnostics.count)",
+            ""
+        ]
+
+        for entry in diagnostics {
+            lines.append("[\(entry.level.uppercased())] \(entry.category) — \(AdminFormat.full.string(from: entry.happenedAt))")
+            lines.append(entry.message)
+
+            if !entry.context.isEmpty {
+                for (key, value) in entry.context.sorted(by: { $0.key < $1.key }) {
+                    lines.append("    \(key): \(value)")
+                }
+            }
+
+            var tail: [String] = []
+            if let device = entry.deviceModel { tail.append(device) }
+            if let version = entry.appVersion { tail.append("v\(version)") }
+            if let ms = entry.durationMs { tail.append("\(ms) мс") }
+            if !tail.isEmpty { lines.append("    — " + tail.joined(separator: " · ")) }
+
+            lines.append("")
+        }
+
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("laxify-диагностика.txt")
+
+        do {
+            try lines.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
+            return url
+        } catch {
+            return nil
         }
     }
 
@@ -482,7 +540,11 @@ struct AdminPanelView: View {
             case .overview:
                 stats = try await LaxifyAPI.shared.adminStats()
             case .diagnostics:
-                diagnostics = try await LaxifyAPI.shared.adminDiagnostics(level: diagnosticsLevel)
+                // Deep enough that the export is worth sending: a fault worth
+                // reporting usually has its cause a hundred lines above it.
+                diagnostics = try await LaxifyAPI.shared.adminDiagnostics(
+                    level: diagnosticsLevel, limit: 300
+                )
             case .log:
                 log = try await LaxifyAPI.shared.adminLog()
             case .broadcast:

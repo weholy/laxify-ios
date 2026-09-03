@@ -317,6 +317,10 @@ final class AudioPlayerController {
 
     private var unplayableTrackIds: Set<String> = []
 
+    /// The track already given a second chance after a transient failure, so
+    /// one retry does not become a loop against a source that is properly out.
+    private var retriedTrackId: String?
+
     /// Feeds the current item. Kept alive for as long as it is playing.
     private var streamLoader: StreamLoader?
 
@@ -429,7 +433,7 @@ final class AudioPlayerController {
                 if let ready = takePrepared(for: song.id) {
                     (item, loader) = ready
                 } else {
-                    (item, loader) = try await Self.streamingItem(for: song.id)
+                    (item, loader) = try await Self.streamingItem(for: song.id, known: Self.known(song))
                 }
                 // Held so the download can be stopped when the track changes;
                 // a loader with nothing referencing it is deallocated
@@ -490,6 +494,25 @@ final class AudioPlayerController {
                 isLoading = false
                 isPlaying = false
 
+                // A source that was throttling or briefly down said nothing
+                // about this track, so it gets another go rather than being
+                // struck off. One retry, and only for the track still in
+                // front of the listener.
+                if Self.isTransient(error), retriedTrackId != song.id {
+                    retriedTrackId = song.id
+                    RemoteLog.shared.warn(
+                        "повторяем запуск после временного сбоя",
+                        category: "playback",
+                        context: ["track": song.id, "title": song.title]
+                    )
+                    Task { [weak self] in
+                        try? await Task.sleep(for: .milliseconds(700))
+                        guard let self, self.currentSong?.id == song.id else { return }
+                        self.loadAndPlayCurrent()
+                    }
+                    return
+                }
+
                 // Some tracks in the source simply cannot be streamed. Stopping
                 // dead on one of those makes a whole queue look broken, so move
                 // on instead — the listener wanted music, not this exact track.
@@ -521,7 +544,28 @@ final class AudioPlayerController {
     /// out is `notFound` — not a 502. It read as "something went wrong",
     /// so the player showed an error and sat on a track it was never going to
     /// play instead of moving to the next one.
+    /// A failure that says nothing about the track and is worth one more go.
+    private static func isTransient(_ error: Error) -> Bool {
+        if case MusicServiceError.temporarilyUnavailable = error { return true }
+
+        if case MusicServiceError.underlying(let underlying) = error,
+           let urlError = underlying as? URLError {
+            switch urlError.code {
+            case .timedOut, .networkConnectionLost, .cannotConnectToHost,
+                 .dnsLookupFailed, .notConnectedToInternet, .cannotFindHost:
+                return true
+            default:
+                return false
+            }
+        }
+
+        return false
+    }
+
     private static func isUnplayable(_ error: Error) -> Bool {
+        // Checked first: a source that was merely busy must never be read as
+        // a track that cannot exist.
+        if isTransient(error) { return false }
         if case MusicServiceError.notFound = error { return true }
         if case MusicServiceError.drmProtected = error { return true }
 
@@ -573,7 +617,18 @@ final class AudioPlayerController {
     /// getting that slightly wrong made it stop a third of the way through
     /// and move on. The media host answers ranges correctly and quickly, so
     /// the player is better left to do this itself.
-    private static func streamingItem(for trackId: String) async throws -> (AVPlayerItem, StreamLoader?) {
+    /// What the app already knows about a song, so a dead id is not the end
+    /// of the road — the title and length are enough to find the same
+    /// recording under a different upload.
+    private static func known(_ song: Song) -> SoundCloudDirect.KnownTrack {
+        SoundCloudDirect.KnownTrack(
+            title: song.title, artist: song.artistName, duration: song.duration
+        )
+    }
+
+    private static func streamingItem(
+        for trackId: String, known: SoundCloudDirect.KnownTrack? = nil
+    ) async throws -> (AVPlayerItem, StreamLoader?) {
         // A saved copy first, always. It starts instantly, it costs nothing,
         // and it is the only thing that plays when there is no network at all
         // — which is the entire point of having downloaded it.
@@ -586,7 +641,7 @@ final class AudioPlayerController {
             return (AVPlayerItem(asset: asset), nil)
         }
 
-        if let direct = try? await SoundCloudDirect.shared.streamURL(for: trackId) {
+        if let direct = try? await SoundCloudDirect.shared.streamURL(for: trackId, known: known) {
             let asset = AVURLAsset(
                 url: direct,
                 // Lets the player start on what has arrived instead of
@@ -630,12 +685,13 @@ final class AudioPlayerController {
             prepared = nil
             return
         }
-        let nextId = queue[currentIndex + 1].id
+        let nextSong = queue[currentIndex + 1]
+        let nextId = nextSong.id
         guard prepared?.id != nextId else { return }
 
         prepared = nil
         Task { [weak self] in
-            guard let (item, loader) = try? await Self.streamingItem(for: nextId) else { return }
+            guard let (item, loader) = try? await Self.streamingItem(for: nextId, known: Self.known(nextSong)) else { return }
             guard let self, self.queue.indices.contains(self.currentIndex + 1),
                   self.queue[self.currentIndex + 1].id == nextId
             else { return }
@@ -880,7 +936,7 @@ final class AudioPlayerController {
 
         crossfadeTask = Task { [weak self] in
             guard let self else { return }
-            guard let (item, loader) = try? await Self.streamingItem(for: nextSong.id) else {
+            guard let (item, loader) = try? await Self.streamingItem(for: nextSong.id, known: Self.known(nextSong)) else {
                 self.abortCrossfade()
                 return
             }
