@@ -146,3 +146,21 @@ extension View {
         modifier(TrackContextMenu(song: song, removeTitle: removeTitle, onRemove: onRemove))
     }
 }
+
+/// The press Apple Music gives its transport controls.
+///
+/// A plain scale-down reads as the button shrinking. A spring that undershoots
+/// and comes back past its resting size reads as something physical being
+/// pushed — which is why the response is short and the damping low. The
+/// numbers are the point: slower or better-damped and it stops feeling like a
+/// button at all.
+struct SquashButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.88 : 1)
+            .animation(
+                .interpolatingSpring(stiffness: 420, damping: 17),
+                value: configuration.isPressed
+            )
+    }
+}

@@ -11,6 +11,7 @@ struct LibraryView: View {
     @State private var showsFavorites = false
     @State private var selected: PlaylistDTO?
     @State private var isCreatePresented = false
+    @State private var newPlaylistName = ""
     @State private var renaming: PlaylistDTO?
     @State private var renameText = ""
     @State private var pendingDelete: PlaylistDTO?
@@ -40,8 +41,18 @@ struct LibraryView: View {
         .fullScreenCover(item: $selected) { playlist in
             UserPlaylistView(playlist: playlist) { selected = nil }
         }
-        .sheet(isPresented: $isCreatePresented) {
-            CreatePlaylistSheet { isCreatePresented = false }
+        // The system's own prompt. Naming a playlist is one short string, and
+        // a whole screen for it was a screen for nothing.
+        .alert(L("library.newPlaylist", "Новый плейлист"), isPresented: $isCreatePresented) {
+            TextField(L("playlist.nameTitle", "Название плейлиста"), text: $newPlaylistName)
+
+            Button(L("common.cancel", "Отмена"), role: .cancel) { newPlaylistName = "" }
+            Button(L("playlist.create", "Создать")) {
+                let title = newPlaylistName.trimmingCharacters(in: .whitespacesAndNewlines)
+                newPlaylistName = ""
+                guard !title.isEmpty else { return }
+                Task { _ = await store.create(title: title, isPublic: false) }
+            }
         }
         .alert(
             L("playlist.rename", "Переименовать"),

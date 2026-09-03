@@ -15,6 +15,7 @@ struct SettingsView: View {
 
     @State private var session = SessionStore.shared
     var localization = LocalizationManager.shared
+    var player = AudioPlayerController.shared
 
     @State private var showsSignOutConfirmation = false
     @State private var isSigningOut = false
@@ -28,7 +29,6 @@ struct SettingsView: View {
     /// The screens that still earn one.
     private enum Page: String, Identifiable {
         case language
-        case privacy
         case admin
         case export
         case diagnostics
@@ -48,6 +48,9 @@ struct SettingsView: View {
     @State private var page: Page?
     @State private var field: Field?
     @State private var draft = ""
+    /// The operator's panel is hidden until asked for. Per-visit, not stored:
+    /// it should not be sitting there the next time settings open.
+    @State private var isAdminRevealed = false
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -74,7 +77,7 @@ struct SettingsView: View {
                 footer
                     .padding(.top, 10)
                     .padding(.bottom, 8)
-                    .background(.ultraThinMaterial)
+                    .background(LaxifyPalette.background)
             }
 
             // Pinned rather than scrolled away: this is the only way out.
@@ -101,6 +104,7 @@ struct SettingsView: View {
             }
         }
         .task { linked = try? await LaxifyAPI.shared.linkedMethods() }
+        .onShake { revealAdmin() }
         .onChange(of: avatarItem) { _, item in
             guard let item else { return }
             Task { await uploadAvatar(item) }
@@ -131,8 +135,6 @@ struct SettingsView: View {
             switch entry {
             case .language:
                 LanguageSettingsView { page = nil }
-            case .privacy:
-                PrivacySettingsView { page = nil }
             case .admin:
                 AdminPanelView { page = nil }
             case .export:
@@ -272,20 +274,45 @@ struct SettingsView: View {
 
             SettingsDivider(inset: Self.rowLabelInset)
 
-            SettingsLineRow(
-                icon: "lock",
-                title: L("settings.privacy", "Конфиденциальность"),
-                showsChevron: true
-            ) { page = .privacy }
+            // A menu rather than another page: four values, and the change is
+            // audible on the track already playing.
+            Menu {
+                ForEach(AudioPlayerController.CrossfadeDuration.allCases) { option in
+                    Button {
+                        player.crossfadeDuration = option
+                    } label: {
+                        if player.crossfadeDuration == option {
+                            Label(Self.crossfadeLabel(option), systemImage: "checkmark")
+                        } else {
+                            Text(Self.crossfadeLabel(option))
+                        }
+                    }
+                }
+            } label: {
+                SettingsLineRow(
+                    icon: "waveform.path",
+                    title: L("player.crossfade", "Кроссфейд"),
+                    value: Self.crossfadeLabel(player.crossfadeDuration),
+                    showsChevron: true
+                )
+            }
         }
+    }
+
+    @MainActor
+    private static func crossfadeLabel(_ option: AudioPlayerController.CrossfadeDuration) -> String {
+        option == .off
+            ? L("player.crossfade.off", "Выкл")
+            : "\(option.rawValue) \(L("unit.sec", "с"))"
     }
 
     private var actionsGroup: some View {
         SettingsCard {
-            // Only an operator sees this, and only because the server says so
-            // — the flag comes down on the profile, not out of a list of
-            // addresses baked into the app.
-            if user?.isAdmin == true {
+            // The panel has no row. It is reached by shaking the phone, or by
+            // holding the version line at the bottom — both still gated on the
+            // server's own is_admin flag, so the gesture reveals nothing to
+            // anyone else.
+            if user?.isAdmin == true, isAdminRevealed {
                 SettingsLineRow(
                     icon: "crown",
                     title: L("settings.admin", "Випка"),
@@ -347,8 +374,17 @@ struct SettingsView: View {
         HStack(spacing: 7) {
             // A long press here is the way back into the diagnostics log,
             // which has no business taking a row of its own.
+            // Holding it is the way in when the phone is on a table and the
+            // shake is not an option; for anyone who is not an operator it
+            // still only ever opens the diagnostics log.
             Text("Laxify v \(AppVersion.short) (Beta)")
-                .onLongPressGesture(minimumDuration: 1.2) { page = .diagnostics }
+                .onLongPressGesture(minimumDuration: 1.2) {
+                    if user?.isAdmin == true {
+                        revealAdmin()
+                    } else {
+                        page = .diagnostics
+                    }
+                }
 
             Text("·")
 
@@ -430,6 +466,22 @@ struct SettingsView: View {
         } catch {
             flash(L("settings.photo.failed", "Не удалось загрузить фото"))
         }
+    }
+
+    /// Shows the row and says so. Revealing something silently leaves you
+    /// wondering whether the gesture worked.
+    private func revealAdmin() {
+        guard user?.isAdmin == true else { return }
+
+        if isAdminRevealed {
+            page = .admin
+            return
+        }
+
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+            isAdminRevealed = true
+        }
+        flash(L("settings.admin.revealed", "Випка открыта"))
     }
 
     private func signOut() {

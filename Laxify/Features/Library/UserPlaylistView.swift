@@ -19,6 +19,10 @@ struct UserPlaylistView: View {
     @State private var draftName = ""
     @State private var showDeleteConfirm = false
     @State private var coverPick: PhotosPickerItem?
+    @State private var isCoverPickerPresented = false
+
+    var downloads = DownloadManager.shared
+    var player = AudioPlayerController.shared
 
     private var title: String { detail?.title ?? playlist.title }
 
@@ -70,6 +74,7 @@ struct UserPlaylistView: View {
                 coverPick = nil
             }
         }
+        .photosPicker(isPresented: $isCoverPickerPresented, selection: $coverPick, matching: .images)
         .withMiniPlayer()
         .alert(L("playlist.nameTitle", "Название плейлиста"), isPresented: $isRenaming) {
             TextField(L("playlist.nameTitle", "Название плейлиста"), text: $draftName)
@@ -93,7 +98,9 @@ struct UserPlaylistView: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 LaxifyCloseButton(style: .chevronDown, tinted: false, action: onClose)
+
                 Spacer()
+
                 Menu {
                     Button {
                         draftName = title
@@ -101,9 +108,16 @@ struct UserPlaylistView: View {
                     } label: {
                         Label(L("playlist.rename", "Переименовать"), systemImage: "pencil")
                     }
-                    PhotosPicker(selection: $coverPick, matching: .images) {
+
+                    // A PhotosPicker nested inside a Menu never presents —
+                    // the menu dismisses before the picker can take over. The
+                    // button only raises a flag; the picker hangs off the view.
+                    Button {
+                        isCoverPickerPresented = true
+                    } label: {
                         Label(L("playlist.cover", "Обложка"), systemImage: "photo")
                     }
+
                     if covers.image(for: playlist.id) != nil {
                         Button(role: .destructive) {
                             covers.clear(for: playlist.id)
@@ -111,25 +125,21 @@ struct UserPlaylistView: View {
                             Label(L("playlist.cover.remove", "Убрать обложку"), systemImage: "photo.badge.minus")
                         }
                     }
-                    Button {
-                        Task { _ = try? await LaxifyAPI.shared.setPlaylistPublic(id: playlist.id, isPublic: !(detail?.isPublic ?? playlist.isPublic)) }
-                    } label: {
-                        Label(
-                            (detail?.isPublic ?? playlist.isPublic) ? L("playlist.makePrivate", "Сделать закрытым") : L("playlist.makePublic", "Сделать открытым"),
-                            systemImage: (detail?.isPublic ?? playlist.isPublic) ? "lock" : "globe"
-                        )
-                    }
+
                     Button(role: .destructive) {
                         showDeleteConfirm = true
                     } label: {
                         Label(L("playlist.delete", "Удалить плейлист"), systemImage: "trash")
                     }
                 } label: {
+                    // Same size and same material as the collapse chevron
+                    // opposite it — they are a pair, and they read as one.
                     Image(systemName: "ellipsis")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: 17, weight: .bold))
                         .foregroundStyle(LaxifyPalette.textPrimary)
-                        .frame(width: 40, height: 40)
-                        .background(LaxifyPalette.surface, in: Circle())
+                        .frame(width: 46, height: 46)
+                        .glassEffect(.regular, in: .circle)
+                        .contentShape(Circle())
                 }
             }
 
@@ -139,40 +149,70 @@ struct UserPlaylistView: View {
                 .shadow(color: .black.opacity(0.3), radius: 22, y: 12)
                 .frame(maxWidth: .infinity)
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(spacing: 4) {
                 Text(title)
                     .font(.system(size: 26, weight: .bold))
                     .foregroundStyle(LaxifyPalette.textPrimary)
+                    .multilineTextAlignment(.center)
                 Text("\(songs.count) \(PlaylistCard.tracksWord(songs.count))")
                     .font(LaxifyTypography.footnote)
                     .foregroundStyle(LaxifyPalette.textSecondary)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity)
 
-            HStack(spacing: 12) {
-                Button {
-                    guard let first = songs.first else { return }
-                    AudioPlayerController.shared.play(first, queue: songs)
-                } label: {
-                    Label(L("playlist.listen", "Слушать"), systemImage: "play.fill").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.laxifyPrimary)
-                .disabled(songs.isEmpty)
-
-                Button {
+            // The same three glyphs as favourites, and for the same reason:
+            // with the words gone the row reads as one control with a centre.
+            HStack(spacing: 22) {
+                CircleGlassButton(
+                    systemImage: "shuffle",
+                    diameter: 52,
+                    accessibilityLabel: L("playlist.shuffle", "Перемешать")
+                ) {
                     var shuffled = songs
                     shuffled.shuffle()
                     guard let first = shuffled.first else { return }
                     AudioPlayerController.shared.play(first, queue: shuffled)
-                } label: {
-                    Label(L("playlist.shuffle", "Перемешать"), systemImage: "shuffle").frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.laxifySecondary)
                 .disabled(songs.isEmpty)
+                .opacity(songs.isEmpty ? 0.4 : 1)
+
+                CircleGlassButton(
+                    systemImage: isPlayingHere ? "pause.fill" : "play.fill",
+                    diameter: 66,
+                    glyphSize: 24,
+                    tint: LaxifyPalette.accent,
+                    accessibilityLabel: isPlayingHere
+                        ? L("player.pause", "Пауза")
+                        : L("playlist.listen", "Слушать")
+                ) { playOrPause() }
+                .disabled(songs.isEmpty)
+                .opacity(songs.isEmpty ? 0.4 : 1)
+
+                DownloadRingButton(
+                    progress: downloads.batchProgress,
+                    isDone: !songs.isEmpty && songs.allSatisfy { downloads.isDownloaded($0.id) },
+                    action: { downloads.download(songs) }
+                )
+                .disabled(songs.isEmpty)
+                .opacity(songs.isEmpty ? 0.4 : 1)
             }
+            .frame(maxWidth: .infinity)
         }
     }
 
+    /// Whether what is playing came from this playlist.
+    private var isPlayingHere: Bool {
+        guard player.isPlaying, let current = player.currentSong else { return false }
+        return songs.contains { $0.id == current.id }
+    }
+
+    private func playOrPause() {
+        if let current = player.currentSong, songs.contains(where: { $0.id == current.id }) {
+            player.togglePlayPause()
+        } else if let first = songs.first {
+            player.play(first, queue: songs)
+        }
+    }
     @ViewBuilder
     private var collage: some View {
         if let custom = covers.image(for: playlist.id) {

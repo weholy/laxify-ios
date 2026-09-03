@@ -8,7 +8,9 @@ struct CreatePlaylistSheet: View {
     var store = PlaylistStore.shared
 
     @State private var name = ""
-    @State private var isPublic = true
+    /// Playlists are private. The choice existed, nobody used it, and a
+    /// switch that changes who can see something is not a good default.
+    private let isPublic = false
     @State private var isBusy = false
     @FocusState private var focused: Bool
 
@@ -37,23 +39,6 @@ struct CreatePlaylistSheet: View {
                     .focused($focused)
                     .padding(16)
                     .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: LaxifyMetrics.cardCornerRadius, style: .continuous))
-
-                VStack(alignment: .leading, spacing: 7) {
-                    Toggle(isOn: $isPublic) {
-                        Text(L("playlist.public", "Открытый плейлист"))
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundStyle(LaxifyPalette.textPrimary)
-                    }
-                    .tint(LaxifyPalette.accent)
-                    .padding(16)
-                    .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: LaxifyMetrics.cardCornerRadius, style: .continuous))
-
-                    Text(L("playlist.public.sub", "Смогут увидеть другие по ссылке на ваш профиль"))
-                        .font(.system(size: 12))
-                        .foregroundStyle(LaxifyPalette.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 16)
-                }
 
                 if !seed.isEmpty {
                     Text("\(L("playlist.willAdd", "Будет добавлено треков")): \(seed.count)")

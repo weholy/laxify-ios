@@ -201,6 +201,7 @@ enum Translations {
         ("notifications.title", "Уведомления"),
         ("notifications.empty", "Пока пусто"),
 
+        ("settings.admin.revealed", "Випка открыта"),
         ("settings.admin", "Випка"),
         ("admin.users", "Пользователи"),
         ("admin.overview", "Обзор"),
@@ -528,6 +529,7 @@ enum Translations {
         ("notifications.title", "Notifications"),
         ("notifications.empty", "Nothing yet"),
 
+        ("settings.admin.revealed", "Vipka unlocked"),
         ("settings.admin", "Vipka"),
         ("admin.users", "Users"),
         ("admin.overview", "Overview"),

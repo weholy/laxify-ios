@@ -276,10 +276,28 @@ final class AudioPlayerController {
         var seconds: Double { Double(rawValue) }
     }
 
-    var crossfadeDuration: CrossfadeDuration =
-        CrossfadeDuration(rawValue: UserDefaults.standard.integer(forKey: "laxify.player.crossfade")) ?? .off
+    /// Six seconds unless someone has said otherwise.
+    ///
+    /// `integer(forKey:)` cannot tell "off" from "never set", so the stored
+    /// value is read through `object(forKey:)`: a fresh install gets the fade,
+    /// and turning it off stays off.
+    var crossfadeDuration: CrossfadeDuration = {
+        guard let stored = UserDefaults.standard.object(forKey: "laxify.player.crossfade") as? Int
+        else { return .s6 }
+        return CrossfadeDuration(rawValue: stored) ?? .s6
+    }()
     {
-        didSet { UserDefaults.standard.set(crossfadeDuration.rawValue, forKey: "laxify.player.crossfade") }
+        didSet {
+            UserDefaults.standard.set(crossfadeDuration.rawValue, forKey: "laxify.player.crossfade")
+            // Applied to the track already playing, not just to the next one:
+            // a setting that needs a track change to take effect reads as a
+            // setting that does nothing.
+            if crossfadeDuration == .off {
+                cancelCrossfade()
+            } else {
+                armCrossfadeBoundary()
+            }
+        }
     }
 
     private var unplayableTrackIds: Set<String> = []
@@ -372,7 +390,9 @@ final class AudioPlayerController {
                 // whose address is known without asking. Resolving a url first
                 // and then having the server resolve it again was most of the
                 // wait between a tap and the first sound.
-                let (item, loader) = try await Self.streamingItem(for: song.id)
+                // Warmed while the previous track played, when there is one.
+                let (item, loader) = takePrepared(for: song.id)
+                    ?? (try await Self.streamingItem(for: song.id))
                 // Held so the download can be stopped when the track changes;
                 // a loader with nothing referencing it is deallocated
                 // mid-flight.
@@ -524,13 +544,42 @@ final class AudioPlayerController {
     ///
     /// Resolving costs two requests to the source, and doing them before the
     /// listener asks means the next track starts on the first tap.
-    private func prefetchNext() {
-        guard queue.indices.contains(currentIndex + 1) else { return }
-        let nextId = queue[currentIndex + 1].id
+    /// The next track's player item, built while this one plays.
+    ///
+    /// Warming only the url left the expensive half — creating the asset and
+    /// waiting for it to become playable — to happen after the tap, which is
+    /// the pause between tracks. Building the whole item in advance means the
+    /// tap has nothing left to wait for.
+    private var prepared: (id: String, item: AVPlayerItem, loader: StreamLoader?)?
 
-        Task.detached(priority: .background) {
-            _ = try? await SoundCloudDirect.shared.streamURL(for: nextId)
+    private func prefetchNext() {
+        guard queue.indices.contains(currentIndex + 1) else {
+            prepared = nil
+            return
         }
+        let nextId = queue[currentIndex + 1].id
+        guard prepared?.id != nextId else { return }
+
+        prepared = nil
+        Task { [weak self] in
+            guard let (item, loader) = try? await Self.streamingItem(for: nextId) else { return }
+            guard let self, self.queue.indices.contains(self.currentIndex + 1),
+                  self.queue[self.currentIndex + 1].id == nextId
+            else { return }
+
+            // Nudges the asset into loading its first bytes now rather than
+            // on first play.
+            item.preferredForwardBufferDuration = 4
+            self.prepared = (nextId, item, loader)
+        }
+    }
+
+    /// The prepared item for a track, if it is the one we warmed and it has
+    /// not been used already.
+    private func takePrepared(for trackId: String) -> (AVPlayerItem, StreamLoader?)? {
+        guard let prepared, prepared.id == trackId else { return nil }
+        self.prepared = nil
+        return (prepared.item, prepared.loader)
     }
 
     /// Waits for the item to be playable, and reports how long that took.

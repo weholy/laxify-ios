@@ -59,18 +59,19 @@ struct MyWaveView: View {
                 emptyState
             } else {
                 VStack(spacing: 0) {
-                    // Empty space up top is the point — it is where the photo
-                    // shows through.
+                    // Space above and below, so the deck sits in the middle of
+                    // what is left rather than being pushed down by the photo.
                     Spacer(minLength: 0)
                     header.padding(.bottom, 20)
-                    trackDeck.padding(.bottom, 24)
+                    trackDeck.padding(.bottom, 40)
+                    Spacer(minLength: 0)
                     controls
                 }
                 .padding(.horizontal, LaxifyMetrics.screenPadding)
-                // Clear the mini player with room to spare — the play button
-                // was almost touching it, and the lyric line under the deck
-                // wanted a little more air still.
-                .padding(.bottom, LaxifyMetrics.tabBarHeight + LaxifyMetrics.miniPlayerHeight + 76)
+                // Clear the mini player with room to spare. The controls were
+                // almost touching it, and a row you press by feel needs the
+                // gap more than the layout needs the height.
+                .padding(.bottom, LaxifyMetrics.tabBarHeight + LaxifyMetrics.miniPlayerHeight + 96)
             }
         }
         .overlay(alignment: .topTrailing) {
@@ -139,8 +140,8 @@ struct MyWaveView: View {
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 44, height: 44)
-                .background(.black.opacity(0.28), in: Circle())
-                .overlay(Circle().stroke(.white.opacity(0.15), lineWidth: 1))
+                .glassEffect(.regular, in: .circle)
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
     }
@@ -219,15 +220,21 @@ struct MyWaveView: View {
                 tint: .white.opacity(0.9)
             ) { dislikeCurrent() }
 
+            // Apple's play button does two things worth copying, and neither
+            // is decoration: the glyph *replaces* rather than swaps, so the
+            // change reads as one object changing state, and the whole button
+            // squashes under the finger and springs back past its size. Both
+            // make a press feel answered before any audio arrives.
             Button { togglePlay() } label: {
                 Image(systemName: (player.isPlayingWave && player.isPlaying) ? "pause.fill" : "play.fill")
                     .font(.system(size: 32, weight: .bold))
                     .foregroundStyle(.black)
+                    .contentTransition(.symbolEffect(.replace.downUp))
                     .frame(width: 80, height: 80)
                     .background(.white, in: Circle())
                     .shadow(color: .black.opacity(0.4), radius: 20, y: 8)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(SquashButtonStyle())
             .sensoryFeedback(.impact(weight: .medium), trigger: player.isPlaying)
 
             circleButton(

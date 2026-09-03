@@ -1316,12 +1316,18 @@ def _snapshot_track(snap: TrackSnapshot) -> CatalogTrack:
 async def _block_playlist_of_the_day(
     session, user_id, pool: list[dict], rng: random.Random
 ) -> FeedBlock | None:
-    """A personal set that is the same all day and different tomorrow."""
+    """A personal set that is the same all day and different tomorrow.
+
+    Excludes what the listener already has, like every other block does. It
+    did not, and that is why "Плейлист дня" kept handing back their own
+    rotation — a set assembled for discovery is worthless if it is allowed to
+    return the tracks they have been playing all week.
+    """
     tracks = await _shape(
         pool,
         settings=dict(DEFAULT_SETTINGS),
         taste_artists=await _taste_artist_ids(session, user_id),
-        exclude_ids=set(),
+        exclude_ids=await _excluded_track_ids(session, user_id),
         suppressed_artists=set(),
         want=40,
         rng=rng,
