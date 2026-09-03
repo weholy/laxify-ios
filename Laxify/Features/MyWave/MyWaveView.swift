@@ -16,6 +16,8 @@ struct MyWaveView: View {
     var player = AudioPlayerController.shared
     @State private var isSettingsPresented = false
     @State private var palette: ArtworkPalette = .neutral
+    /// The card the deck holds in the middle — see `trackDeck`.
+    @State private var centredCardId: String?
 
     private var focus: Song? {
         player.isPlayingWave ? player.currentSong : viewModel.tracks.first
@@ -186,31 +188,38 @@ struct MyWaveView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// Which card the deck is centred on.
+    ///
+    /// Bound rather than scrolled to. Tapping a cover changes two things in
+    /// the same update — the track that is current, and the window of cards
+    /// built around its new index — and an imperative `scrollTo` fired from
+    /// `onChange` ran against cards that had not been laid out yet. It did
+    /// nothing, so the track played while the deck stayed where it was, which
+    /// is exactly the fault: no way to see what is playing. A binding has no
+    /// such ordering problem — SwiftUI keeps the named card centred once it
+    /// exists, however the contents shifted to get there.
     private var trackDeck: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .center, spacing: 16) {
-                    ForEach(windowed, id: \.id) { song in
-                        WaveTrackCard(song: song, isCurrent: song.id == focus?.id)
-                            .id(song.id)
-                            .onTapGesture { playFrom(song) }
-                    }
-                }
-                // Enough slack that the first or last card can still sit near
-                // the middle when it is the one playing.
-                .padding(.horizontal, 96)
-                .padding(.vertical, 6)
-            }
-            .scrollClipDisabled()
-            .animation(.spring(response: 0.5, dampingFraction: 0.85), value: focus?.id)
-            .onChange(of: focus?.id) { _, id in
-                guard let id else { return }
-                withAnimation(.spring(response: 0.55, dampingFraction: 0.86)) {
-                    proxy.scrollTo(id, anchor: .center)
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(alignment: .center, spacing: 16) {
+                ForEach(windowed, id: \.id) { song in
+                    WaveTrackCard(song: song, isCurrent: song.id == focus?.id)
+                        .id(song.id)
+                        .onTapGesture { playFrom(song) }
                 }
             }
-            .onAppear {
-                if let id = focus?.id { proxy.scrollTo(id, anchor: .center) }
+            .scrollTargetLayout()
+            // Enough slack that the first or last card can still sit near
+            // the middle when it is the one playing.
+            .padding(.horizontal, 96)
+            .padding(.vertical, 6)
+        }
+        .scrollPosition(id: $centredCardId, anchor: .center)
+        .scrollClipDisabled()
+        .animation(.spring(response: 0.5, dampingFraction: 0.85), value: focus?.id)
+        .onChange(of: focus?.id, initial: true) { _, id in
+            guard let id, id != centredCardId else { return }
+            withAnimation(.spring(response: 0.55, dampingFraction: 0.86)) {
+                centredCardId = id
             }
         }
         .frame(height: 264)
