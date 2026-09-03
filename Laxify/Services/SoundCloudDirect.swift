@@ -429,6 +429,42 @@ actor SoundCloudDirect {
         return page.collection.compactMap(\.song)
     }
 
+    /// Of these tracks, the ones the source will not actually play.
+    ///
+    /// One request for the whole queue rather than one per track: the ids
+    /// endpoint takes a list, so checking forty costs the same as checking
+    /// one. Used to clean a queue before anyone reaches its far end, so a
+    /// track that cannot play is gone rather than skipped past in front of
+    /// the listener.
+    func unplayableIds(among ids: [String]) async -> Set<String> {
+        let wanted = Array(dict(ids).prefix(50))
+        guard !wanted.isEmpty else { return [] }
+
+        guard let items: [SCItem] = try? await decode(
+            [SCItem].self, "tracks", query: [
+                URLQueryItem(name: "ids", value: wanted.joined(separator: ","))
+            ]
+        ) else { return [] }
+
+        var dead: Set<String> = []
+
+        // Anything the source declined to describe at all is left alone: an
+        // id missing from the answer may simply not have been returned, and
+        // guessing it dead would silently empty a queue.
+        for item in items {
+            guard let id = item.id.map(String.init) else { continue }
+            if item.isDRMOnly || item.policy == "BLOCK" || item.streamable == false {
+                dead.insert(id)
+            }
+        }
+
+        return dead
+    }
+
+    private nonisolated func dict(_ ids: [String]) -> [String] {
+        Array(Dictionary(grouping: ids, by: { $0 }).keys)
+    }
+
     func track(_ id: String) async throws -> SCItem {
         let items: [SCItem] = try await decode(
             [SCItem].self, "tracks", query: [URLQueryItem(name: "ids", value: id)]

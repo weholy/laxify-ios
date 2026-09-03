@@ -137,6 +137,47 @@ final class AudioPlayerController {
         queue = newQueue.isEmpty ? [song] : newQueue
         currentIndex = queue.firstIndex(where: { $0.id == song.id }) ?? 0
         loadAndPlayCurrent()
+        pruneQueue()
+    }
+
+    /// Takes the tracks that will not play out of the queue, before anyone
+    /// gets to them.
+    ///
+    /// New listings no longer contain them at all, but a library or a
+    /// playlist saved months ago still can, and reaching one is exactly the
+    /// jolt this is meant to remove: the track that appears for a moment and
+    /// is gone. One request covers the whole queue, and it never touches what
+    /// is playing.
+    private func pruneQueue() {
+        let ids = queue.map(\.id)
+        guard ids.count > 1 else { return }
+
+        Task { [weak self] in
+            let dead = await SoundCloudDirect.shared.unplayableIds(among: ids)
+            guard !dead.isEmpty, let self else { return }
+
+            let playingId = self.currentSong?.id
+            let removed = self.queue.filter { dead.contains($0.id) && $0.id != playingId }
+            guard !removed.isEmpty else { return }
+
+            self.queue.removeAll { dead.contains($0.id) && $0.id != playingId }
+            if let playingId, let index = self.queue.firstIndex(where: { $0.id == playingId }) {
+                self.currentIndex = index
+            }
+            self.unplayableTrackIds.formUnion(removed.map(\.id))
+
+            RemoteLog.shared.info(
+                "очередь очищена от непроигрываемых",
+                category: "playback",
+                context: ["убрано": "\(removed.count)", "осталось": "\(self.queue.count)"]
+            )
+
+            await LaxifyAPI.shared.reportUnplayable(
+                trackIds: removed.map(\.id), reason: "защищено или заблокировано"
+            )
+
+            self.prefetchNext()
+        }
     }
 
     func togglePlayPause() {
