@@ -642,7 +642,7 @@ actor SoundCloudDirect {
             "search/tracks",
             query: [
                 URLQueryItem(name: "q", value: query),
-                URLQueryItem(name: "limit", value: "12")
+                URLQueryItem(name: "limit", value: "30")
             ]
         ) else { return nil }
 
@@ -664,7 +664,7 @@ actor SoundCloudDirect {
             // edge of the first, which was throwing away good copies.
             let length = (candidate.fullDuration ?? candidate.duration) ?? 0
             guard abs(length - wanted) <= 5000 else { continue }
-            guard Self.matchKey(candidateTitle).contains(target) || target.contains(Self.matchKey(candidateTitle)) else { continue }
+            guard Self.isSameSong(candidateTitle, as: title, target: target) else { continue }
 
             guard let url = await resolveStream(of: candidate, trackId: id) else { continue }
 
@@ -684,6 +684,48 @@ actor SoundCloudDirect {
         }
 
         return nil
+    }
+
+    /// Words that mean "this is a different take of that song".
+    ///
+    /// A remix keeps the original's name inside a longer title, and often its
+    /// length too. Length alone therefore cannot tell them apart: a sped-up
+    /// phonk remix of one track measured two seconds from the original and
+    /// would have been played in its place.
+    private static let versionMarkers = [
+        "remix", "sped", "speed up", "speedup", "slowed", "reverb", "nightcore",
+        "cover", "mashup", "mash up", "acoustic", "live", "instrumental",
+        "karaoke", "edit", "bass boosted", "минус", "ремикс", "кавер", "ускорен",
+        "замедлен", "живое"
+    ]
+
+    /// Whether a candidate is the same recording, not merely a title match.
+    ///
+    /// Substring containment on its own is far too generous — every remix
+    /// contains the original's name. So a version marker the original does not
+    /// carry disqualifies a candidate outright, and where the names are not
+    /// simply equal, the shorter has to make up most of the longer rather than
+    /// being a fragment buried in it.
+    private static func isSameSong(_ candidate: String, as original: String, target: String) -> Bool {
+        let lowered = candidate.lowercased()
+        let originalLowered = original.lowercased()
+
+        for marker in versionMarkers where lowered.contains(marker) && !originalLowered.contains(marker) {
+            return false
+        }
+
+        let key = matchKey(candidate)
+        guard !key.isEmpty, !target.isEmpty else { return false }
+        if key == target { return true }
+
+        let longer = key.count >= target.count ? key : target
+        let shorter = key.count >= target.count ? target : key
+        guard longer.contains(shorter) else { return false }
+
+        // Two thirds, so "Моргенштерн - ДОМ" still matches "ДОМ" once the
+        // artist prefix is off, while a title that merely mentions the song
+        // among five other names does not.
+        return Double(shorter.count) / Double(longer.count) >= 0.66
     }
 
     /// A title reduced to what identifies the song: lowercase letters and
