@@ -1,11 +1,18 @@
 """Whether a track can actually be played.
 
-Nothing a track carries in its metadata says this — policy, monetisation and
-the streamable flag read identically for a track that plays and one that
-returns 404 for every variant it advertises. The only reliable answer costs a
-request, so answers are cached and reused.
+Metadata answers this in one direction only. ``policy: BLOCK``, an empty
+transcoding list, ``streamable: false`` — each is proof the track will not
+play, free and immediate. Their absence proves nothing: a track that
+advertises a `progressive` stream can still return 404 for it, and that costs
+a request to find out. So both are used, and the request's answer is cached.
 
-Without this, listings were full of tracks that looked fine until someone
+The harder half is that neither is decided where it matters. SoundCloud
+answers by region, and this server sits in Frankfurt while the listening
+happens elsewhere — a track it resolves without trouble arrives at the phone
+as BLOCK with nothing to play. So phones report what they actually found, and
+those reports outrank anything decided here.
+
+Without all this, listings were full of tracks that looked fine until someone
 pressed play. Dropping them before they are ever shown is the difference
 between a feed that works and one that mostly does.
 """
@@ -13,6 +20,8 @@ between a feed that works and one that mostly does.
 import asyncio
 import logging
 import time
+
+from sqlalchemy import func
 
 from app.services.soundcloud import soundcloud
 
@@ -69,7 +78,16 @@ async def filter_playable(tracks: list[dict], limit: int) -> list[dict]:
     if not tracks:
         return []
 
-    kept = [track for track in tracks if _recall(str(track.get("id"))) is not False]
+    # What phones have reported outranks anything decided here — see
+    # `report_unplayable`. Loaded once per call and merged into memory so the
+    # rest of this stays a dictionary lookup.
+    await _load_reported_dead()
+
+    kept = [
+        track
+        for track in tracks
+        if _recall(str(track.get("id"))) is not False and not _looks_blocked(track)
+    ]
 
     unverified = [
         track for track in kept[: limit * 2] if _recall(str(track.get("id"))) is None
@@ -78,6 +96,26 @@ async def filter_playable(tracks: list[dict], limit: int) -> list[dict]:
         _schedule_verification(unverified)
 
     return kept[:limit]
+
+
+def _looks_blocked(track: dict) -> bool:
+    """Rejects what the metadata already gives away, for free.
+
+    The note at the top of this file used to say metadata tells you nothing.
+    That is not quite right: a track carrying ``policy: BLOCK``, or one whose
+    transcoding list is empty, never plays for anyone who sees it that way —
+    no request needed. It is only the *absence* of those signs that proves
+    nothing, because the same track can carry them for one country and not
+    another. Cheap and certain here; the uncertain half is what phones report.
+    """
+    if track.get("policy") == "BLOCK" or track.get("streamable") is False:
+        return True
+
+    media = track.get("media")
+    if isinstance(media, dict) and media.get("transcodings") == []:
+        return True
+
+    return False
 
 
 def _schedule_verification(tracks: list[dict]) -> None:
@@ -106,3 +144,93 @@ def _schedule_verification(tracks: list[dict]) -> None:
         logger.info("Фоновая проверка: %s треков", len(tracks))
 
     _background = asyncio.create_task(run())
+
+
+# --- What the phones found out -------------------------------------------
+
+# Reports are read in bulk rather than per track, and only once in a while:
+# the set only grows, and a few minutes of staleness costs nothing.
+_reported_dead: set[str] = set()
+_reported_loaded_at: float = 0.0
+RELOAD_SECONDS = 300
+
+
+async def _load_reported_dead() -> None:
+    global _reported_loaded_at
+
+    if _reported_dead and time.monotonic() - _reported_loaded_at < RELOAD_SECONDS:
+        return
+
+    from sqlalchemy import select
+
+    from app.db.session import SessionLocal
+    from app.models.playability import TrackPlayability
+
+    try:
+        async with SessionLocal() as session:
+            rows = await session.scalars(
+                select(TrackPlayability.track_id).where(
+                    TrackPlayability.playable.is_(False),
+                    TrackPlayability.source == "client",
+                )
+            )
+            _reported_dead.clear()
+            _reported_dead.update(rows.all())
+    except Exception:  # noqa: BLE001 — a feed without this is merely worse
+        logger.exception("Не удалось прочитать отчёты о неиграбельных треках")
+        return
+
+    _reported_loaded_at = time.monotonic()
+
+    for track_id in _reported_dead:
+        _remember(track_id, False)
+
+
+async def report_unplayable(
+    session, track_ids: list[str], *, reason: str | None = None, region: str = "??"
+) -> int:
+    """Records that a phone could not play these tracks.
+
+    Trusted over the server's own check without argument. The server can only
+    ever answer "it plays from here", and here is not where anyone listens.
+    """
+    if not track_ids:
+        return 0
+
+    from sqlalchemy.dialects.postgresql import insert
+
+    from app.models.playability import TrackPlayability
+
+    rows = [
+        {
+            "track_id": track_id,
+            "region": region,
+            "playable": False,
+            "source": "client",
+            "reason": (reason or "")[:64] or None,
+        }
+        for track_id in dict.fromkeys(track_ids)
+        if track_id
+    ]
+
+    statement = insert(TrackPlayability).values(rows)
+    await session.execute(
+        statement.on_conflict_do_update(
+            index_elements=["track_id", "region"],
+            set_={
+                "playable": False,
+                "source": "client",
+                "reason": statement.excluded.reason,
+                "reports": TrackPlayability.reports + 1,
+                "checked_at": func.now(),
+            },
+        )
+    )
+    await session.commit()
+
+    # Effective immediately for this process, rather than at the next reload.
+    for row in rows:
+        _reported_dead.add(row["track_id"])
+        _remember(row["track_id"], False)
+
+    return len(rows)

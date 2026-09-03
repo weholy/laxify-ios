@@ -539,6 +539,13 @@ final class AudioPlayerController {
     private func advancePastUnplayable(_ song: Song) -> Bool {
         unplayableTrackIds.insert(song.id)
 
+        // Tell the server, so this one stops being handed out. It checks
+        // playability from where it runs, and the source answers differently
+        // depending on where the asking is done — this device is the only one
+        // that can say what actually happened here.
+        let deadId = song.id
+        Task { await LaxifyAPI.shared.reportUnplayable(trackIds: [deadId], reason: "клиент не смог открыть поток") }
+
         guard let next = queue.indices.first(where: { index in
             index > currentIndex && !unplayableTrackIds.contains(queue[index].id)
         }) else {

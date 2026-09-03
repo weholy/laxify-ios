@@ -104,9 +104,14 @@ actor SoundCloudDirect {
         if let found {
             clientId = found
             clientIdFetchedAt = Date()
+            return found
         }
 
-        return found
+        // Nothing new could be obtained. The key already in hand is worth
+        // more than nil — it was working until something, most likely the
+        // connection, stopped answering. Its timestamp is left alone so the
+        // next call tries to refresh again rather than settling for it.
+        return clientId
     }
 
     private func keyFromServer() async -> String? {
@@ -114,15 +119,32 @@ actor SoundCloudDirect {
     }
 
     /// The first shipped key the API still accepts.
+    ///
+    /// A key is only crossed off when the API actually refuses it. The moment
+    /// the network stops answering, probing stops too and the first key is
+    /// handed back unproven: nothing will work until the connection returns,
+    /// and when it does this key very probably will.
     private func firstWorkingKnownKey() async -> String? {
         for candidate in Self.knownKeys {
-            if await accepts(candidate) {
+            switch await accepts(candidate) {
+            case .accepted:
                 RemoteLog.shared.info(
                     "источник: ключ из приложения подошёл",
                     category: "source",
                     context: ["key": String(candidate.prefix(8))]
                 )
                 return candidate
+
+            case .unreachable:
+                RemoteLog.shared.warn(
+                    "источник: сеть молчит, ключи не проверены",
+                    category: "source",
+                    context: ["берём": String(candidate.prefix(8))]
+                )
+                return candidate
+
+            case .refused:
+                continue
             }
         }
 
@@ -130,32 +152,46 @@ actor SoundCloudDirect {
         return nil
     }
 
+    /// What checking a key actually told us.
+    ///
+    /// The third case is the one that matters. A request that never arrives
+    /// says nothing about the key, and treating it as a refusal is what took
+    /// the whole app down on a bad connection: every shipped key "failed" in
+    /// turn against a network that was simply not answering, the scrape that
+    /// follows failed for the same reason, and a set of perfectly good keys
+    /// was thrown away — search, wave and playback with them.
+    private enum KeyVerdict {
+        case accepted
+        case refused
+        case unreachable
+    }
+
     /// Whether the API answers for this key.
     ///
     /// Deliberately the smallest request there is, so checking four of them
     /// costs less than one page of search results.
-    private func accepts(_ candidate: String) async -> Bool {
+    private func accepts(_ candidate: String) async -> KeyVerdict {
         var components = URLComponents(string: "\(Self.apiBase)/tracks")
         components?.queryItems = [
             URLQueryItem(name: "ids", value: "219590176"),
             URLQueryItem(name: "client_id", value: candidate)
         ]
 
-        guard let url = components?.url else { return false }
+        guard let url = components?.url else { return .refused }
 
         var request = URLRequest(url: url)
         request.timeoutInterval = 8
 
         do {
             let (_, response) = try await session.data(for: request)
-            return (response as? HTTPURLResponse)?.statusCode == 200
+            return (response as? HTTPURLResponse)?.statusCode == 200 ? .accepted : .refused
         } catch {
             RemoteLog.shared.warn(
                 "источник: проверка ключа не прошла",
                 category: "source",
-                context: ["error": "\(error)"]
+                context: ["error": "\(error)", "вердикт": "сеть не ответила"]
             )
-            return false
+            return .unreachable
         }
     }
 

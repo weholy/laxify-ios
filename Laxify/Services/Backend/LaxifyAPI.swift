@@ -852,6 +852,24 @@ actor LaxifyAPI {
         )
     }
 
+    /// Tells the server a track it handed us does not play here.
+    ///
+    /// The server checks playability from Frankfurt and the source answers by
+    /// region, so a track it resolved happily can arrive on a phone with
+    /// nothing playable in it at all. This phone is the only party that knows,
+    /// and reporting it is what stops the same dead track coming back around.
+    func reportUnplayable(trackIds: [String], reason: String) async {
+        guard !trackIds.isEmpty else { return }
+
+        struct Body: Encodable { let trackIds: [String]; let reason: String }
+        struct Reply: Decodable { let recorded: Int }
+
+        _ = try? await send(
+            "/wave/unplayable", method: "POST",
+            body: Body(trackIds: Array(trackIds.prefix(50)), reason: reason)
+        ) as Reply
+    }
+
     /// trackStarted / trackFinished / skip / like / dislike.
     func waveFeedback(
         sessionId: String,

@@ -47,7 +47,7 @@ from app.models import (
     WaveSession,
 )
 from app.services import catalog_meta, tagging
-from app.services.playability import filter_playable
+from app.services.playability import filter_playable, report_unplayable
 from app.services.soundcloud import SoundCloudError, soundcloud
 
 logger = logging.getLogger("laxify.wave")
@@ -1070,6 +1070,42 @@ async def change_settings(
     await session.commit()
 
     return _response(sess, sess.queue, personalised=True)
+
+
+class UnplayableIn(BaseModel):
+    track_ids: list[str] = Field(default_factory=list, max_length=50)
+    reason: str | None = None
+
+
+class UnplayableOut(BaseModel):
+    recorded: int
+
+
+@router.post("/unplayable", response_model=UnplayableOut)
+async def report_unplayable_tracks(
+    user: CurrentUser,
+    session: SessionDep,
+    payload: UnplayableIn,
+) -> UnplayableOut:
+    """The phone telling us a track it was handed does not play.
+
+    This is the only trustworthy source for the question. The server checks
+    playability from Frankfurt, and SoundCloud answers by region: a track that
+    streams perfectly well from here can arrive in another country with
+    ``policy: BLOCK`` and nothing to play at all. Whoever had to make the sound
+    is the one who knows, so their verdict is taken over ours and the track
+    stops being offered.
+    """
+    recorded = await report_unplayable(
+        session, payload.track_ids, reason=payload.reason
+    )
+    if recorded:
+        logger.info(
+            "Телефон сообщил о неиграбельных треках: %s (%s)",
+            recorded,
+            payload.reason or "без причины",
+        )
+    return UnplayableOut(recorded=recorded)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
