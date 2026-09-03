@@ -11,6 +11,7 @@ works regardless of what the phone's own connection can reach.
 """
 
 import asyncio
+import os
 import functools
 import logging
 import re
@@ -25,6 +26,8 @@ logger = logging.getLogger("laxify.soundcloud")
 
 API_BASE = "https://api-v2.soundcloud.com"
 WEB_BASE = "https://soundcloud.com"
+SEED_CLIENT_ID = os.getenv("SOUNDCLOUD_CLIENT_ID", "Pb72ranhoyt6gw7hM7TkzUItXlMWSNSo")
+
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/122.0 Safari/537.36"
@@ -103,7 +106,33 @@ class SoundCloudClient:
             if cached and not cached.is_stale and not force_refresh:
                 return cached.value
 
-            value = await self._scrape_client_id()
+            try:
+                value = await self._scrape_client_id()
+            except SoundCloudError:
+                # The scrape and the API are different doors. The homepage
+                # answers 403 to this server while `api-v2` still answers 200
+                # to the key we already hold — so an expired *cache entry*
+                # must not throw away a key that demonstrably works. Losing
+                # one took search, the wave and playback down together while
+                # the source was fine.
+                if cached is not None:
+                    logger.warning(
+                        "SoundCloud client id refresh failed; keeping the one we have"
+                    )
+                    self._client_id = _CachedClientID(
+                        value=cached.value, fetched_at=datetime.now(UTC)
+                    )
+                    return cached.value
+
+                if SEED_CLIENT_ID:
+                    logger.warning("SoundCloud client id refresh failed; falling back to the seed")
+                    self._client_id = _CachedClientID(
+                        value=SEED_CLIENT_ID, fetched_at=datetime.now(UTC)
+                    )
+                    return SEED_CLIENT_ID
+
+                raise
+
             self._client_id = _CachedClientID(value=value, fetched_at=datetime.now(UTC))
             logger.info("SoundCloud client id refreshed")
             return value

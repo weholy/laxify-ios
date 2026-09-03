@@ -1118,6 +1118,26 @@ actor LaxifyAPI {
         var topArtists: [AdminNamedCount] = []
     }
 
+    struct PlaylistImportDTO: Decodable, Sendable {
+        let playlistId: String
+        let title: String
+        let source: String
+        let total: Int
+        let matched: Int
+    }
+
+    /// Builds one of our playlists out of a link to somebody else's.
+    ///
+    /// Slow by nature — every track is looked up in the catalogue one at a
+    /// time — so callers should show that something is happening rather than
+    /// assume this returns quickly.
+    func importPlaylist(url: String, title: String?) async throws -> PlaylistImportDTO {
+        struct Body: Encodable { let url: String; let title: String? }
+        return try await send(
+            "/playlists/import", method: "POST", body: Body(url: url, title: title)
+        )
+    }
+
     func adminStats() async throws -> AdminStatsDTO {
         try await send("/admin/stats", method: "GET")
     }

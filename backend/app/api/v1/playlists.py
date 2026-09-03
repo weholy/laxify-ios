@@ -1,5 +1,9 @@
+import asyncio
+import re
+
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
+from pydantic import BaseModel, Field
 
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import delete, func, select
@@ -16,8 +20,9 @@ from app.models import (
     TrackSnapshot,
     User,
 )
-from app.schemas.common import MessageOut, Page
-from app.services import authenticity, catalog_meta
+from app.schemas.common import MessageOut, Page, TrackIn
+from app.services import authenticity, catalog_meta, playlist_import
+from app.services.soundcloud import SoundCloudError, soundcloud
 from app.schemas.library import (
     InviteCreate,
     InviteOut,
@@ -413,4 +418,186 @@ async def list_user_playlists(
         total=total,
         limit=limit,
         offset=offset,
+    )
+
+
+class PlaylistImportIn(BaseModel):
+    url: str = Field(max_length=2000)
+    # What to call it here. Empty means "whatever the source called it".
+    title: str | None = Field(default=None, max_length=120)
+
+
+class PlaylistImportOut(BaseModel):
+    playlist_id: UUID
+    title: str
+    source: str
+    total: int
+    matched: int
+
+
+@router.post("/playlists/import", response_model=PlaylistImportOut)
+async def import_playlist(
+    payload: PlaylistImportIn, user: CurrentUser, session: SessionDep
+) -> PlaylistImportOut:
+    """Builds one of our playlists out of somebody else's link.
+
+    Tracks we cannot play are left out rather than added as dead rows — the
+    response says how many of each, so the app can be honest about it without
+    the playlist itself being half-broken.
+    """
+    try:
+        source_title, entries, source = await playlist_import.read(payload.url)
+    except playlist_import.ImportError_ as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=error.detail
+        ) from error
+
+    total = len(entries)
+
+    # SoundCloud links already carry our own ids; everything else has to be
+    # looked for by name.
+    resolved: list[str] = []
+    to_search: list[dict] = []
+
+    for entry in entries[:200]:
+        if entry.get("sc_track_id"):
+            resolved.append(str(entry["sc_track_id"]))
+        else:
+            to_search.append(entry)
+
+    unreachable = False
+
+    if to_search:
+        # Four at a time. Fifty parallel lookups is a burst the source
+        # answers by throttling, which turns a slow import into an empty one.
+        gate = asyncio.Semaphore(4)
+
+        async def look(item: dict) -> str | None:
+            async with gate:
+                return await _match_track(item)
+
+        found = await asyncio.gather(
+            *(look(item) for item in to_search), return_exceptions=True
+        )
+        for track_id in found:
+            if isinstance(track_id, str) and track_id:
+                resolved.append(track_id)
+            elif isinstance(track_id, Exception):
+                unreachable = True
+
+    # Nothing matched and the catalogue was not answering: that is a failure
+    # to report, not a playlist to hand over empty.
+    if not resolved and (unreachable or to_search):
+        if not await _catalogue_reachable():
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Каталог сейчас не отвечает. Попробуйте импорт чуть позже",
+            )
+
+    # Order preserved, duplicates dropped.
+    ordered = list(dict.fromkeys(resolved))
+
+    playlist = Playlist(
+        owner_id=user.id,
+        title=(payload.title or source_title or "Импорт").strip()[:120],
+        description=None,
+        is_public=False,
+        share_slug=generate_share_slug(),
+    )
+    session.add(playlist)
+    await session.flush()
+
+    if ordered:
+        raw_tracks = await asyncio.gather(
+            *(_snapshot_for(track_id) for track_id in ordered), return_exceptions=True
+        )
+        payload_tracks = [t for t in raw_tracks if isinstance(t, TrackIn)]
+        if payload_tracks:
+            await upsert_tracks(session, payload_tracks)
+            for index, track in enumerate(payload_tracks):
+                session.add(
+                    PlaylistItem(
+                        playlist_id=playlist.id,
+                        track_id=track.track_id,
+                        position=index * POSITION_STEP,
+                        added_by_id=user.id,
+                    )
+                )
+            await session.flush()
+
+    await _recount(session, playlist)
+
+    return PlaylistImportOut(
+        playlist_id=playlist.id,
+        title=playlist.title,
+        source=source,
+        total=total,
+        matched=len(ordered),
+    )
+
+
+async def _catalogue_reachable() -> bool:
+    """One cheap probe, so "nothing matched" and "nothing answered" are told
+    apart before either is reported."""
+    try:
+        await soundcloud.search_tracks("music", limit=1)
+        return True
+    except SoundCloudError:
+        return False
+
+
+async def _match_track(entry: dict) -> str | None:
+    """Our id for a "title by artist" pair, or nothing.
+
+    Searched as one string because that is what the source indexes on, and
+    only the first hit is taken: a second-best match on a playlist import is
+    a wrong song, which is worse than a missing one.
+    """
+    title = (entry.get("title") or "").strip()
+    artist = (entry.get("artist") or "").strip()
+    if not title:
+        return None
+
+    query = f"{artist} {title}".strip()
+    try:
+        hits = await soundcloud.search_tracks(query, limit=5)
+    except SoundCloudError:
+        raise
+
+    wanted = _simplify(title)
+    for raw in hits:
+        if not raw.get("id"):
+            continue
+        if _simplify(str(raw.get("title") or "")).find(wanted) >= 0 or wanted.find(
+            _simplify(str(raw.get("title") or ""))
+        ) >= 0:
+            return str(raw["id"])
+
+    return None
+
+
+def _simplify(text: str) -> str:
+    return re.sub(r"[^a-z0-9а-яё]+", "", text.lower())
+
+
+async def _snapshot_for(track_id: str) -> TrackIn | None:
+    try:
+        raw = await soundcloud.track(track_id)
+    except SoundCloudError:
+        return None
+    if not raw:
+        return None
+
+    user = raw.get("user") or {}
+    return TrackIn(
+        track_id=str(raw.get("id")),
+        title=str(raw.get("title") or ""),
+        artist_name=str(
+            (raw.get("publisher_metadata") or {}).get("artist") or user.get("username") or ""
+        ),
+        artist_id=str(user.get("id")) if user.get("id") else None,
+        album_title=(raw.get("publisher_metadata") or {}).get("album_title"),
+        cover_url=raw.get("artwork_url"),
+        duration_seconds=float(raw.get("full_duration") or raw.get("duration") or 0) / 1000,
+        genre=raw.get("genre"),
     )

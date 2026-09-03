@@ -15,6 +15,14 @@ struct LibraryView: View {
     @State private var renameText = ""
     @State private var pendingDelete: PlaylistDTO?
 
+    // Import, in two plain system prompts: the link, then the name.
+    @State private var isImportLinkPresented = false
+    @State private var isImportNamePresented = false
+    @State private var importURL = ""
+    @State private var importName = ""
+    @State private var isImporting = false
+    @State private var importResult: String?
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -48,6 +56,38 @@ struct LibraryView: View {
                 guard !title.isEmpty, title != playlist.title else { return }
                 Task { await store.rename(playlist, to: title) }
             }
+        }
+        // The system's own prompt, deliberately: pasting a link is something
+        // iOS already knows how to present, and a bespoke sheet for it would
+        // only be a worse version of this one.
+        .alert(L("library.import.link", "Ссылка на плейлист"), isPresented: $isImportLinkPresented) {
+            TextField("https://", text: $importURL)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .keyboardType(.URL)
+
+            Button(L("common.cancel", "Отмена"), role: .cancel) {}
+            Button(L("common.done", "Готово")) {
+                guard !importURL.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+                importName = ""
+                isImportNamePresented = true
+            }
+        } message: {
+            Text(L("library.import.hint", "Spotify, SoundCloud, Apple Music. Треки, которых у нас нет, просто не добавятся"))
+        }
+        .alert(L("playlist.nameTitle", "Название плейлиста"), isPresented: $isImportNamePresented) {
+            TextField(L("playlist.name", "Название"), text: $importName)
+
+            Button(L("common.cancel", "Отмена"), role: .cancel) {}
+            Button(L("common.done", "Готово")) { runImport() }
+        }
+        .alert(
+            L("library.import", "Импорт"),
+            isPresented: Binding(get: { importResult != nil }, set: { if !$0 { importResult = nil } })
+        ) {
+            Button(L("common.done", "Готово"), role: .cancel) {}
+        } message: {
+            Text(importResult ?? "")
         }
         .confirmationDialog(
             L("playlist.deleteConfirm", "Удалить плейлист?"),
@@ -93,16 +133,28 @@ struct LibraryView: View {
             Spacer()
 
             if !showsFavorites {
-                Button {
-                    isCreatePresented = true
+                Menu {
+                    Button {
+                        isCreatePresented = true
+                    } label: {
+                        Label(L("library.create", "Создать"), systemImage: "plus")
+                    }
+
+                    Button {
+                        importURL = ""
+                        isImportLinkPresented = true
+                    } label: {
+                        Label(L("library.import", "Импорт"), systemImage: "square.and.arrow.down")
+                    }
                 } label: {
-                    Image(systemName: "plus")
+                    Image(systemName: isImporting ? "ellipsis" : "plus")
                         .font(.system(size: 18, weight: .bold))
                         .foregroundStyle(LaxifyPalette.textPrimary)
                         .frame(width: 44, height: 44)
-                        .glassEffect(.regular.interactive(), in: .circle)
+                        .glassEffect(.regular, in: .circle)
+                        .contentShape(Circle())
                 }
-                .buttonStyle(.plain)
+                .disabled(isImporting)
             }
         }
         .padding(.horizontal, LaxifyMetrics.screenPadding)
@@ -158,6 +210,38 @@ struct LibraryView: View {
         }
         .scrollIndicators(.hidden)
         .refreshable { await store.reload() }
+    }
+
+    /// Reads the link, builds the playlist, and says how much of it arrived.
+    ///
+    /// The count matters: a source lists tracks we may not carry, and "24 из
+    /// 30" is the truth, where a playlist silently six tracks short looks
+    /// like a bug.
+    private func runImport() {
+        let url = importURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = importName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !url.isEmpty else { return }
+
+        isImporting = true
+        Task {
+            defer { isImporting = false }
+            do {
+                let result = try await LaxifyAPI.shared.importPlaylist(
+                    url: url, title: name.isEmpty ? nil : name
+                )
+                await store.reload()
+
+                importResult = result.matched == result.total
+                    ? "\(L("library.import.done", "Готово. Добавлено треков:")) \(result.matched)"
+                    : "\(L("library.import.partial", "Добавлено")) \(result.matched) \(L("library.import.of", "из")) \(result.total)"
+            } catch APIError.server(_, let detail) {
+                importResult = detail
+            } catch {
+                importResult = L("library.import.failed", "Не удалось импортировать плейлист")
+            }
+            importURL = ""
+            importName = ""
+        }
     }
 
     private var recentFavoriteCovers: [URL] {
