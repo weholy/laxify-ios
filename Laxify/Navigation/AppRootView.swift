@@ -134,6 +134,15 @@ struct AppRootView: View {
             return
         }
         await migrateLocalDataIfNeeded()
+
+        // Signing out wipes the device's copy of the library and the play log,
+        // so signing back in has to bring them down again *here* rather than
+        // at the next cold launch. Without this the statistics screen read
+        // zero until the app was killed and reopened — which is exactly what
+        // it looked like: history lost, then mysteriously restored.
+        await SyncService.shared.pullLibrary(into: modelContext)
+        await HistoryMirror.sync(context: modelContext)
+        await StatsRepair.run(context: modelContext)
     }
 
     /// Sends what this device collected before it had an account at all.

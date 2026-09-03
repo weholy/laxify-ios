@@ -189,10 +189,19 @@ struct LyricsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, LaxifyMetrics.screenPadding)
             }
-            .onChange(of: activeIndex) { _, newValue in
+            .onChange(of: activeIndex) { previous, newValue in
                 guard let newValue else { return }
-                withAnimation(.easeInOut(duration: 0.35)) {
+
+                // A line at a time glides. A scrub lands: animating a jump of
+                // twenty lines takes long enough that the words on screen are
+                // already wrong before it arrives.
+                let jumped = (previous.map { abs(newValue - $0) } ?? 0) > 3
+                if jumped {
                     proxy.scrollTo(newValue, anchor: .center)
+                } else {
+                    withAnimation(.easeInOut(duration: 0.35)) {
+                        proxy.scrollTo(newValue, anchor: .center)
+                    }
                 }
             }
         }

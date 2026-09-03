@@ -732,3 +732,216 @@ async def delete_user(user_id: UUID, admin: AdminUser, session: SessionDep) -> M
     )
     await session.delete(target)
     return MessageOut(detail="Аккаунт удалён")
+
+
+class PlayRow(BaseModel):
+    track_id: str
+    title: str
+    artist_name: str
+    played_at: datetime
+    seconds_played: float
+    completed: bool
+
+
+class DeviceRow(BaseModel):
+    name: str
+    model: str | None = None
+    app_version: str | None = None
+    created_at: datetime
+    last_seen_at: datetime | None = None
+    revoked: bool = False
+
+
+class ActivityOut(BaseModel):
+    """What someone has actually been doing, in three short lists.
+
+    One call rather than three: the panel shows them on one sheet, and three
+    round trips over a phone connection is three chances to look broken.
+    """
+
+    recent_plays: list[PlayRow] = Field(default_factory=list)
+    favorites: list[PlayRow] = Field(default_factory=list)
+    devices: list[DeviceRow] = Field(default_factory=list)
+    searches: list[str] = Field(default_factory=list)
+
+
+@router.get("/users/{user_id}/activity", response_model=ActivityOut)
+async def user_activity(user_id: UUID, admin: AdminUser, session: SessionDep) -> ActivityOut:
+    target = await session.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Пользователь не найден")
+
+    plays = (
+        await session.execute(
+            select(
+                ListeningEvent.track_id,
+                TrackSnapshot.title,
+                TrackSnapshot.artist_name,
+                ListeningEvent.played_at,
+                ListeningEvent.seconds_played,
+                ListeningEvent.completed,
+            )
+            .outerjoin(TrackSnapshot, TrackSnapshot.track_id == ListeningEvent.track_id)
+            .where(ListeningEvent.user_id == user_id)
+            .order_by(ListeningEvent.played_at.desc())
+            .limit(30)
+        )
+    ).all()
+
+    favorites = (
+        await session.execute(
+            select(
+                Favorite.track_id,
+                TrackSnapshot.title,
+                TrackSnapshot.artist_name,
+                Favorite.added_at,
+            )
+            .outerjoin(TrackSnapshot, TrackSnapshot.track_id == Favorite.track_id)
+            .where(Favorite.user_id == user_id)
+            .order_by(Favorite.added_at.desc())
+            .limit(30)
+        )
+    ).all()
+
+    devices = (
+        await session.scalars(
+            select(Device)
+            .where(Device.user_id == user_id)
+            .order_by(Device.created_at.desc())
+            .limit(20)
+        )
+    ).all()
+
+    searches = (
+        await session.scalars(
+            select(SearchHistoryEntry.title)
+            .where(SearchHistoryEntry.user_id == user_id)
+            .order_by(SearchHistoryEntry.created_at.desc())
+            .limit(20)
+        )
+    ).all()
+
+    return ActivityOut(
+        recent_plays=[
+            PlayRow(
+                track_id=row[0],
+                title=row[1] or row[0],
+                artist_name=row[2] or "—",
+                played_at=row[3],
+                seconds_played=row[4],
+                completed=row[5],
+            )
+            for row in plays
+        ],
+        favorites=[
+            PlayRow(
+                track_id=row[0],
+                title=row[1] or row[0],
+                artist_name=row[2] or "—",
+                played_at=row[3],
+                seconds_played=0,
+                completed=False,
+            )
+            for row in favorites
+        ],
+        devices=[
+            DeviceRow(
+                name=device.name,
+                model=device.model,
+                app_version=device.app_version,
+                created_at=device.created_at,
+                last_seen_at=device.last_used_at,
+                revoked=device.revoked_at is not None,
+            )
+            for device in devices
+        ],
+        searches=list(searches),
+    )
+
+
+@router.post("/users/{user_id}/logout", response_model=MessageOut)
+async def logout_everywhere(user_id: UUID, admin: AdminUser, session: SessionDep) -> MessageOut:
+    """Ends every session without touching the account itself.
+
+    The gentler cousin of a ban: useful when a token has leaked, or when
+    someone is stuck in a state only a fresh sign-in will clear.
+    """
+    target = await session.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Пользователь не найден")
+
+    devices = (await session.scalars(select(Device).where(Device.user_id == user_id))).all()
+    now = datetime.now(UTC)
+    for device in devices:
+        device.revoked_at = now
+
+    session.add(
+        AuditLog(
+            actor_id=admin.id,
+            action="admin.logout_all",
+            target_type="user",
+            target_id=str(user_id),
+            payload={"devices": len(devices)},
+        )
+    )
+    return MessageOut(detail=f"Сессий завершено: {len(devices)}")
+
+
+@router.delete("/users/{user_id}/history", response_model=MessageOut)
+async def clear_history(user_id: UUID, admin: AdminUser, session: SessionDep) -> MessageOut:
+    """Wipes the play log for one account, leaving the account alone."""
+    target = await session.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Пользователь не найден")
+
+    events = (
+        await session.scalars(select(ListeningEvent).where(ListeningEvent.user_id == user_id))
+    ).all()
+    for event in events:
+        await session.delete(event)
+
+    session.add(
+        AuditLog(
+            actor_id=admin.id,
+            action="admin.clear_history",
+            target_type="user",
+            target_id=str(user_id),
+            payload={"events": len(events)},
+        )
+    )
+    return MessageOut(detail=f"Удалено записей: {len(events)}")
+
+
+class AuditRow(BaseModel):
+    id: str
+    actor: str | None = None
+    action: str
+    target_id: str | None = None
+    created_at: datetime
+
+
+@router.get("/log", response_model=list[AuditRow])
+async def admin_log(
+    admin: AdminUser, session: SessionDep, limit: int = Query(100, ge=1, le=300)
+) -> list[AuditRow]:
+    """Who did what in here. An admin panel without one is a panel you cannot
+    audit — including your own mistakes."""
+    rows = (
+        await session.execute(
+            select(AuditLog, User.username)
+            .outerjoin(User, User.id == AuditLog.actor_id)
+            .order_by(AuditLog.created_at.desc())
+            .limit(limit)
+        )
+    ).all()
+
+    return [
+        AuditRow(
+            id=str(entry.id),
+            actor=username,
+            action=entry.action,
+            target_id=entry.target_id,
+            created_at=entry.created_at,
+        )
+        for entry, username in rows
+    ]

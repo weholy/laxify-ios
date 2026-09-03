@@ -71,23 +71,78 @@ final class SearchViewModel {
         }
     }
 
+    /// Answers already given, so going back to a query is instant.
+    ///
+    /// Small and in memory only: a search result is worth keeping for the
+    /// length of a session — people try a word, back out, and try it again —
+    /// and worth nothing after that.
+    private var cache: [String: SearchResults] = [:]
+    private var searchOrder: [String] = []
+    private var searchTask: Task<Void, Never>?
+
     func search(query: String) async {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
+            searchTask?.cancel()
             results = nil
             hasError = false
+            isSearching = false
             return
         }
+
+        let key = trimmed.lowercased()
+
+        // A repeat costs nothing and shows nothing in between.
+        if let cached = cache[key] {
+            searchTask?.cancel()
+            results = cached
+            hasError = false
+            isSearching = false
+            suggestions = []
+            return
+        }
+
+        // One search at a time. Without this a slow answer for an earlier
+        // word could land after a fast one for the current word and replace
+        // it — which is how "ничего не найдено" appeared over a query that
+        // had results.
+        searchTask?.cancel()
         isSearching = true
         hasError = false
         suggestions = []
-        do {
-            results = try await service.search(query: trimmed)
-        } catch {
-            results = nil
-            hasError = true
+
+        let task = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let fresh = try await self.service.search(query: trimmed)
+                guard !Task.isCancelled else { return }
+                self.remember(fresh, for: key)
+                self.results = fresh
+                self.hasError = false
+            } catch is CancellationError {
+                // Superseded, not failed. Saying nothing is correct.
+                return
+            } catch {
+                guard !Task.isCancelled else { return }
+                self.results = nil
+                self.hasError = true
+            }
+            self.isSearching = false
         }
-        isSearching = false
+
+        searchTask = task
+        await task.value
+    }
+
+    private func remember(_ found: SearchResults, for key: String) {
+        cache[key] = found
+        searchOrder.append(key)
+        // Twenty queries is more than a session uses and far less than a
+        // memory problem.
+        while searchOrder.count > 20, let oldest = searchOrder.first {
+            searchOrder.removeFirst()
+            if !searchOrder.contains(oldest) { cache[oldest] = nil }
+        }
     }
 
     /// Debounced completions while typing. Cleared as soon as the field is.

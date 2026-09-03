@@ -18,8 +18,6 @@ struct DownloadRingButton: View {
     var body: some View {
         Button(action: action) {
             ZStack {
-                Circle().fill(LaxifyPalette.surface)
-
                 if progress != nil {
                     Circle()
                         .stroke(LaxifyPalette.separator, lineWidth: 2.5)
@@ -51,11 +49,49 @@ struct DownloadRingButton: View {
                 }
             }
             .frame(width: diameter, height: diameter)
+            .glassEffect(.regular.interactive(), in: .circle)
             .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isDone)
         .animation(.easeInOut(duration: 0.2), value: progress == nil)
+    }
+}
+
+/// A round glass button around a single glyph. The favourites row is three of
+/// these, and nothing else needed inventing for it.
+struct CircleGlassButton: View {
+    let systemImage: String
+    var diameter: CGFloat = 52
+    var glyphSize: CGFloat = 19
+    var tint: Color?
+    var accessibilityLabel: String
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            glyph
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    /// Two branches rather than one expression: the glass value's type has no
+    /// name worth writing here, and a conditional inside the call cannot be
+    /// inferred from a leading dot.
+    @ViewBuilder
+    private var glyph: some View {
+        let image = Image(systemName: systemImage)
+            .font(.system(size: glyphSize, weight: .semibold))
+            .foregroundStyle(tint == nil ? LaxifyPalette.textPrimary : .white)
+            .frame(width: diameter, height: diameter)
+
+        if let tint {
+            image.glassEffect(.regular.tint(tint).interactive(), in: .circle)
+        } else {
+            image.glassEffect(.regular.interactive(), in: .circle)
+        }
     }
 }
 

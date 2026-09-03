@@ -13,6 +13,7 @@ struct AdminPanelView: View {
         case users
         case overview
         case broadcast
+        case log
 
         var id: String { rawValue }
 
@@ -22,6 +23,7 @@ struct AdminPanelView: View {
             case .users: L("admin.users", "Люди")
             case .overview: L("admin.overview", "Обзор")
             case .broadcast: L("admin.broadcastTab", "Рассылка")
+            case .log: L("admin.logTab", "Журнал")
             }
         }
     }
@@ -29,6 +31,7 @@ struct AdminPanelView: View {
     @State private var tab: Tab = .users
     @State private var users: [LaxifyAPI.AdminUserDTO] = []
     @State private var stats: LaxifyAPI.AdminStatsDTO?
+    @State private var log: [LaxifyAPI.AdminLogRow] = []
     @State private var query = ""
     @State private var isLoading = false
     @State private var failure: String?
@@ -39,7 +42,7 @@ struct AdminPanelView: View {
             LaxifyPalette.background.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                SettingsHeader(title: L("settings.admin", "VIP-панель"), onBack: onBack)
+                SettingsHeader(title: L("settings.admin", "Випка"), onBack: onBack)
 
                 Picker("", selection: $tab) {
                     ForEach(Tab.allCases) { entry in
@@ -65,7 +68,55 @@ struct AdminPanelView: View {
         case .users: userList
         case .overview: overviewList
         case .broadcast: AdminBroadcastForm()
+        case .log: logList
         }
+    }
+
+    /// Who did what in here, newest first. An admin panel with no record of
+    /// its own actions is one you cannot check — including against yourself.
+    private var logList: some View {
+        ScrollView {
+            LazyVStack(spacing: 8) {
+                if let failure { notice(failure) }
+
+                if isLoading && log.isEmpty {
+                    ProgressView().padding(.top, 40)
+                }
+
+                ForEach(log) { entry in
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(entry.action)
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(LaxifyPalette.textPrimary)
+                                .lineLimit(1)
+
+                            Text(entry.actor.map { "@\($0)" } ?? "—")
+                                .font(.system(size: 12))
+                                .foregroundStyle(LaxifyPalette.textSecondary)
+                        }
+
+                        Spacer(minLength: 6)
+
+                        Text(AdminFormat.full.string(from: entry.createdAt))
+                            .font(.system(size: 11))
+                            .foregroundStyle(LaxifyPalette.textTertiary)
+                    }
+                    .padding(12)
+                    .background(
+                        LaxifyPalette.surface,
+                        in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    )
+                }
+
+                if !isLoading && log.isEmpty && failure == nil {
+                    notice(L("admin.noData", "Пока нечего показать"))
+                }
+            }
+            .padding(.horizontal, LaxifyMetrics.screenPadding)
+            .padding(.bottom, 120)
+        }
+        .refreshable { await reload() }
     }
 
     // MARK: - People
@@ -283,6 +334,8 @@ struct AdminPanelView: View {
                 users = try await LaxifyAPI.shared.adminUsers(query: query)
             case .overview:
                 stats = try await LaxifyAPI.shared.adminStats()
+            case .log:
+                log = try await LaxifyAPI.shared.adminLog()
             case .broadcast:
                 break
             }
@@ -436,6 +489,70 @@ private struct AdminBars: View {
                     in: RoundedRectangle(cornerRadius: 16, style: .continuous)
                 )
             }
+        }
+    }
+}
+
+/// A short list of tracks with what was done to them and when.
+private struct AdminTrackList: View {
+    let title: String
+    let rows: [LaxifyAPI.AdminPlayRow]
+    let showsTime: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title.uppercased())
+                .font(.system(size: 11, weight: .heavy))
+                .tracking(0.6)
+                .foregroundStyle(LaxifyPalette.textTertiary)
+                .padding(.horizontal, 4)
+
+            VStack(spacing: 0) {
+                ForEach(rows) { row in
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(row.title)
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(LaxifyPalette.textPrimary)
+                                .lineLimit(1)
+                            Text(row.artistName)
+                                .font(.system(size: 12))
+                                .foregroundStyle(LaxifyPalette.textSecondary)
+                                .lineLimit(1)
+                        }
+
+                        Spacer(minLength: 6)
+
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text(AdminFormat.full.string(from: row.playedAt))
+                                .font(.system(size: 11))
+                                .foregroundStyle(LaxifyPalette.textTertiary)
+
+                            if showsTime {
+                                Text(
+                                    row.completed
+                                        ? L("admin.toTheEnd", "до конца")
+                                        : "\(Int(row.secondsPlayed)) \(L("unit.sec", "с"))"
+                                )
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(
+                                    row.completed ? LaxifyPalette.accent : LaxifyPalette.textTertiary
+                                )
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+
+                    if row.id != rows.last?.id {
+                        SettingsDivider(inset: 14)
+                    }
+                }
+            }
+            .background(
+                LaxifyPalette.surface,
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+            )
         }
     }
 }
@@ -616,6 +733,8 @@ private struct AdminUserSheet: View {
     var onClose: () -> Void
 
     @State private var stats: LaxifyAPI.AdminUserStatsDTO?
+    @State private var activity: LaxifyAPI.AdminActivityDTO?
+    @State private var showsClearHistory = false
     @State private var noticeTitle = ""
     @State private var noticeBody = ""
     @State private var isBusy = false
@@ -642,6 +761,7 @@ private struct AdminUserSheet: View {
                 VStack(spacing: 14) {
                     facts
                     figures
+                    activityLists
                     notifier
                     actions
 
@@ -664,7 +784,14 @@ private struct AdminUserSheet: View {
                 }
             }
         }
-        .task { stats = try? await LaxifyAPI.shared.adminUserStats(userId: user.id) }
+        .task {
+            // Both at once: two sequential round trips over a phone
+            // connection is twice as long spent looking at a spinner.
+            async let counted = LaxifyAPI.shared.adminUserStats(userId: user.id)
+            async let recent = LaxifyAPI.shared.adminActivity(userId: user.id)
+            stats = try? await counted
+            activity = try? await recent
+        }
         .confirmationDialog(
             L("admin.delete.confirm", "Удалить аккаунт навсегда?"),
             isPresented: $showsDelete,
@@ -674,6 +801,108 @@ private struct AdminUserSheet: View {
             Button(L("common.cancel", "Отмена"), role: .cancel) {}
         } message: {
             Text(L("admin.delete.note", "Вместе с ним пропадут его избранное, история и плейлисты"))
+        }
+        .confirmationDialog(
+            L("admin.clearHistory.confirm", "Очистить историю прослушиваний?"),
+            isPresented: $showsClearHistory,
+            titleVisibility: .visible
+        ) {
+            Button(L("common.delete", "Удалить"), role: .destructive) { clearHistory() }
+            Button(L("common.cancel", "Отмена"), role: .cancel) {}
+        } message: {
+            Text(L("admin.clearHistory.note", "Аккаунт останется, пропадёт только статистика"))
+        }
+    }
+
+    /// What they have actually been doing — the lists behind the counts.
+    @ViewBuilder
+    private var activityLists: some View {
+        if let activity {
+            if !activity.recentPlays.isEmpty {
+                AdminTrackList(
+                    title: L("admin.recentPlays", "Последние прослушивания"),
+                    rows: activity.recentPlays,
+                    showsTime: true
+                )
+            }
+
+            if !activity.favorites.isEmpty {
+                AdminTrackList(
+                    title: L("admin.theirFavorites", "Его избранное"),
+                    rows: activity.favorites,
+                    showsTime: false
+                )
+            }
+
+            if !activity.devices.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(L("admin.devicesList", "Устройства").uppercased())
+                        .font(.system(size: 11, weight: .heavy))
+                        .tracking(0.6)
+                        .foregroundStyle(LaxifyPalette.textTertiary)
+                        .padding(.horizontal, 4)
+
+                    VStack(spacing: 0) {
+                        ForEach(activity.devices) { device in
+                            HStack(spacing: 10) {
+                                Image(systemName: device.revoked ? "iphone.slash" : "iphone")
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(
+                                        device.revoked ? LaxifyPalette.textTertiary : LaxifyPalette.accent
+                                    )
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(device.name)
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .foregroundStyle(LaxifyPalette.textPrimary)
+                                        .lineLimit(1)
+                                    Text(device.appVersion.map { "v\($0)" } ?? "—")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(LaxifyPalette.textTertiary)
+                                }
+
+                                Spacer(minLength: 6)
+
+                                Text(AdminFormat.day.string(from: device.lastSeenAt ?? device.createdAt))
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(LaxifyPalette.textTertiary)
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+
+                            if device.id != activity.devices.last?.id {
+                                SettingsDivider(inset: 38)
+                            }
+                        }
+                    }
+                    .background(
+                        LaxifyPalette.surface,
+                        in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    )
+                }
+            }
+
+            if !activity.searches.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(L("admin.searchesList", "Что искал").uppercased())
+                        .font(.system(size: 11, weight: .heavy))
+                        .tracking(0.6)
+                        .foregroundStyle(LaxifyPalette.textTertiary)
+                        .padding(.horizontal, 4)
+
+                    WordFlowLayout(horizontalSpacing: 6, lineSpacing: 6) {
+                        ForEach(activity.searches, id: \.self) { entry in
+                            Text(entry)
+                                .font(.system(size: 12))
+                                .foregroundStyle(LaxifyPalette.textSecondary)
+                                .lineLimit(1)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(LaxifyPalette.surface, in: Capsule())
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -813,6 +1042,18 @@ private struct AdminUserSheet: View {
                 action: toggleAdmin
             )
 
+            pill(
+                L("admin.logoutAll", "Завершить все сессии"),
+                tint: LaxifyPalette.textPrimary,
+                action: logoutEverywhere
+            )
+
+            pill(
+                L("admin.clearHistory", "Очистить историю"),
+                tint: .orange,
+                action: { showsClearHistory = true }
+            )
+
             if !user.isAdmin {
                 pill(
                     isBanned ? L("admin.unban", "Разблокировать") : L("admin.ban", "Заблокировать"),
@@ -889,6 +1130,22 @@ private struct AdminUserSheet: View {
             try await LaxifyAPI.shared.adminDeleteUser(userId: user.id)
             await onChanged()
             onClose()
+        }
+    }
+
+    /// The gentler cousin of a ban: every session ends, the account stays.
+    private func logoutEverywhere() {
+        run {
+            result = try await LaxifyAPI.shared.adminLogoutEverywhere(userId: user.id)
+            activity = try? await LaxifyAPI.shared.adminActivity(userId: user.id)
+        }
+    }
+
+    private func clearHistory() {
+        run {
+            result = try await LaxifyAPI.shared.adminClearHistory(userId: user.id)
+            stats = try? await LaxifyAPI.shared.adminUserStats(userId: user.id)
+            activity = try? await LaxifyAPI.shared.adminActivity(userId: user.id)
         }
     }
 

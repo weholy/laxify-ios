@@ -119,26 +119,23 @@ struct FavoritesView: View {
                     .foregroundStyle(LaxifyPalette.textSecondary)
             }
 
-            HStack(spacing: 10) {
-                Button {
-                    playAll(shuffled: false)
-                } label: {
-                    Label(L("favorites.listen", "Слушать"), systemImage: "play.fill")
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.laxifyPrimary)
+            // Three glyphs, play in the middle and larger: with the words
+            // gone the row reads as one control with a centre, which is what
+            // it is.
+            HStack(spacing: 22) {
+                CircleGlassButton(
+                    systemImage: "shuffle",
+                    diameter: 52,
+                    accessibilityLabel: L("favorites.shuffle", "Перемешать")
+                ) { playAll(shuffled: true) }
 
-                Button {
-                    playAll(shuffled: true)
-                } label: {
-                    Label(L("favorites.shuffle", "Перемешать"), systemImage: "shuffle")
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.laxifySecondary)
+                CircleGlassButton(
+                    systemImage: "play.fill",
+                    diameter: 66,
+                    glyphSize: 24,
+                    tint: LaxifyPalette.accent,
+                    accessibilityLabel: L("favorites.listen", "Слушать")
+                ) { playAll(shuffled: false) }
 
                 DownloadRingButton(
                     progress: downloads.batchProgress,
@@ -146,6 +143,7 @@ struct FavoritesView: View {
                     action: downloadOrClear
                 )
             }
+            .frame(maxWidth: .infinity)
             .padding(.horizontal, LaxifyMetrics.screenPadding)
         }
         .frame(maxWidth: .infinity)

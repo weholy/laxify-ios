@@ -213,10 +213,23 @@ final class AudioPlayerController {
         let wasCrossfading = isCrossfading
         if wasCrossfading { cancelCrossfade() }
         currentTime = time
-        player?.seek(to: CMTime(seconds: time, preferredTimescale: 600))
+
+        // Remembered until the player actually arrives. A seek is asynchronous
+        // and `currentTime()` reports the old position the whole time it is in
+        // flight — long enough on a streaming asset to see the lyrics keep
+        // highlighting the line you scrubbed away from, and then jump.
+        pendingSeek = time
+
+        player?.seek(to: CMTime(seconds: time, preferredTimescale: 600)) { [weak self] _ in
+            Task { @MainActor in self?.pendingSeek = nil }
+        }
+
         if wasCrossfading { armCrossfadeBoundary() }
         updateNowPlayingInfo()
     }
+
+    /// Where a seek sent the player, until it gets there.
+    private var pendingSeek: TimeInterval?
 
     func setPlaybackRate(_ rate: Double) {
         playbackRate = rate
@@ -290,6 +303,15 @@ final class AudioPlayerController {
 
         let seconds = player.currentTime().seconds
         guard seconds.isFinite, seconds >= 0 else { return currentTime }
+
+        // While a seek is in flight the player's own clock is still reporting
+        // where it was, so anything drawn against it — the lyrics most
+        // visibly — would lag and then snap. Answer with where it is going
+        // until it is close enough that its own clock is the better answer.
+        if let pendingSeek, abs(seconds - pendingSeek) > 0.45 {
+            return pendingSeek
+        }
+
         return seconds
     }
 

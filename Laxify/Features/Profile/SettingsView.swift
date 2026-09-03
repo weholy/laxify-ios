@@ -61,15 +61,21 @@ struct SettingsView: View {
                     accountGroup
                     preferencesGroup
                     actionsGroup
-
-                    footer
-                        .padding(.top, 22)
                 }
                 .padding(.horizontal, LaxifyMetrics.screenPadding)
                 .padding(.top, 10)
                 .padding(.bottom, 40)
             }
             .scrollIndicators(.hidden)
+            // The version and the way to reach us sit on the screen, not in
+            // the list: they are the answer to "what am I running" and "how
+            // do I tell you it's broken", and neither should need scrolling.
+            .safeAreaInset(edge: .bottom) {
+                footer
+                    .padding(.top, 10)
+                    .padding(.bottom, 8)
+                    .background(.ultraThinMaterial)
+            }
 
             // Pinned rather than scrolled away: this is the only way out.
             HStack {
@@ -282,7 +288,7 @@ struct SettingsView: View {
             if user?.isAdmin == true {
                 SettingsLineRow(
                     icon: "crown",
-                    title: L("settings.admin", "VIP-панель"),
+                    title: L("settings.admin", "Випка"),
                     showsChevron: true,
                     tint: Color(hex: 0xFFD60A)
                 ) { page = .admin }

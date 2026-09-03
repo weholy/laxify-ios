@@ -1149,6 +1149,65 @@ actor LaxifyAPI {
         )
     }
 
+    struct AdminPlayRow: Decodable, Sendable, Identifiable {
+        let trackId: String
+        let title: String
+        let artistName: String
+        let playedAt: Date
+        var secondsPlayed: Double = 0
+        var completed = false
+
+        var id: String { trackId + playedAt.description }
+    }
+
+    struct AdminDeviceRow: Decodable, Sendable, Identifiable {
+        let name: String
+        var model: String?
+        var appVersion: String?
+        let createdAt: Date
+        var lastSeenAt: Date?
+        var revoked = false
+
+        var id: String { name + createdAt.description }
+    }
+
+    struct AdminActivityDTO: Decodable, Sendable {
+        var recentPlays: [AdminPlayRow] = []
+        var favorites: [AdminPlayRow] = []
+        var devices: [AdminDeviceRow] = []
+        var searches: [String] = []
+    }
+
+    struct AdminLogRow: Decodable, Sendable, Identifiable {
+        let id: String
+        var actor: String?
+        let action: String
+        var targetId: String?
+        let createdAt: Date
+    }
+
+    func adminActivity(userId: String) async throws -> AdminActivityDTO {
+        try await send("/admin/users/\(escaped(userId))/activity", method: "GET")
+    }
+
+    func adminLogoutEverywhere(userId: String) async throws -> String {
+        let response: MessageResponse = try await send(
+            "/admin/users/\(escaped(userId))/logout", method: "POST"
+        )
+        return response.detail
+    }
+
+    func adminClearHistory(userId: String) async throws -> String {
+        let response: MessageResponse = try await send(
+            "/admin/users/\(escaped(userId))/history", method: "DELETE"
+        )
+        return response.detail
+    }
+
+    func adminLog(limit: Int = 100) async throws -> [AdminLogRow] {
+        try await send("/admin/log?limit=\(limit)", method: "GET")
+    }
+
     // MARK: Profile likes & linked accounts
 
     struct ProfileLikeDTO: Decodable, Sendable {

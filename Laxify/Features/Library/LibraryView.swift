@@ -6,11 +6,9 @@ import SwiftData
 /// liked-tracks screen in place; picking a playlist opens it full-screen.
 struct LibraryView: View {
     @Query private var favorites: [FavoriteTrack]
-    @Query private var downloaded: [DownloadedTrack]
     var store = PlaylistStore.shared
 
     @State private var showsFavorites = false
-    @State private var showsDownloads = false
     @State private var selected: PlaylistDTO?
     @State private var isCreatePresented = false
     @State private var renaming: PlaylistDTO?
@@ -33,9 +31,6 @@ struct LibraryView: View {
         .task { await store.loadIfNeeded() }
         .fullScreenCover(item: $selected) { playlist in
             UserPlaylistView(playlist: playlist) { selected = nil }
-        }
-        .fullScreenCover(isPresented: $showsDownloads) {
-            DownloadsView { showsDownloads = false }
         }
         .sheet(isPresented: $isCreatePresented) {
             CreatePlaylistSheet { isCreatePresented = false }
@@ -121,7 +116,6 @@ struct LibraryView: View {
         ScrollView {
             VStack(spacing: 10) {
                 likedTile
-                downloadedTile
 
                 if !store.playlists.isEmpty {
                     HStack {
@@ -173,51 +167,6 @@ struct LibraryView: View {
                 .compactMap(\.coverURL)
                 .prefix(4)
         )
-    }
-
-    /// Sits under the liked tile because it answers the same kind of question
-    /// — "what have I got?" — and because it is the one list that still works
-    /// with the network off.
-    private var downloadedTile: some View {
-        Button {
-            showsDownloads = true
-        } label: {
-            HStack(spacing: 12) {
-                LinearGradient(
-                    colors: [Color(hex: 0x2E9E63), Color(hex: 0x1E7A6B)],
-                    startPoint: .topLeading, endPoint: .bottomTrailing
-                )
-                .overlay {
-                    Image(systemName: "arrow.down")
-                        .font(.system(size: 19, weight: .bold))
-                        .foregroundStyle(.white)
-                }
-                .frame(width: 46, height: 46)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(L("downloads.title", "Скачано"))
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(LaxifyPalette.textPrimary)
-                    Text("\(downloaded.count) \(Self.tracksWord(downloaded.count))")
-                        .font(LaxifyTypography.caption)
-                        .foregroundStyle(LaxifyPalette.textSecondary)
-                }
-
-                Spacer()
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(LaxifyPalette.textTertiary)
-            }
-            .padding(10)
-            .background(
-                LaxifyPalette.surface,
-                in: RoundedRectangle(cornerRadius: LaxifyMetrics.cardCornerRadius, style: .continuous)
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 
     private var likedTile: some View {
