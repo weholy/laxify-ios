@@ -251,6 +251,17 @@ struct AdminPanelView: View {
                 if let failure { notice(failure) }
 
                 if let stats {
+                    // The two numbers an operator actually opens this for,
+                    // given the room they deserve: how many people there are,
+                    // and how many of them came back this week. Everything
+                    // else is detail underneath.
+                    AdminHeadline(
+                        total: stats.usersTotal,
+                        activeWeek: stats.usersActive7d,
+                        activeDay: stats.usersActive24h,
+                        newToday: stats.usersToday
+                    )
+
                     AdminStatGrid(
                         title: L("admin.people", "Люди"),
                         items: [
@@ -385,6 +396,97 @@ struct AdminStat: Identifiable {
 
     init(_ title: String, _ value: Int) {
         self.title = title
+
+/// The top of the overview: the whole service in one card.
+///
+/// Two figures carry it. The total says how big this is; the share that came
+/// back this week says whether it is alive — a thousand accounts of which
+/// twelve return is a very different service from a hundred of which sixty do,
+/// and a grid of equal-weight numbers hides that difference completely.
+private struct AdminHeadline: View {
+    let total: Int
+    let activeWeek: Int
+    let activeDay: Int
+    let newToday: Int
+
+    private var share: Double {
+        guard total > 0 else { return 0 }
+        return min(Double(activeWeek) / Double(total), 1)
+    }
+
+    var body: some View {
+        VStack(spacing: 18) {
+            VStack(spacing: 2) {
+                Text("\(total)")
+                    .font(.system(size: 52, weight: .heavy, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(LaxifyPalette.textPrimary)
+                    .contentTransition(.numericText())
+
+                Text(L("admin.usersTotal", "Всего аккаунтов"))
+                    .font(.system(size: 13))
+                    .foregroundStyle(LaxifyPalette.textSecondary)
+            }
+
+            // The bar is the point: a proportion read at a glance, rather than
+            // two numbers the reader has to divide themselves.
+            VStack(spacing: 6) {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(LaxifyPalette.separator)
+
+                        Capsule()
+                            .fill(
+                                LinearGradient(
+                                    colors: [LaxifyPalette.accent, Color(hex: 0x5AC8FA)],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                            .frame(width: max(6, geo.size.width * share))
+                            .animation(.spring(response: 0.6, dampingFraction: 0.85), value: share)
+                    }
+                }
+                .frame(height: 10)
+
+                HStack {
+                    Text("\(activeWeek) \(L("admin.active7d", "за неделю"))")
+                        .foregroundStyle(LaxifyPalette.accent)
+                    Spacer()
+                    Text("\(Int((share * 100).rounded()))%")
+                        .foregroundStyle(LaxifyPalette.textSecondary)
+                        .monospacedDigit()
+                }
+                .font(.system(size: 12, weight: .semibold))
+            }
+
+            HStack(spacing: 0) {
+                pill(L("admin.active24h", "За сутки"), activeDay)
+                Divider().frame(height: 30).overlay(LaxifyPalette.separator)
+                pill(L("admin.usersToday", "Новых"), newToday)
+            }
+        }
+        .padding(20)
+        .background(
+            LaxifyPalette.surface,
+            in: RoundedRectangle(cornerRadius: 24, style: .continuous)
+        )
+    }
+
+    private func pill(_ title: String, _ value: Int) -> some View {
+        VStack(spacing: 3) {
+            Text("\(value)")
+                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(LaxifyPalette.textPrimary)
+            Text(title)
+                .font(.system(size: 11))
+                .foregroundStyle(LaxifyPalette.textSecondary)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
         self.value = value
     }
 }

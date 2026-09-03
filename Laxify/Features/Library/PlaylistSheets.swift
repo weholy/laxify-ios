@@ -1,86 +1,5 @@
 import SwiftUI
 
-/// Name a new playlist and choose whether anyone can see it.
-struct CreatePlaylistSheet: View {
-    var onDone: () -> Void
-    var seed: [Song] = []
-
-    var store = PlaylistStore.shared
-
-    @State private var name = ""
-    /// Playlists are private. The choice existed, nobody used it, and a
-    /// switch that changes who can see something is not a good default.
-    private let isPublic = false
-    @State private var isBusy = false
-    @FocusState private var focused: Bool
-
-    var body: some View {
-        ZStack {
-            LaxifyPalette.background.ignoresSafeArea()
-
-            VStack(alignment: .leading, spacing: 24) {
-                HStack {
-                    Text(L("library.newPlaylist", "Новый плейлист"))
-                        .font(.system(size: 26, weight: .heavy))
-                        .foregroundStyle(LaxifyPalette.textPrimary)
-                    Spacer()
-                    Button(action: onDone) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(LaxifyPalette.textPrimary)
-                            .frame(width: 40, height: 40)
-                    }
-                    .buttonStyle(.plain)
-                    .laxGlassCircle(interactive: true)
-                }
-
-                TextField(L("playlist.nameTitle", "Название плейлиста"), text: $name)
-                    .font(.system(size: 17))
-                    .focused($focused)
-                    .padding(16)
-                    .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: LaxifyMetrics.cardCornerRadius, style: .continuous))
-
-                if !seed.isEmpty {
-                    Text("\(L("playlist.willAdd", "Будет добавлено треков")): \(seed.count)")
-                        .font(LaxifyTypography.footnote)
-                        .foregroundStyle(LaxifyPalette.textSecondary)
-                }
-
-                Spacer()
-
-                Button {
-                    create()
-                } label: {
-                    HStack(spacing: 8) {
-                        if isBusy { ProgressView().tint(.white) }
-                        Text(L("playlist.create", "Создать"))
-                            .font(.system(size: 17, weight: .bold))
-                            .foregroundStyle(.white)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                }
-                .buttonStyle(.plain)
-                .glassEffect(.regular.tint(LaxifyPalette.accent).interactive(), in: .capsule)
-                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || isBusy)
-                .opacity(name.trimmingCharacters(in: .whitespaces).isEmpty ? 0.5 : 1)
-            }
-            .padding(.horizontal, LaxifyMetrics.screenPadding)
-            .padding(.top, 22)
-            .padding(.bottom, 20)
-        }
-        .onAppear { focused = true }
-    }
-
-    private func create() {
-        isBusy = true
-        Task {
-            _ = await store.create(title: name, isPublic: isPublic, seed: seed)
-            isBusy = false
-            onDone()
-        }
-    }
-}
 
 /// Drop one or more tracks into a playlist — pick an existing one or make a
 /// new one on the spot. Modelled on Apple Music's "Add to a Playlist": what
@@ -94,10 +13,10 @@ struct AddToPlaylistSheet: View {
 
     @State private var addedTo: Set<String> = []
     @State private var isCreatePresented = false
+    @State private var newName = ""
 
     var body: some View {
         ZStack {
-            LaxifyPalette.background.ignoresSafeArea()
 
             VStack(spacing: 0) {
                 header
@@ -132,10 +51,26 @@ struct AddToPlaylistSheet: View {
             }
         }
         .task { await store.loadIfNeeded() }
-        .sheet(isPresented: $isCreatePresented) {
-            CreatePlaylistSheet(onDone: {
-                isCreatePresented = false
-            }, seed: songs)
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+        .presentationBackground(.regularMaterial)
+        // A sheet on top of a sheet to type one word was the worst part of
+        // this screen. The system's prompt takes the name and the playlist is
+        // created with the track already in it.
+        .alert(L("library.newPlaylist", "Новый плейлист"), isPresented: $isCreatePresented) {
+            TextField(L("playlist.nameTitle", "Название плейлиста"), text: $newName)
+
+            Button(L("common.cancel", "Отмена"), role: .cancel) { newName = "" }
+            Button(L("playlist.create", "Создать")) {
+                let title = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+                newName = ""
+                guard !title.isEmpty else { return }
+                Task {
+                    if let created = await store.create(title: title, isPublic: false, seed: songs) {
+                        addedTo.insert(created.id)
+                    }
+                }
+            }
         }
     }
 
@@ -161,35 +96,35 @@ struct AddToPlaylistSheet: View {
         .padding(.bottom, 12)
     }
 
-    /// What's being added — cover + title, or "N треков" for a batch.
+    /// The track is the subject of this screen, so it is shown as one — big
+    /// cover, centred, with its own name under it. The old version was a
+    /// 40pt thumbnail in a corner, which read as a breadcrumb rather than as
+    /// "this is the thing you are filing".
     @ViewBuilder
     private var nowAdding: some View {
         if let first = songs.first {
-            HStack(spacing: 12) {
-                AsyncCoverImage(url: first.coverURL, cornerRadius: 10, displaySize: 84)
-                    .frame(width: 40, height: 40)
+            VStack(spacing: 12) {
+                AsyncCoverImage(url: first.coverURL, cornerRadius: 18, displaySize: 300)
+                    .frame(width: 132, height: 132)
+                    .shadow(color: .black.opacity(0.35), radius: 20, y: 10)
 
-                if songs.count == 1 {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(first.title)
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(LaxifyPalette.textPrimary)
-                            .lineLimit(1)
+                VStack(spacing: 3) {
+                    Text(songs.count == 1 ? first.title : "\(songs.count) \(PlaylistCard.tracksWord(songs.count))")
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(LaxifyPalette.textPrimary)
+                        .lineLimit(1)
+
+                    if songs.count == 1 {
                         Text(first.artistName)
-                            .font(.system(size: 12))
+                            .font(.system(size: 13))
                             .foregroundStyle(LaxifyPalette.textSecondary)
                             .lineLimit(1)
                     }
-                } else {
-                    Text("\(songs.count) \(PlaylistCard.tracksWord(songs.count))")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(LaxifyPalette.textPrimary)
                 }
-
-                Spacer()
             }
+            .frame(maxWidth: .infinity)
             .padding(.horizontal, LaxifyMetrics.screenPadding)
-            .padding(.bottom, 14)
+            .padding(.bottom, 22)
         }
     }
 
