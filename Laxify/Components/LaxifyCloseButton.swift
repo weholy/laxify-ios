@@ -29,6 +29,16 @@ struct LaxifyCloseButton: View {
 
     private let diameter: CGFloat = 46
 
+    /// Deliberately **not** interactive glass.
+    ///
+    /// `.interactive()` installs its own gesture recogniser, and inside a
+    /// scrolling view that recogniser and the scroll gesture fight over the
+    /// tap — the scroll usually wins. Four screens put this button in a
+    /// scroll view (a playlist opened from search, an artist, one of your own
+    /// playlists, search itself) and on all four the button only answered
+    /// occasionally, or not at all. Plain glass has no recogniser of its own,
+    /// so the button behaves like a button; the press feedback comes from
+    /// `PressableStyle`, which was already here.
     var body: some View {
         Button(action: action) {
             Image(systemName: style.symbol)
@@ -36,9 +46,7 @@ struct LaxifyCloseButton: View {
                 .foregroundStyle(tinted ? .white : LaxifyPalette.textPrimary)
                 .frame(width: diameter, height: diameter)
                 .glassEffect(
-                    tinted
-                        ? .regular.tint(LaxifyPalette.accent).interactive()
-                        : .regular.interactive(),
+                    tinted ? .regular.tint(LaxifyPalette.accent) : .regular,
                     in: Circle()
                 )
                 .contentShape(Circle())

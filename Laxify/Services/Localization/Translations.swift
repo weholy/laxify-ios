@@ -158,6 +158,7 @@ enum Translations {
         ("playlist.addTo", "В плейлист"),
         ("playlist.addTo.empty", "Плейлистов пока нет — создайте первый"),
 
+        ("player.pause", "Пауза"),
         ("player.addToPlaylist", "Добавить в плейлист"),
         ("player.notInterested", "Не интересно"),
         ("player.share", "Поделиться"),
@@ -476,6 +477,7 @@ enum Translations {
         ("playlist.addTo", "Add to playlist"),
         ("playlist.addTo.empty", "No playlists yet — create the first one"),
 
+        ("player.pause", "Pause"),
         ("player.addToPlaylist", "Add to playlist"),
         ("player.notInterested", "Not interested"),
         ("player.share", "Share"),

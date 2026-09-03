@@ -39,15 +39,16 @@ struct SearchView: View {
         .task {
             await viewModel.loadBrowseIfNeeded()
         }
+        // Typing offers completions and nothing else. The search itself waits
+        // for the Search key — searching on a timer meant the suggestions you
+        // were reading were replaced, mid-read, by results for a half-typed
+        // word, and every keystroke cost a round trip.
         .task(id: trimmedQuery) {
             guard !trimmedQuery.isEmpty else {
                 viewModel.clearResults()
                 return
             }
             viewModel.updateSuggestions(for: trimmedQuery)
-            try? await Task.sleep(for: .milliseconds(450))
-            guard !Task.isCancelled else { return }
-            await viewModel.search(query: trimmedQuery)
         }
         .onAppear { isFocused = true }
         .fullScreenCover(isPresented: Binding(

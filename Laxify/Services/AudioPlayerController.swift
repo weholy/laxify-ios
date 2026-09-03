@@ -350,7 +350,20 @@ final class AudioPlayerController {
         errorMessage = nil
         teardownPlayer()
 
+        // The session goes live before the fetch, not after it. Until iOS has
+        // been told this app is about to make sound, leaving the app during
+        // the fetch suspends it — which is why tapping play and immediately
+        // going to the home screen produced silence, while waiting for the
+        // first note and then leaving worked.
+        configureAudioSession()
+
         Task {
+            // And an assertion to actually finish the fetch in the background.
+            // Without it the network task is killed mid-flight; with it iOS
+            // grants the seconds it takes to reach the first note.
+            let assertion = BackgroundAssertion("track-start")
+            defer { assertion.end() }
+
             var trace = Trace("запуск трека", context: ["track": song.id])
 
             do {
@@ -471,7 +484,11 @@ final class AudioPlayerController {
         // A saved copy first, always. It starts instantly, it costs nothing,
         // and it is the only thing that plays when there is no network at all
         // — which is the entire point of having downloaded it.
-        if let local = DownloadManager.localURL(for: trackId) {
+        //
+        // Then whatever was kept from an earlier listen. Same benefit, no
+        // decision asked of anyone: a track heard once starts immediately the
+        // next time.
+        if let local = DownloadManager.localURL(for: trackId) ?? AudioCache.localURL(for: trackId) {
             let asset = AVURLAsset(url: local)
             return (AVPlayerItem(asset: asset), nil)
         }
@@ -563,6 +580,13 @@ final class AudioPlayerController {
                 }
                 self.currentTime = time.seconds
                 self.maybeStartCrossfade()
+
+                // Half a minute in, this counts as a listen: keep a copy so
+                // the next play starts instantly. Cheap to ask — it returns
+                // immediately once the track is already here.
+                if let song = self.currentSong {
+                    AudioCache.note(song, playedFor: time.seconds)
+                }
 
                 // Keep the lock-screen / Control Center scrubber honest — it
                 // otherwise runs on its own clock between the sparse

@@ -8,6 +8,7 @@ struct FavoritesView: View {
     @State private var showsClearDownloads = false
 
     var downloads = DownloadManager.shared
+    var player = AudioPlayerController.shared
 
     enum SortOption: String, CaseIterable {
         case recent
@@ -130,12 +131,14 @@ struct FavoritesView: View {
                 ) { playAll(shuffled: true) }
 
                 CircleGlassButton(
-                    systemImage: "play.fill",
+                    systemImage: isPlayingHere ? "pause.fill" : "play.fill",
                     diameter: 66,
                     glyphSize: 24,
                     tint: LaxifyPalette.accent,
-                    accessibilityLabel: L("favorites.listen", "Слушать")
-                ) { playAll(shuffled: false) }
+                    accessibilityLabel: isPlayingHere
+                        ? L("player.pause", "Пауза")
+                        : L("favorites.listen", "Слушать")
+                ) { playOrPause() }
 
                 DownloadRingButton(
                     progress: downloads.batchProgress,
@@ -256,6 +259,30 @@ struct FavoritesView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 100)
+    }
+
+    /// Whether what is playing right now came from this list.
+    ///
+    /// Asked of the current track rather than of a flag we set ourselves: the
+    /// player can be started from anywhere — a row here, the wave, a search —
+    /// and the button has to tell the truth about all of them.
+    private var isPlayingHere: Bool {
+        guard player.isPlaying, let current = player.currentSong else { return false }
+        return allFavorites.contains { $0.id == current.id }
+    }
+
+    private func playOrPause() {
+        if isPlayingHere {
+            player.togglePlayPause()
+        } else if let current = player.currentSong,
+                  !player.isPlaying,
+                  allFavorites.contains(where: { $0.id == current.id }) {
+            // Paused on a track from this list: resume it rather than start
+            // the list over from the top.
+            player.togglePlayPause()
+        } else {
+            playAll(shuffled: false)
+        }
     }
 
     private func playAll(shuffled: Bool) {

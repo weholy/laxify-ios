@@ -10,10 +10,27 @@ struct PlaylistDetailView: View {
     }
 
     var body: some View {
+        // The header sits outside the scroll view, the way the profile and
+        // settings screens already do it: layered over one, its button caught
+        // only the taps the scroll gesture did not want first.
+        VStack(spacing: 0) {
+            header
+                .padding(.horizontal, LaxifyMetrics.screenPadding)
+                .padding(.top, 12)
+                .padding(.bottom, 8)
+
+            scrollBody
+        }
+        .background(LaxifyPalette.background.ignoresSafeArea())
+        .task {
+            await viewModel.loadIfNeeded()
+        }
+        .withMiniPlayer()
+    }
+
+    private var scrollBody: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: LaxifyMetrics.sectionSpacing) {
-                header
-
                 if let errorMessage = viewModel.errorMessage {
                     Text(errorMessage)
                         .font(LaxifyTypography.body)
@@ -39,11 +56,6 @@ struct PlaylistDetailView: View {
             .padding(.top, 12)
             .padding(.bottom, LaxifyMetrics.miniPlayerHeight + 40)
         }
-        .background(LaxifyPalette.background.ignoresSafeArea())
-        .task {
-            await viewModel.loadIfNeeded()
-        }
-        .withMiniPlayer()
     }
 
     private var header: some View {

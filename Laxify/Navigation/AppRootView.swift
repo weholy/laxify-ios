@@ -29,6 +29,9 @@ struct AppRootView: View {
             session.modelContext = modelContext
             AudioPlayerController.shared.modelContext = modelContext
             DownloadManager.shared.modelContext = modelContext
+            // Once a week the kept-from-listening copies go, so nothing
+            // stale outlives a source that has moved on.
+            AudioCache.sweepIfDue()
             // Read what is already on disk before anything can ask, so a row
             // never shows "not downloaded" for a file that is right there.
             DownloadManager.shared.refreshSaved()

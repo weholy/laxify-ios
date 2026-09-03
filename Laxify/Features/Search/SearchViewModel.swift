@@ -8,9 +8,10 @@ final class SearchViewModel {
     private(set) var isSearching = false
     private(set) var hasError = false
 
-    // The browse surface shown before anyone searches.
-    private(set) var popular: [Song] = []
-    private(set) var categories: [MusicCategory] = []
+    // The browse surface shown before anyone searches. Seeded from disk so
+    // the screen has something on its first frame instead of a spinner.
+    private(set) var popular: [Song] = BrowseCache.loadPopular()
+    private(set) var categories: [MusicCategory] = BrowseCache.loadCategories()
     private(set) var categoryCovers: [String: URL] = [:]
     private(set) var isLoadingBrowse = false
 
@@ -24,17 +25,30 @@ final class SearchViewModel {
         self.service = service
     }
 
-    /// Popular tracks and categories, loaded once per screen.
+    /// Popular tracks and categories.
+    ///
+    /// Runs even when the cache already filled the screen — it just refreshes
+    /// behind what is already drawn instead of replacing it with a spinner.
     func loadBrowseIfNeeded() async {
-        guard popular.isEmpty, categories.isEmpty, !isLoadingBrowse else { return }
+        guard !isLoadingBrowse else { return }
         isLoadingBrowse = true
         defer { isLoadingBrowse = false }
 
         async let popularResult = service.popularTracks()
         async let categoriesResult = service.categories()
 
-        popular = (try? await popularResult) ?? []
-        categories = (try? await categoriesResult) ?? []
+        let freshPopular = (try? await popularResult) ?? []
+        let freshCategories = (try? await categoriesResult) ?? []
+
+        // Nothing came back: keep whatever the cache gave us rather than
+        // blanking a screen that was already useful.
+        if !freshPopular.isEmpty { popular = freshPopular }
+        if !freshCategories.isEmpty { categories = freshCategories }
+
+        if !freshPopular.isEmpty || !freshCategories.isEmpty {
+            BrowseCache.save(popular: popular, categories: categories)
+        }
+
         AsyncCoverImage.prefetchCovers(for: popular, width: 150)
 
         await loadCategoryCovers()
