@@ -10,11 +10,21 @@ import AVKit
 /// invisible and high enough that UIKit still hit-tests it: the headphones are
 /// what you see, the system sheet is what you get.
 struct AirPlayRouteButton: View {
+    /// What is playing the sound right now, so the glyph can say so.
+    ///
+    /// The route sheet is the same one either way — it lists Bluetooth
+    /// headphones, speakers and the phone itself — but a button that always
+    /// showed headphones read as AirPlay. Showing the *current* route, and
+    /// tinting it when the sound has left the phone, makes it obvious that
+    /// this is where devices are chosen.
+    @State private var route = OutputRoute.current()
+
     var body: some View {
         ZStack {
-            Image(systemName: "headphones")
+            Image(systemName: route.symbol)
                 .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.75))
+                .foregroundStyle(route.isExternal ? LaxifyPalette.accent : .white.opacity(0.75))
+                .contentTransition(.symbolEffect(.replace))
 
             RoutePicker()
                 // Below 0.01 UIKit stops delivering touches.
@@ -22,7 +32,50 @@ struct AirPlayRouteButton: View {
         }
         .frame(width: 40, height: 40)
         .contentShape(Rectangle())
-        .accessibilityLabel(L("player.output", "Устройство вывода"))
+        .accessibilityLabel(route.name)
+        .onReceive(
+            NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification)
+        ) { _ in
+            withAnimation(.snappy(duration: 0.25)) { route = OutputRoute.current() }
+        }
+    }
+}
+
+/// Where the sound is going, in the two terms the button needs.
+struct OutputRoute {
+    let symbol: String
+    let name: String
+    let isExternal: Bool
+
+    @MainActor
+    static func current() -> OutputRoute {
+        let outputs = AVAudioSession.sharedInstance().currentRoute.outputs
+
+        guard let output = outputs.first else {
+            return OutputRoute(
+                symbol: "headphones",
+                name: L("player.output", "Устройство вывода"),
+                isExternal: false
+            )
+        }
+
+        switch output.portType {
+        case .bluetoothA2DP, .bluetoothHFP, .bluetoothLE:
+            return OutputRoute(symbol: "headphones", name: output.portName, isExternal: true)
+        case .airPlay:
+            return OutputRoute(symbol: "airplayaudio", name: output.portName, isExternal: true)
+        case .headphones, .usbAudio:
+            return OutputRoute(symbol: "headphones", name: output.portName, isExternal: true)
+        case .carAudio:
+            return OutputRoute(symbol: "car.fill", name: output.portName, isExternal: true)
+        default:
+            // The phone's own speaker: offer the sheet rather than announce it.
+            return OutputRoute(
+                symbol: "airpods.gen3",
+                name: L("player.output", "Устройство вывода"),
+                isExternal: false
+            )
+        }
     }
 }
 

@@ -220,8 +220,10 @@ struct LyricsView: View {
         if isActive && wordByWord {
             // Real timestamps from the source: safe to fill word by word.
             let words = text.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
-            let progress = viewModel.lineProgress(at: time)
-            let spoken = progress * Double(words.count)
+            // Weighted by word length rather than split evenly: "I" and
+            // "everything" take very different amounts of time to sing, and a
+            // uniform split drifts visibly across any long line.
+            let spoken = viewModel.spokenWordCount(in: words, at: time)
 
             WordFlowLayout(horizontalSpacing: 7, lineSpacing: 6) {
                 ForEach(Array(words.enumerated()), id: \.offset) { index, word in

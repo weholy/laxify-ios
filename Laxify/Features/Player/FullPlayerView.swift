@@ -11,6 +11,7 @@ struct FullPlayerView: View {
     var player = AudioPlayerController.shared
 
     @State private var isLyricsPresented = false
+    @Namespace private var lyricsZoom
     @State private var isAddToPlaylistPresented = false
     @State private var selectedArtistId: String?
     @State private var palette: ArtworkPalette = .neutral
@@ -56,8 +57,12 @@ struct FullPlayerView: View {
         .task(id: player.currentSong?.id) {
             palette = await PaletteExtractor.shared.palette(for: player.currentSong?.coverURL)
         }
+        // Grows out of the glyph that opened it and shrinks back into it,
+        // the same way the full player does from the mini player. A sheet
+        // that slides up from nowhere loses the thread of where you were.
         .sheet(isPresented: $isLyricsPresented) {
             LyricsView()
+                .navigationTransition(.zoom(sourceID: "lyrics", in: lyricsZoom))
         }
         .sheet(isPresented: $isAddToPlaylistPresented) {
             if let song = player.currentSong {
@@ -198,6 +203,7 @@ struct FullPlayerView: View {
     private var bottomIconRow: some View {
         HStack(spacing: 0) {
             glyphButton("text.alignleft") { isLyricsPresented = true }
+                .matchedTransitionSource(id: "lyrics", in: lyricsZoom)
                 .frame(maxWidth: .infinity)
 
             AirPlayRouteButton()
