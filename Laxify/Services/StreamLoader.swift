@@ -41,7 +41,10 @@ final class StreamLoader: NSObject, @unchecked Sendable {
 
     private lazy var session: URLSession = {
         let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = 40
+        // Forty seconds of nothing before this gave up, on top of whatever
+        // the resolve step already cost — long enough that a listener who
+        // had given up and locked the phone was gone well before it did.
+        configuration.timeoutIntervalForRequest = 18
         // One connection carrying the whole file is the entire point.
         configuration.httpMaximumConnectionsPerHost = 1
         configuration.waitsForConnectivity = false

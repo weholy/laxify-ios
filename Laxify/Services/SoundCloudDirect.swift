@@ -50,6 +50,12 @@ actor SoundCloudDirect {
     private var clientIdFetchedAt: Date?
     private var clientIdTask: Task<String?, Never>?
 
+    /// Tracks whose listed upload will not stream, mapped to the upload of
+    /// the same recording that will. Filled as they are found, kept for the
+    /// launch — the catalogue keeps handing out the same dead ids, and there
+    /// is no reason to rediscover the same answer on every play.
+    private var substitutions: [String: String] = [:]
+
     private let session: URLSession = {
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = 20
@@ -421,16 +427,65 @@ actor SoundCloudDirect {
 
     /// A playable url, resolved here so the signature is issued for this
     /// device rather than for a server somewhere else.
+    ///
+    /// The upload the catalogue points at is not always the one that plays.
+    /// The source serves some uploads — typically the label's own, which is
+    /// also the one search ranks first — as FairPlay-encrypted HLS only:
+    /// `progressive` and plain `hls` stay listed, but both resolve to a bare
+    /// 404, and the encrypted variants need a licence only the source's own
+    /// app can obtain. The same song is almost always up several times over,
+    /// though, and the other copies stream normally. So a dead upload is not
+    /// a dead song: when the listed one refuses, the same recording is found
+    /// among the rest and played from there.
     func streamURL(for trackId: String) async throws -> URL {
+        // A substitution found earlier in this launch is reused directly:
+        // the url itself expires and cannot be kept, but knowing *which*
+        // upload to open saves the failed resolve and the search behind it
+        // every time the track comes round again.
+        if let known = substitutions[trackId],
+           let cached = try? await track(known),
+           let url = await resolveStream(of: cached, trackId: known) {
+            return url
+        }
+
         let track = try await track(trackId)
 
+        if let url = await resolveStream(of: track, trackId: trackId) {
+            return url
+        }
+
+        if let substitute = await substituteStream(for: track, excluding: trackId) {
+            return substitute
+        }
+
+        let transcodings = track.media?.transcodings ?? []
+        let hasEncryptedOnly = transcodings.contains {
+            ($0.format?.protocol_ ?? "").contains("encrypted")
+        }
+
+        RemoteLog.shared.error(
+            hasEncryptedOnly
+                ? "источник: заливка защищена и замены не нашлось"
+                : "источник: ни один вариант не открылся",
+            category: "source",
+            context: [
+                "track": trackId,
+                "title": track.title ?? "-",
+                "всего_вариантов": "\(transcodings.count)"
+            ]
+        )
+        throw hasEncryptedOnly ? MusicServiceError.drmProtected : MusicServiceError.notFound
+    }
+
+    /// Opens one upload, or returns nil if none of its variants answer.
+    private func resolveStream(of track: SCItem, trackId: String) async -> URL? {
         guard let transcodings = track.media?.transcodings, !transcodings.isEmpty else {
-            RemoteLog.shared.error(
+            RemoteLog.shared.warn(
                 "источник: у трека нет вариантов потока",
                 category: "source",
                 context: ["track": trackId, "policy": track.policy ?? "-"]
             )
-            throw MusicServiceError.notFound
+            return nil
         }
 
         // Progressive MP3 first: it plays directly and supports seeking.
@@ -467,12 +522,91 @@ actor SoundCloudDirect {
             return url
         }
 
-        RemoteLog.shared.error(
-            "источник: ни один вариант не открылся",
-            category: "source",
-            context: ["track": trackId, "variants": "\(ranked.count)"]
-        )
-        throw MusicServiceError.notFound
+        return nil
+    }
+
+    /// Finds another upload of the same recording and opens that instead.
+    ///
+    /// Matched on length before anything else: a re-upload of the same master
+    /// is within a second or two, while an acoustic version, a sped-up edit or
+    /// a remix — all of which sit right next to the original in search — are
+    /// not. Title has to look like the same song too, so a different track
+    /// from the same artist cannot quietly take its place.
+    private func substituteStream(for track: SCItem, excluding trackId: String) async -> URL? {
+        guard let title = track.title else { return nil }
+
+        let wanted = (track.fullDuration ?? track.duration) ?? 0
+        guard wanted > 0 else { return nil }
+
+        let artist = track.publisherMetadata?.artist ?? track.user?.username ?? ""
+        let query = "\(artist) \(title)".trimmingCharacters(in: .whitespaces)
+
+        guard let page: SCPage<SCItem> = try? await decode(
+            SCPage<SCItem>.self,
+            "search/tracks",
+            query: [
+                URLQueryItem(name: "q", value: query),
+                URLQueryItem(name: "limit", value: "12")
+            ]
+        ) else { return nil }
+
+        let target = Self.matchKey(title)
+
+        for candidate in page.collection {
+            guard let id = candidate.id.map(String.init), id != trackId,
+                  let candidateTitle = candidate.title,
+                  candidate.policy != "BLOCK", candidate.streamable != false
+            else { continue }
+
+            // Five seconds, measured against what the source actually
+            // returns: genuine re-uploads of one master come back between
+            // 0.03s and 3s apart (different trailing silence, different
+            // encoder), while the nearest thing that is *not* the same
+            // recording — a mash-up — is 10s out, and acoustic takes and
+            // remixes are 15s and beyond. The gap between the two groups is
+            // wide, so the line goes in the middle of it rather than at the
+            // edge of the first, which was throwing away good copies.
+            let length = (candidate.fullDuration ?? candidate.duration) ?? 0
+            guard abs(length - wanted) <= 5000 else { continue }
+            guard Self.matchKey(candidateTitle).contains(target) || target.contains(Self.matchKey(candidateTitle)) else { continue }
+
+            guard let url = await resolveStream(of: candidate, trackId: id) else { continue }
+
+            substitutions[trackId] = id
+
+            RemoteLog.shared.info(
+                "источник: играем другую заливку",
+                category: "source",
+                context: [
+                    "вместо": trackId,
+                    "играем": id,
+                    "title": candidateTitle,
+                    "залил": candidate.user?.username ?? "-"
+                ]
+            )
+            return url
+        }
+
+        return nil
+    }
+
+    /// A title reduced to what identifies the song: lowercase letters and
+    /// digits, with the artist prefix, feature credits and bracketed asides
+    /// that re-uploaders add or drop at will taken out.
+    private static func matchKey(_ title: String) -> String {
+        var text = title.lowercased()
+
+        for pattern in [#"\([^)]*\)"#, #"\[[^\]]*\]"#] {
+            text = text.replacingOccurrences(of: pattern, with: " ", options: .regularExpression)
+        }
+
+        // "Моргенштерн - ДОМ" and "ДОМ" are the same song filed two ways.
+        if let dash = text.range(of: " - ") {
+            text = String(text[dash.upperBound...])
+        }
+
+        return text
+            .replacingOccurrences(of: #"[^\p{L}\p{N}]"#, with: "", options: .regularExpression)
     }
 }
 

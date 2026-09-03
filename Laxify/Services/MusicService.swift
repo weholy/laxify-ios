@@ -4,6 +4,13 @@ enum MusicServiceError: Error {
     case missingAccessKey
     case notFound
     case regionBlocked
+    /// The source now serves this track only as FairPlay-encrypted HLS —
+    /// `progressive` and plain `hls` both resolve to a bare 404, and the
+    /// encrypted variants need a licence exchange only the source's own app
+    /// holds the certificate for. Not a bug to retry: no client outside the
+    /// source can complete that exchange, so this is permanent for this
+    /// track until the source itself changes what it serves.
+    case drmProtected
     case underlying(Error)
 }
 
@@ -17,6 +24,15 @@ extension Error {
         // The package surfaces the upstream status inside its own error type,
         // so the code is only reachable through the description.
         return "\(self)".contains("451")
+    }
+
+    /// True when the track itself is the reason nothing plays, not the
+    /// network or this app — see `MusicServiceError.drmProtected`.
+    var isDRMProtected: Bool {
+        if let serviceError = self as? MusicServiceError, case .drmProtected = serviceError {
+            return true
+        }
+        return false
     }
 }
 

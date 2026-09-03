@@ -401,8 +401,17 @@ final class AudioPlayerController {
             // And an assertion to actually finish the fetch in the background.
             // Without it the network task is killed mid-flight; with it iOS
             // grants the seconds it takes to reach the first note.
+            //
+            // Held past this function, not released by a `defer` here: it
+            // used to end the moment this closure returned, which was right
+            // after handing the item to `awaitPlayback` and not after that
+            // watchdog actually finished. Lock the phone in the gap — the
+            // most ordinary thing to do right after tapping play — and iOS
+            // suspended the process with nothing left telling it not to, so
+            // a wait bounded at thirty-odd seconds only resumed counting once
+            // the app was reopened. Every exit below ends it explicitly;
+            // `awaitPlayback` takes ownership on the path that reaches it.
             let assertion = BackgroundAssertion("track-start")
-            defer { assertion.end() }
 
             var trace = Trace("запуск трека", context: ["track": song.id])
 
@@ -430,6 +439,7 @@ final class AudioPlayerController {
 
                 guard currentSong?.id == song.id else {
                     AppLogger.log("play: song changed while loading, aborting")
+                    assertion.end()
                     return
                 }
                 AppLogger.log("play: created AVPlayerItem")
@@ -453,11 +463,14 @@ final class AudioPlayerController {
 
                 // The moment that actually matters: not when the player was
                 // handed an item, but when sound could come out of it.
+                // Ownership of `assertion` passes to this task — it, not the
+                // closure returning here, decides when iOS may suspend again.
                 Task { [weak self] in
-                    await self?.awaitPlayback(of: item, for: song, trace: trace)
+                    await self?.awaitPlayback(of: item, for: song, trace: trace, assertion: assertion)
                 }
                 AppLogger.log("play: done")
             } catch {
+                assertion.end()
                 AppLogger.log("play: ERROR \(error)")
                 trace.finish("ошибка")
                 RemoteLog.shared.error(
@@ -486,6 +499,11 @@ final class AudioPlayerController {
 
                 if error.isRegionBlocked {
                     errorMessage = "Трек недоступен с этим подключением — проверьте VPN"
+                } else if error.isDRMProtected {
+                    // Worth naming precisely even here, on the rare path
+                    // where it is the last track in the queue rather than
+                    // one skipped past: no VPN or retry fixes this one.
+                    errorMessage = "Трек защищён правообладателем и недоступен для проигрывания"
                 } else {
                     CrashReporter.report("Не удалось воспроизвести трек", detail: "\(error)")
                     errorMessage = "Не удалось воспроизвести трек"
@@ -505,6 +523,7 @@ final class AudioPlayerController {
     /// play instead of moving to the next one.
     private static func isUnplayable(_ error: Error) -> Bool {
         if case MusicServiceError.notFound = error { return true }
+        if case MusicServiceError.drmProtected = error { return true }
 
         guard case MusicServiceError.underlying(let underlying) = error,
               case APIError.server(let status, _) = underlying else {
@@ -644,7 +663,13 @@ final class AudioPlayerController {
     /// actually was: the early failure path (`loadAndPlayCurrent`'s own
     /// catch) only ever saw resolve errors, never an asset that resolved
     /// fine and then would not play.
-    private func awaitPlayback(of item: AVPlayerItem, for song: Song, trace: Trace) async {
+    private func awaitPlayback(
+        of item: AVPlayerItem, for song: Song, trace: Trace, assertion: BackgroundAssertion
+    ) async {
+        // Held for the whole wait, not just the resolve that preceded it —
+        // see the comment where this was created.
+        defer { assertion.end() }
+
         let deadline = ContinuousClock.now.advanced(by: .seconds(30))
 
         while ContinuousClock.now < deadline {
