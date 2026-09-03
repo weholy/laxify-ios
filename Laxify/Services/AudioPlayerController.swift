@@ -227,7 +227,7 @@ final class AudioPlayerController {
         // stuck at one scrubbed position for the rest of the session: every
         // lyric on every track after it would read against a frozen number,
         // which is exactly what "text stopped keeping up" was.
-        pendingSeek = PendingSeek(target: time, expiresAt: .now + 2)
+        pendingSeek = PendingSeek(target: time, expiresAt: .now + .seconds(2))
 
         player?.seek(to: CMTime(seconds: time, preferredTimescale: 600)) { [weak self] _ in
             Task { @MainActor in self?.pendingSeek = nil }
