@@ -92,4 +92,9 @@ jobs:
         with:
           name: Laxify-unsigned-ipa
           path: build/Laxify_*.ipa
-          retention-days: 14
+          # Three, not fourteen. A day of batches is twenty-odd builds at
+          # ~7MB, and a fortnight of them filled the account's artifact
+          # storage — at which point the build still compiled but had nowhere
+          # to put the result, so there was nothing to install. Only the last
+          # build is ever wanted; the rest are history that costs quota.
+          retention-days: 3
