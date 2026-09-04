@@ -17,47 +17,18 @@ import Foundation
 /// track has failed with no substitute, it is written down here and never
 /// listed again.
 ///
-/// Deliberately small and dumb: a set of ids in `UserDefaults`. It is read on
-/// every listing, so it has to answer instantly and without a database.
+/// Read on every row of every listing, and from whichever thread is decoding
+/// it, so the answer is held in memory behind a lock rather than rebuilt from
+/// `UserDefaults` each time.
 enum UnplayableStore {
-    private static let key = "laxify.unplayable.trackIds"
-    /// Enough for years of ordinary listening; past it the oldest go, so a
-    /// long-lived install cannot grow this without limit.
-    private static let cap = 2000
-
-    private static var cached: Set<String>?
-    /// Insertion order, so trimming can drop the oldest rather than an
-    /// arbitrary member of a set.
-    private static var order: [String] = []
-
-    static var ids: Set<String> {
-        if let cached { return cached }
-        let stored = UserDefaults.standard.stringArray(forKey: key) ?? []
-        order = stored
-        let set = Set(stored)
-        cached = set
-        return set
-    }
+    private static let state = State()
 
     static func contains(_ trackId: String) -> Bool {
-        ids.contains(trackId)
+        state.contains(trackId)
     }
 
     static func remember(_ trackId: String) {
-        guard !trackId.isEmpty, !contains(trackId) else { return }
-
-        var set = ids
-        set.insert(trackId)
-        order.append(trackId)
-
-        if order.count > cap {
-            let excess = order.count - cap
-            for id in order.prefix(excess) { set.remove(id) }
-            order.removeFirst(excess)
-        }
-
-        cached = set
-        UserDefaults.standard.set(order, forKey: key)
+        state.remember(trackId)
     }
 
     /// Forgets everything.
@@ -68,8 +39,61 @@ enum UnplayableStore {
     /// Here because the source does change what it serves — a track locked
     /// today can be free next month — so there has to be a way back.
     static func clear() {
-        cached = []
-        order = []
-        UserDefaults.standard.removeObject(forKey: key)
+        state.clear()
+    }
+
+    /// The set itself, its ordering, and the lock over both.
+    private final class State: @unchecked Sendable {
+        private let key = "laxify.unplayable.trackIds"
+        /// Enough for years of ordinary listening; past it the oldest go, so
+        /// a long-lived install cannot grow this without limit.
+        private let cap = 2000
+
+        private let lock = NSLock()
+        private var ids: Set<String>
+        /// Insertion order, so trimming drops the oldest rather than an
+        /// arbitrary member of a set.
+        private var order: [String]
+
+        init() {
+            let stored = UserDefaults.standard.stringArray(forKey: key) ?? []
+            order = stored
+            ids = Set(stored)
+        }
+
+        func contains(_ trackId: String) -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return ids.contains(trackId)
+        }
+
+        func remember(_ trackId: String) {
+            guard !trackId.isEmpty else { return }
+
+            lock.lock()
+            defer { lock.unlock() }
+
+            guard !ids.contains(trackId) else { return }
+
+            ids.insert(trackId)
+            order.append(trackId)
+
+            if order.count > cap {
+                let excess = order.count - cap
+                for id in order.prefix(excess) { ids.remove(id) }
+                order.removeFirst(excess)
+            }
+
+            UserDefaults.standard.set(order, forKey: key)
+        }
+
+        func clear() {
+            lock.lock()
+            defer { lock.unlock() }
+
+            ids = []
+            order = []
+            UserDefaults.standard.removeObject(forKey: key)
+        }
     }
 }
