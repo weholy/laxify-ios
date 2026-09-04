@@ -11,6 +11,11 @@ concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
 
+# The build publishes its IPA to a release, which needs more than the default
+# read-only token.
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Unsigned IPA
@@ -87,14 +92,42 @@ jobs:
           cp -r "build/Laxify.xcarchive/Products/Applications/Laxify.app" build/Payload/
           cd build && zip -qr "Laxify_${VERSION}.ipa" Payload
 
+      # The build goes to a release, not an artifact.
+      #
+      # Artifacts are charged against a 500MB allowance that twenty builds a
+      # day fill in a fortnight, and once it is full the run still compiles
+      # and then fails with nothing installable at the end — which is worth
+      # nothing to the person waiting to install it. Worse, freeing space does
+      # not help immediately: the usage figure is only recalculated every six
+      # to twelve hours.
+      #
+      # A release asset is charged differently and, unlike an artifact, has a
+      # stable address that does not expire — so "the latest build" is one
+      # link rather than a hunt through runs.
+      - name: Publish IPA to the rolling release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          IPA=$(ls build/Laxify_*.ipa | head -1)
+          NOTE="Сборка из коммита ${GITHUB_SHA:0:7} — $(date -u '+%Y-%m-%d %H:%M UTC')"
+
+          # One release, replaced each time, so the download link never moves.
+          if gh release view latest >/dev/null 2>&1; then
+            gh release edit latest --notes "$NOTE" --title "Последняя сборка"
+            gh release upload latest "$IPA" --clobber
+          else
+            gh release create latest "$IPA" \
+              --title "Последняя сборка" --notes "$NOTE" --prerelease
+          fi
+
       - name: Upload IPA artifact
+        # Best-effort: the release above is the one that has to work, and this
+        # is only a convenience copy attached to the run itself. When the
+        # artifact allowance is full it must not fail the build.
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: Laxify-unsigned-ipa
           path: build/Laxify_*.ipa
-          # Three, not fourteen. A day of batches is twenty-odd builds at
-          # ~7MB, and a fortnight of them filled the account's artifact
-          # storage — at which point the build still compiled but had nowhere
-          # to put the result, so there was nothing to install. Only the last
-          # build is ever wanted; the rest are history that costs quota.
           retention-days: 3
