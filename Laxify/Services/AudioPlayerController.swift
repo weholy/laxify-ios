@@ -149,6 +149,16 @@ final class AudioPlayerController {
     /// is gone. One request covers the whole queue, and it never touches what
     /// is playing.
     private func pruneQueue() {
+        // The ones already known dead go immediately, without asking anyone.
+        let playingId = currentSong?.id
+        let known = queue.filter { UnplayableStore.contains($0.id) && $0.id != playingId }
+        if !known.isEmpty {
+            queue.removeAll { UnplayableStore.contains($0.id) && $0.id != playingId }
+            if let playingId, let index = queue.firstIndex(where: { $0.id == playingId }) {
+                currentIndex = index
+            }
+        }
+
         let ids = queue.map(\.id)
         guard ids.count > 1 else { return }
 
@@ -544,6 +554,18 @@ final class AudioPlayerController {
                 )
                 isLoading = false
                 isPlaying = false
+
+                // Struck off for good, but only for the two errors that are
+                // about the track rather than the moment: no stream at all,
+                // or locked with no substitute found. Both mean substitution
+                // has already been tried and come back empty. A network
+                // failure must never land here — that would blacklist a
+                // perfectly good song over one bad minute.
+                if case MusicServiceError.drmProtected = error {
+                    UnplayableStore.remember(song.id)
+                } else if case MusicServiceError.notFound = error {
+                    UnplayableStore.remember(song.id)
+                }
 
                 // A source that was throttling or briefly down said nothing
                 // about this track, so it gets another go rather than being

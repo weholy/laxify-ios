@@ -932,6 +932,12 @@ struct SCItem: Decodable {
         // are played by substitution at the moment of playing instead. Only a
         // track with no substitute anywhere is dropped, and that is decided
         // then, not here.
+        //
+        // Which is what this is: the ones already proven dead on this device,
+        // locked with nothing to fall back to. Whether a track is rescuable
+        // cannot be known without going and looking, so it is learned once,
+        // the hard way, and then never repeated.
+        guard !UnplayableStore.contains("\(id)") else { return nil }
 
         // What the release credits, before who uploaded it. An account is
         // called "☆LiL PEEP☆" or "everlov3d"; the release says "Lil Peep".
