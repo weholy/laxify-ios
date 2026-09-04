@@ -12,10 +12,6 @@ struct AppRootView: View {
     var localization = LocalizationManager.shared
     var versionGate = VersionGate.shared
 
-    /// The introduction, on a first install only. Held in state rather than
-    /// read from defaults on every pass so that dismissing it animates.
-    @State private var needsWelcome = WelcomeView.isPending
-
     var body: some View {
         Group {
             // Ahead of the language picker, ahead of sign-in — a retired
@@ -25,12 +21,6 @@ struct AppRootView: View {
             if versionGate.isBlocked {
                 UpdateRequiredView()
                     .transition(.opacity)
-            } else if needsWelcome {
-                WelcomeView {
-                    WelcomeView.markSeen()
-                    needsWelcome = false
-                }
-                .transition(.opacity)
             } else if !localization.hasPicked {
                 LanguagePickerView()
                     .transition(.opacity)
@@ -41,7 +31,6 @@ struct AppRootView: View {
         .animation(.easeInOut(duration: 0.35), value: localization.hasPicked)
         .animation(.easeInOut(duration: 0.35), value: session.state)
         .animation(.easeInOut(duration: 0.3), value: versionGate.isBlocked)
-        .animation(.easeInOut(duration: 0.35), value: needsWelcome)
         .task { await versionGate.check() }
         .task {
             // Signing out has to be able to clear the on-device library, and
