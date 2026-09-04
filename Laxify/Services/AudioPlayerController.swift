@@ -362,6 +362,12 @@ final class AudioPlayerController {
     /// one retry does not become a loop against a source that is properly out.
     private var retriedTrackId: String?
 
+    /// The row on disk for the listen in progress, updated as it goes rather
+    /// than written once at the end — see `checkpointPlayback`.
+    private var currentPlayRecord: PlayRecord?
+    private var lastCheckpointAt: TimeInterval = 0
+    private static let checkpointInterval: TimeInterval = 30
+
     /// Feeds the current item. Kept alive for as long as it is playing.
     private var streamLoader: StreamLoader?
 
@@ -430,6 +436,10 @@ final class AudioPlayerController {
         duration = song.duration
         isLoading = true
         errorMessage = nil
+        // A new listen writes its own row; the previous track's must not be
+        // topped up with this one's seconds.
+        currentPlayRecord = nil
+        lastCheckpointAt = 0
         // A new track starts with a clean clock, never one still answering
         // for wherever the last track's scrubber was pointed.
         pendingSeek = nil
@@ -882,6 +892,7 @@ final class AudioPlayerController {
                     ListeningStatsService.shared.recordPlayback(seconds: delta)
                 }
                 self.currentTime = time.seconds
+                self.checkpointPlayback()
                 self.maybeStartCrossfade()
 
                 // Half a minute in, this counts as a listen: keep a copy so
@@ -1246,10 +1257,40 @@ final class AudioPlayerController {
         // persisted anywhere, so closing the app inside that window lost
         // them — and the queue they joined gave up after eight failures,
         // which with an unreachable server discarded whole evenings.
-        LocalReplay.record(song, seconds: currentTime, completed: completed, context: modelContext)
+        //
+        // Updates the row the checkpoints below have been keeping rather than
+        // adding a second one for the same listen.
+        currentPlayRecord = LocalReplay.upsert(
+            song,
+            seconds: currentTime,
+            completed: completed,
+            into: currentPlayRecord,
+            context: modelContext
+        )
 
         let context = modelContext
         Task { await PlaybackUploader.flush(context: context) }
+    }
+
+    /// Writes down a listen that is still going.
+    ///
+    /// Called from the playback clock. Without it nothing existed until a
+    /// track ended or was skipped: five minutes into an album the statistics
+    /// screen was still empty, and closing the app in the middle lost the
+    /// listening entirely. Half a minute apart — often enough that little is
+    /// ever at risk, rare enough to be free.
+    private func checkpointPlayback() {
+        guard let song = currentSong, currentTime > Self.checkpointInterval else { return }
+        guard currentTime - lastCheckpointAt >= Self.checkpointInterval else { return }
+
+        lastCheckpointAt = currentTime
+        currentPlayRecord = LocalReplay.upsert(
+            song,
+            seconds: currentTime,
+            completed: false,
+            into: currentPlayRecord,
+            context: modelContext
+        )
     }
 
     private func reportWaveFinished() {

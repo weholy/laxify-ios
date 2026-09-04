@@ -38,24 +38,57 @@ enum LocalReplay {
     static func record(
         _ song: Song, seconds: Double, completed: Bool, context: ModelContext?
     ) {
-        guard let context, seconds > 3 else { return }
+        _ = upsert(song, seconds: seconds, completed: completed, into: nil, context: context)
+    }
 
-        context.insert(
-            PlayRecord(
-                trackId: song.id,
-                title: song.title,
-                artistName: song.artistName,
-                artistId: song.artistId,
-                coverURL: song.coverURL?.absoluteString,
-                playedAt: Date(),
-                secondsPlayed: seconds,
-                completed: completed
-            )
+    /// Writes where a listen has got to, updating the row it already wrote.
+    ///
+    /// A play used to be recorded only once it ended — at a skip, or when the
+    /// track ran out. Anything else was never written at all: put the phone
+    /// down in the middle of an album and the listening existed nowhere, so
+    /// the statistics screen was empty for someone who had been listening for
+    /// five minutes, and closing the app threw the whole thing away.
+    ///
+    /// Now the same play is written early and updated as it goes, which means
+    /// updating a row rather than inserting one — inserting on every check
+    /// would count one listen a dozen times. The caller keeps the returned row
+    /// for the rest of that track and hands it back each time.
+    @discardableResult
+    static func upsert(
+        _ song: Song,
+        seconds: Double,
+        completed: Bool,
+        into existing: PlayRecord?,
+        context: ModelContext?
+    ) -> PlayRecord? {
+        guard let context, seconds > 3 else { return existing }
+
+        if let existing, existing.trackId == song.id {
+            existing.secondsPlayed = seconds
+            existing.completed = completed
+            // It has changed since whatever was sent, so it goes up again.
+            existing.isSynced = false
+            try? context.save()
+            NotificationCenter.default.post(name: .laxifyPlayRecorded, object: nil)
+            return existing
+        }
+
+        let record = PlayRecord(
+            trackId: song.id,
+            title: song.title,
+            artistName: song.artistName,
+            artistId: song.artistId,
+            coverURL: song.coverURL?.absoluteString,
+            playedAt: Date(),
+            secondsPlayed: seconds,
+            completed: completed
         )
+        context.insert(record)
 
         try? context.save()
 
         NotificationCenter.default.post(name: .laxifyPlayRecorded, object: nil)
+        return record
     }
 
     // MARK: - Reading

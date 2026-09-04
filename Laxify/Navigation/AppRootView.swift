@@ -12,6 +12,10 @@ struct AppRootView: View {
     var localization = LocalizationManager.shared
     var versionGate = VersionGate.shared
 
+    /// The introduction, on a first install only. Held in state rather than
+    /// read from defaults on every pass so that dismissing it animates.
+    @State private var needsWelcome = WelcomeView.isPending
+
     var body: some View {
         Group {
             // Ahead of the language picker, ahead of sign-in — a retired
@@ -21,6 +25,12 @@ struct AppRootView: View {
             if versionGate.isBlocked {
                 UpdateRequiredView()
                     .transition(.opacity)
+            } else if needsWelcome {
+                WelcomeView {
+                    WelcomeView.markSeen()
+                    needsWelcome = false
+                }
+                .transition(.opacity)
             } else if !localization.hasPicked {
                 LanguagePickerView()
                     .transition(.opacity)
@@ -31,6 +41,7 @@ struct AppRootView: View {
         .animation(.easeInOut(duration: 0.35), value: localization.hasPicked)
         .animation(.easeInOut(duration: 0.35), value: session.state)
         .animation(.easeInOut(duration: 0.3), value: versionGate.isBlocked)
+        .animation(.easeInOut(duration: 0.35), value: needsWelcome)
         .task { await versionGate.check() }
         .task {
             // Signing out has to be able to clear the on-device library, and
@@ -57,6 +68,19 @@ struct AppRootView: View {
             // Then bring the *names* in that history up to date, without
             // losing a single play.
             await StatsRepair.run(context: modelContext)
+        }
+        // Whichever door someone came in by.
+        //
+        // This used to hang off the Google callback alone, so signing in with
+        // Telegram brought nothing down: the account's history stayed on the
+        // server, the statistics screen read an empty device and showed a
+        // fresh start, and only the next cold launch — where the task above
+        // runs — put the real figures back. Keyed on the state itself now, so
+        // it cannot be missed by a route that did not exist when it was
+        // written.
+        .onChange(of: session.state) { previous, current in
+            guard current == .signedIn, previous != .signedIn else { return }
+            Task { await adoptAccount() }
         }
         .onChange(of: scenePhase) { _, phase in
             // Coming back to the app is the most likely moment for the
@@ -145,13 +169,19 @@ struct AppRootView: View {
         guard await session.signIn(idToken: user.idToken, deviceName: Self.deviceName) else {
             return
         }
+        // The rest — library, history, names — happens in `adoptAccount`,
+        // which the state change above triggers for every way in.
         await migrateLocalDataIfNeeded()
+    }
 
-        // Signing out wipes the device's copy of the library and the play log,
-        // so signing back in has to bring them down again *here* rather than
-        // at the next cold launch. Without this the statistics screen read
-        // zero until the app was killed and reopened — which is exactly what
-        // it looked like: history lost, then mysteriously restored.
+    /// Brings an account's own data onto the device, right after signing in.
+    ///
+    /// Signing out wipes the device's copy of the library and the play log, so
+    /// signing back in has to bring them down again *here* rather than at the
+    /// next cold launch. Without it the statistics screen read zero until the
+    /// app was killed and reopened — which is exactly what it looked like:
+    /// history lost, then mysteriously restored.
+    private func adoptAccount() async {
         await SyncService.shared.pullLibrary(into: modelContext)
         await HistoryMirror.sync(context: modelContext)
         await StatsRepair.run(context: modelContext)
