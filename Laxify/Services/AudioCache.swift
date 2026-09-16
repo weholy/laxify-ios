@@ -45,6 +45,16 @@ enum AudioCache {
         return url
     }
 
+    /// Throws away the copy of one track.
+    ///
+    /// Called when the player could not open it. A file here is only ever
+    /// consulted before the network, so a bad one is not a slow track, it is
+    /// a track that can never play again — and the weekly sweep was the only
+    /// thing that ever cleared one.
+    static func forget(_ trackId: String) {
+        try? FileManager.default.removeItem(at: fileURL(for: trackId))
+    }
+
     // MARK: - Filling it
 
     private static let inFlight = InFlight()
@@ -62,8 +72,23 @@ enum AudioCache {
             defer { Task { await inFlight.end(song.id) } }
 
             guard let source = try? await CatalogService.shared.streamURL(for: song.id),
-                  let (temporary, _) = try? await URLSession.shared.download(from: source)
+                  let (temporary, response) = try? await URLSession.shared.download(from: source)
             else { return }
+
+            // What came back has to be audio before it is kept.
+            //
+            // This was written down unexamined, and a signed link that had
+            // lapsed by the time this ran — which is exactly when this runs,
+            // half a minute into a track — returns a few hundred bytes of
+            // refusal with a perfectly ordinary "no error". That got saved as
+            // the track. From then on it was found before the network on
+            // every play, opened instantly, failed instantly, and the song
+            // was skipped every single time until the weekly sweep. One
+            // unlucky moment, a week of a song that "just gets skipped".
+            guard AudioPayload.isPlausible(response, at: temporary) else {
+                try? FileManager.default.removeItem(at: temporary)
+                return
+            }
 
             let destination = fileURL(for: song.id)
             try? FileManager.default.removeItem(at: destination)
@@ -123,6 +148,36 @@ enum AudioCache {
             try? FileManager.default.removeItem(at: entry.url)
             total -= entry.size
         }
+    }
+}
+
+/// Whether what a download returned is actually audio.
+///
+/// `URLSession.download` reports no error for a 403, a 404 or a JSON refusal
+/// — it fetched the response it was asked for, and that response happened not
+/// to be music. Both places that save a file to disk used to take it on
+/// faith, and a file saved on faith is consulted before the network on every
+/// later play: one lapsed link is a track that "just gets skipped" for as
+/// long as the file survives.
+enum AudioPayload {
+    /// Smaller than any real track and larger than any error page. The
+    /// shortest thing in the catalogue worth playing runs a few seconds at
+    /// 128 kbps, which is hundreds of kilobytes; a refusal is hundreds of
+    /// bytes.
+    private static let smallestPlausible = 48 * 1024
+
+    static func isPlausible(_ response: URLResponse?, at url: URL) -> Bool {
+        if let http = response as? HTTPURLResponse {
+            guard (200..<300).contains(http.statusCode) else { return false }
+
+            let type = (http.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased()
+            if type.contains("json") || type.contains("xml") || type.hasPrefix("text/") {
+                return false
+            }
+        }
+
+        let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        return size >= smallestPlausible
     }
 }
 

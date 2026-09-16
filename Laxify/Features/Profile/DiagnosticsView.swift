@@ -13,6 +13,7 @@ struct DiagnosticsView: View {
     @State private var sourceCheck: SourceCheck = .pending
     @State private var entries: [RemoteLog.Entry] = []
     @State private var exported: URL?
+    @State private var setAside = 0
 
     enum SourceCheck: Equatable {
         case pending
@@ -24,6 +25,7 @@ struct DiagnosticsView: View {
         SettingsPage(title: "Диагностика", status: nil, onBack: onBack) {
             sourceCard
             routesCard
+            setAsideCard
             actions
             logCard
         }
@@ -160,6 +162,55 @@ struct DiagnosticsView: View {
             .frame(width: 10, height: 10)
     }
 
+    // MARK: - Tracks that were set aside
+
+    /// What the app has quietly stopped offering, and the way to undo it.
+    ///
+    /// On this screen because it is the one thing the app does that looks
+    /// exactly like a fault from the outside: a song sits in a playlist one
+    /// day and is simply not there the next, with nothing anywhere saying why
+    /// and no way back. Now there is a number and a button.
+    private var setAsideCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Отложенные треки")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(LaxifyPalette.textSecondary)
+                .textCase(.uppercase)
+                .kerning(0.5)
+                .padding(.leading, 4)
+
+            SettingsCard {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(
+                        setAside == 0
+                            ? "Ничего не отложено — всё, что есть в списках, играет."
+                            : "Отложено треков: \(setAside). Их не удалось проиграть, "
+                                + "и они временно не показываются. Проверка повторится сама."
+                    )
+                    .font(LaxifyTypography.footnote)
+                    .foregroundStyle(LaxifyPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                    if setAside > 0 {
+                        Button {
+                            UnplayableStore.clear()
+                            setAside = UnplayableStore.hiddenCount
+                        } label: {
+                            Text("Показать их снова")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(LaxifyPalette.textPrimary)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                                .glassEffect(.regular.interactive(), in: .capsule)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(16)
+            }
+        }
+    }
+
     // MARK: - Actions
 
     private var actions: some View {
@@ -277,6 +328,7 @@ struct DiagnosticsView: View {
     private func refresh() async {
         sourceCheck = .pending
         routes = [:]
+        setAside = UnplayableStore.hiddenCount
 
         // Whatever the log already holds, immediately. The checks below take
         // seconds, and a screen that shows nothing while it works looks

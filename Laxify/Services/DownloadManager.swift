@@ -143,9 +143,22 @@ final class DownloadManager {
         }
 
         do {
-            let (temporary, _) = try await URLSession.shared.download(from: source, delegate: delegate)
+            let (temporary, response) = try await URLSession.shared.download(
+                from: source, delegate: delegate
+            )
             guard !Task.isCancelled else {
                 try? FileManager.default.removeItem(at: temporary)
+                return
+            }
+
+            // A refusal downloads perfectly well. Saved as a track it becomes
+            // permanent: this copy is opened before the network on every
+            // later play, so a lapsed link at the wrong moment turned into a
+            // song that could never be played again — least of all offline,
+            // which is the entire point of having saved it.
+            guard AudioPayload.isPlausible(response, at: temporary) else {
+                try? FileManager.default.removeItem(at: temporary)
+                AppLogger.log("скачивание: вместо звука пришёл отказ — \(song.title)")
                 return
             }
 

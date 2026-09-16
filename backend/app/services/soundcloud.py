@@ -491,7 +491,19 @@ class SoundCloudClient:
         Progressive MP3 is preferred — it plays in AVPlayer directly and
         supports byte-range seeking; HLS works too and is the usual fallback.
         """
-        transcodings = (track.get("media") or {}).get("transcodings") or []
+        # A preview is not the track. `SNIP` tracks, and variants marked
+        # `snipped`, stream thirty seconds and end — which a player reports as
+        # the track finishing normally, so the listener hears half a minute
+        # and then the next song, with nothing anywhere saying why. Refused
+        # here so the audio endpoint looks for the whole recording instead.
+        if track.get("policy") == "SNIP":
+            raise SoundCloudError("Доступен только отрывок трека")
+
+        transcodings = [
+            item
+            for item in (track.get("media") or {}).get("transcodings") or []
+            if not item.get("snipped")
+        ]
         if not transcodings:
             raise SoundCloudError("У трека нет доступного потока")
 

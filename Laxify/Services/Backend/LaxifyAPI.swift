@@ -788,11 +788,25 @@ actor LaxifyAPI {
     ///
     /// Returns nil when there is no session — the proxy is authenticated like
     /// everything else, and there is nothing useful to hand the player.
-    func proxyAudioRequest(trackId: String) -> (url: URL, headers: [String: String])? {
-        guard let token = KeychainStore.read(.accessToken),
-              let url = URL(string: baseURL.absoluteString + "/catalog/tracks/\(escaped(trackId))/audio")
-        else { return nil }
+    ///
+    /// Carries what the app shows for the track — title, credited artist,
+    /// length — because this is the route that finds a song *somewhere else*
+    /// when the source will not serve it, and the cleaned name on screen
+    /// matches another catalogue far better than an uploader's own spelling.
+    func proxyAudioRequest(
+        trackId: String, title: String? = nil, artist: String? = nil, duration: TimeInterval? = nil
+    ) -> (url: URL, headers: [String: String])? {
+        guard let token = KeychainStore.read(.accessToken) else { return nil }
 
+        var query: [String] = []
+        if let title, !title.isEmpty { query.append("title=\(escaped(title))") }
+        if let artist, !artist.isEmpty { query.append("artist=\(escaped(artist))") }
+        if let duration, duration > 0 { query.append("duration=\(Int(duration.rounded()))") }
+
+        let path = "/catalog/tracks/\(escaped(trackId))/audio"
+        let suffix = query.isEmpty ? "" : "?" + query.joined(separator: "&")
+
+        guard let url = URL(string: baseURL.absoluteString + path + suffix) else { return nil }
         return (url, ["Authorization": "Bearer \(token)"])
     }
 

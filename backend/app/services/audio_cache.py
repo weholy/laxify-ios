@@ -130,7 +130,12 @@ def _sweep() -> None:
     """Drops the least recently wanted files once the cache is too big."""
     try:
         files = sorted(
-            (path for path in CACHE_DIR.glob("*.mp3") if path.is_file()),
+            (
+                path
+                for pattern in ("*.mp3", "*.rescued.m4a")
+                for path in CACHE_DIR.glob(pattern)
+                if path.is_file()
+            ),
             key=lambda path: path.stat().st_atime,
         )
     except OSError:

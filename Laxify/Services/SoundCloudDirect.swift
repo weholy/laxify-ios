@@ -429,47 +429,6 @@ actor SoundCloudDirect {
         return page.collection.compactMap(\.song)
     }
 
-    /// Of these tracks, the ones the source will not actually play.
-    ///
-    /// One request for the whole queue rather than one per track: the ids
-    /// endpoint takes a list, so checking forty costs the same as checking
-    /// one. Used to clean a queue before anyone reaches its far end, so a
-    /// track that cannot play is gone rather than skipped past in front of
-    /// the listener.
-    func unplayableIds(among ids: [String]) async -> Set<String> {
-        let wanted = Array(dict(ids).prefix(50))
-        guard !wanted.isEmpty else { return [] }
-
-        guard let items: [SCItem] = try? await decode(
-            [SCItem].self, "tracks", query: [
-                URLQueryItem(name: "ids", value: wanted.joined(separator: ","))
-            ]
-        ) else { return [] }
-
-        var dead: Set<String> = []
-
-        // Anything the source declined to describe at all is left alone: an
-        // id missing from the answer may simply not have been returned, and
-        // guessing it dead would silently empty a queue.
-        //
-        // Locked tracks are left in too. They are not dead — substitution
-        // finds the same recording under another upload at the moment of
-        // playing, and it usually does. Only what nothing can rescue goes:
-        // blocked in this country, or withdrawn outright.
-        for item in items {
-            guard let id = item.id.map(String.init) else { continue }
-            if item.policy == "BLOCK" || item.streamable == false {
-                dead.insert(id)
-            }
-        }
-
-        return dead
-    }
-
-    private nonisolated func dict(_ ids: [String]) -> [String] {
-        Array(Dictionary(grouping: ids, by: { $0 }).keys)
-    }
-
     func track(_ id: String) async throws -> SCItem {
         let items: [SCItem] = try await decode(
             [SCItem].self, "tracks", query: [URLQueryItem(name: "ids", value: id)]
@@ -555,10 +514,15 @@ actor SoundCloudDirect {
         // the url itself expires and cannot be kept, but knowing *which*
         // upload to open saves the failed resolve and the search behind it
         // every time the track comes round again.
-        if let previous = substitutions[trackId],
-           let cached = try? await track(previous),
-           let url = await resolveStream(of: cached, trackId: previous) {
-            return url
+        if let previous = substitutions[trackId] {
+            if let cached = try? await track(previous),
+               case .url(let url) = await resolveStream(of: cached, trackId: previous) {
+                return url
+            }
+            // The copy that rescued this track last time will not open now.
+            // Forgetting it costs one search; keeping it would send every
+            // future play at the same dead upload.
+            substitutions[trackId] = nil
         }
 
         let track: SCItem
@@ -567,23 +531,40 @@ actor SoundCloudDirect {
         } catch {
             // The source will not even describe it. If the app knows what the
             // song is, that is still enough to look for another copy.
-            if let known, let rescued = await substituteStream(
-                title: known.title,
-                artist: known.artist,
-                durationMs: known.duration * 1000,
-                excluding: trackId
-            ) {
+            if let known,
+               case .url(let rescued) = await substituteStream(
+                   title: known.title,
+                   artist: known.artist,
+                   durationMs: known.duration * 1000,
+                   excluding: trackId
+               ) {
                 return rescued
             }
             throw error
         }
 
-        if let url = await resolveStream(of: track, trackId: trackId) {
-            return url
-        }
+        let outcome = await resolveStream(of: track, trackId: trackId)
+        if case .url(let url) = outcome { return url }
 
-        if let substitute = await substituteStream(for: track, excluding: trackId) {
-            return substitute
+        let rescue = await substituteStream(for: track, excluding: trackId)
+        if case .url(let substitute) = rescue { return substitute }
+
+        // Nothing opened — but *why* nothing opened is the whole question.
+        // A source that never answered has said nothing about this track, and
+        // reporting that as "this track does not exist" is what wrote working
+        // songs out of the catalogue over a throttled minute. Only a source
+        // that actually answered gets to condemn anything.
+        var wentQuiet = false
+        if case .unreachable = outcome { wentQuiet = true }
+        if case .unreachable = rescue { wentQuiet = true }
+
+        if wentQuiet {
+            RemoteLog.shared.warn(
+                "источник: не ответил при открытии потока",
+                category: "source",
+                context: ["track": trackId, "title": track.title ?? "-"]
+            )
+            throw MusicServiceError.temporarilyUnavailable
         }
 
         let transcodings = track.media?.transcodings ?? []
@@ -605,26 +586,60 @@ actor SoundCloudDirect {
         throw hasEncryptedOnly ? MusicServiceError.drmProtected : MusicServiceError.notFound
     }
 
-    /// Opens one upload, or returns nil if none of its variants answer.
-    private func resolveStream(of track: SCItem, trackId: String) async -> URL? {
+    /// What came of trying to open one upload.
+    ///
+    /// The third case is the point of having an enum here at all. "No url"
+    /// used to cover both a source that answered and had nothing, and a
+    /// source that did not answer at all — and the caller, unable to tell
+    /// them apart, treated both as a dead track.
+    private enum StreamOutcome {
+        case url(URL)
+        /// The source answered, and none of its variants lead anywhere.
+        case dead
+        /// The source did not answer. Says nothing about the track.
+        case unreachable
+    }
+
+    /// Opens one upload.
+    private func resolveStream(of track: SCItem, trackId: String) async -> StreamOutcome {
         guard let transcodings = track.media?.transcodings, !transcodings.isEmpty else {
             RemoteLog.shared.warn(
                 "источник: у трека нет вариантов потока",
                 category: "source",
                 context: ["track": trackId, "policy": track.policy ?? "-"]
             )
-            return nil
+            return .dead
         }
 
         // Progressive MP3 first: it plays directly and supports seeking.
         // Every variant is tried, because a track can advertise several and
         // only some of them answer.
+        // A preview is not the track. A `SNIP` upload, or a variant marked
+        // `snipped`, streams thirty seconds and ends — and the player reports
+        // that as the track finishing normally, so the listener heard half a
+        // minute and then the next song. Treated as nothing to play here,
+        // which sends the track to the server for the whole recording.
+        guard track.policy != "SNIP" else {
+            RemoteLog.shared.info(
+                "источник: доступен только отрывок",
+                category: "source",
+                context: ["track": trackId]
+            )
+            return .dead
+        }
+
         let ranked = transcodings
             .filter { ["progressive", "hls"].contains($0.format?.protocol_ ?? "") }
+            .filter { $0.snipped != true }
             .sorted { lhs, rhs in
                 (lhs.format?.protocol_ == "progressive" ? 0 : 1)
                     < (rhs.format?.protocol_ == "progressive" ? 0 : 1)
             }
+
+        // Set the moment any variant fails for a reason that is about the
+        // network rather than about the upload. One of those anywhere in the
+        // list is enough to make the whole verdict provisional.
+        var sourceWentQuiet = false
 
         for candidate in ranked {
             guard let link = candidate.url else { continue }
@@ -636,21 +651,51 @@ actor SoundCloudDirect {
 
             struct Resolved: Decodable { let url: String? }
 
-            guard let resolved = try? await decode(Resolved.self, "", query: query, absolute: link),
-                  let text = resolved.url,
-                  let url = URL(string: text) else {
+            do {
+                let resolved = try await decode(Resolved.self, "", query: query, absolute: link)
+                guard let text = resolved.url, let url = URL(string: text) else { continue }
+
+                RemoteLog.shared.info(
+                    "источник: ссылка получена",
+                    category: "source",
+                    context: ["track": trackId, "protocol": candidate.format?.protocol_ ?? "-"]
+                )
+                return .url(url)
+            } catch {
+                if Self.isTransient(error) { sourceWentQuiet = true }
                 continue
             }
-
-            RemoteLog.shared.info(
-                "источник: ссылка получена",
-                category: "source",
-                context: ["track": trackId, "protocol": candidate.format?.protocol_ ?? "-"]
-            )
-            return url
         }
 
-        return nil
+        return sourceWentQuiet ? .unreachable : .dead
+    }
+
+    /// Whether a failure was the network or the source having a moment, as
+    /// opposed to a verdict about the thing being asked for.
+    ///
+    /// Kept here as well as in the player because both sides have to agree:
+    /// the player will not retry what this reports as final, and this must
+    /// not report a timeout as final.
+    nonisolated static func isTransient(_ error: Error) -> Bool {
+        if case MusicServiceError.temporarilyUnavailable = error { return true }
+
+        let underlying: Error
+        if case MusicServiceError.underlying(let wrapped) = error {
+            underlying = wrapped
+        } else {
+            underlying = error
+        }
+
+        guard let urlError = underlying as? URLError else { return false }
+
+        switch urlError.code {
+        case .timedOut, .networkConnectionLost, .cannotConnectToHost, .dnsLookupFailed,
+             .notConnectedToInternet, .cannotFindHost, .resourceUnavailable,
+             .internationalRoamingOff, .dataNotAllowed, .secureConnectionFailed:
+            return true
+        default:
+            return false
+        }
     }
 
     /// Finds another upload of the same recording and opens that instead.
@@ -660,8 +705,8 @@ actor SoundCloudDirect {
     /// a remix — all of which sit right next to the original in search — are
     /// not. Title has to look like the same song too, so a different track
     /// from the same artist cannot quietly take its place.
-    private func substituteStream(for track: SCItem, excluding trackId: String) async -> URL? {
-        guard let title = track.title else { return nil }
+    private func substituteStream(for track: SCItem, excluding trackId: String) async -> StreamOutcome {
+        guard let title = track.title else { return .dead }
 
         return await substituteStream(
             title: title,
@@ -673,26 +718,38 @@ actor SoundCloudDirect {
 
     private func substituteStream(
         title: String, artist: String, durationMs wanted: Double, excluding trackId: String
-    ) async -> URL? {
-        guard wanted > 0 else { return nil }
+    ) async -> StreamOutcome {
+        guard wanted > 0 else { return .dead }
 
         let query = "\(artist) \(title)".trimmingCharacters(in: .whitespaces)
 
-        guard let page: SCPage<SCItem> = try? await decode(
-            SCPage<SCItem>.self,
-            "search/tracks",
-            query: [
-                URLQueryItem(name: "q", value: query),
-                URLQueryItem(name: "limit", value: "30")
-            ]
-        ) else { return nil }
+        let page: SCPage<SCItem>
+        do {
+            page = try await decode(
+                SCPage<SCItem>.self,
+                "search/tracks",
+                query: [
+                    URLQueryItem(name: "q", value: query),
+                    URLQueryItem(name: "limit", value: "30")
+                ]
+            )
+        } catch {
+            // The last chance a track had, and it was the network that took
+            // it. Saying "dead" here is how a song with a perfectly good
+            // second copy waiting for it got struck off.
+            return Self.isTransient(error) ? .unreachable : .dead
+        }
 
         let target = Self.matchKey(title)
+        var sourceWentQuiet = false
 
         for candidate in page.collection {
             guard let id = candidate.id.map(String.init), id != trackId,
                   let candidateTitle = candidate.title,
                   candidate.policy != "BLOCK", candidate.streamable != false,
+                  // A preview of another upload is no better than a preview
+                  // of this one.
+                  candidate.policy != "SNIP",
                   // No sense resolving a copy that is locked the same way.
                   !candidate.isDRMOnly
             else { continue }
@@ -709,7 +766,11 @@ actor SoundCloudDirect {
             guard abs(length - wanted) <= 5000 else { continue }
             guard Self.isSameSong(candidateTitle, as: title, target: target) else { continue }
 
-            guard let url = await resolveStream(of: candidate, trackId: id) else { continue }
+            let opened = await resolveStream(of: candidate, trackId: id)
+            guard case .url(let url) = opened else {
+                if case .unreachable = opened { sourceWentQuiet = true }
+                continue
+            }
 
             substitutions[trackId] = id
 
@@ -723,10 +784,10 @@ actor SoundCloudDirect {
                     "залил": candidate.user?.username ?? "-"
                 ]
             )
-            return url
+            return .url(url)
         }
 
-        return nil
+        return sourceWentQuiet ? .unreachable : .dead
     }
 
     /// Words that mean "this is a different take of that song".
@@ -856,6 +917,9 @@ struct SCItem: Decodable {
         let url: String?
         let quality: String?
         let format: Format?
+        /// True for a preview-length variant of a track the viewer cannot
+        /// hear in full.
+        let snipped: Bool?
     }
 
     struct Format: Decodable {

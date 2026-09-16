@@ -159,11 +159,27 @@ actor CoverImageLoader {
     /// The source publishes several sizes under a predictable suffix. Asking
     /// for the one that matches the slot is the single biggest thing that
     /// makes a grid of covers appear quickly.
+    /// This used to know about one host, and by then the catalogue was coming
+    /// from several. A cover from the metadata provider arrived as a 640px
+    /// square, went through here untouched, and was drawn into a 56pt row —
+    /// something like thirty times the bytes for a picture the size of a
+    /// thumbnail, on every row of every list. That, not the network, is why a
+    /// long list of tracks filled in slowly and unevenly.
     nonisolated static func variant(of url: URL, forDisplayWidth width: CGFloat) -> URL {
         let text = url.absoluteString
-        guard text.contains("sndcdn.com") else { return url }
+        let pixels = width * UIScreen.main.scale
 
-        let pixels = width * (UIScreen.main.scale)
+        if text.contains("sndcdn.com") { return rewriteSoundCloud(text, pixels) ?? url }
+        if text.contains("i.scdn.co") { return rewriteSpotify(text, pixels) ?? url }
+        if text.contains("avatars.yandex.net") { return rewriteYandex(text, pixels) ?? url }
+        if text.contains("ytimg.com") || text.contains("googleusercontent.com") {
+            return rewriteGoogle(text, pixels) ?? url
+        }
+
+        return url
+    }
+
+    private nonisolated static func rewriteSoundCloud(_ text: String, _ pixels: CGFloat) -> URL? {
         let suffix: String = switch pixels {
         case ..<130: "-t120x120"
         case ..<220: "-t200x200"
@@ -182,7 +198,98 @@ actor CoverImageLoader {
             }
         }
 
-        return URL(string: rewritten) ?? url
+        return URL(string: rewritten)
+    }
+
+    /// The metadata provider encodes the size inside the image id itself, in
+    /// a fixed token that differs between release art and artist portraits.
+    /// Both families are handled; anything else is left alone rather than
+    /// mangled into a url that returns nothing.
+    private nonisolated static func rewriteSpotify(_ text: String, _ pixels: CGFloat) -> URL? {
+        /// Largest first, so the search below finds whichever one is present.
+        let releaseArt = ["0000b273": 640.0, "00001e02": 300.0, "00004851": 64.0]
+        let portraits = ["0000e5eb": 640.0, "00005174": 320.0, "0000f178": 160.0]
+
+        for family in [releaseArt, portraits] {
+            guard let present = family.keys.first(where: { text.contains($0) }) else { continue }
+
+            // The smallest variant that is still at least as wide as the slot;
+            // the largest when nothing is.
+            let wanted = family
+                .filter { $0.value >= pixels }
+                .min { $0.value < $1.value }?.key
+                ?? family.max { $0.value < $1.value }?.key
+
+            guard let wanted else { return URL(string: text) }
+            return URL(string: text.replacingOccurrences(of: present, with: wanted))
+        }
+
+        return URL(string: text)
+    }
+
+    /// Sizes here are written into the path as `NxN`, and the service will
+    /// serve whichever is asked for.
+    private nonisolated static func rewriteYandex(_ text: String, _ pixels: CGFloat) -> URL? {
+        let side: Int = switch pixels {
+        case ..<110: 100
+        case ..<220: 200
+        case ..<420: 400
+        default: 1000
+        }
+
+        // The size is the last path component, written as `NxN`. Read as a
+        // path component rather than searched for as a pattern, so an id that
+        // happens to contain digits and an "x" cannot be rewritten by
+        // accident.
+        var parts = text.split(separator: "/", omittingEmptySubsequences: false)
+        guard let last = parts.last else { return URL(string: text) }
+
+        let halves = last.split(separator: "x")
+        guard halves.count == 2,
+              halves.allSatisfy({ !$0.isEmpty && $0.allSatisfy(\.isNumber) })
+        else { return URL(string: text) }
+
+        parts[parts.count - 1] = Substring("\(side)x\(side)")
+        return URL(string: parts.joined(separator: "/"))
+    }
+
+    /// Two shapes: a sized suffix that can simply be rewritten, and a set of
+    /// fixed names to pick between.
+    private nonisolated static func rewriteGoogle(_ text: String, _ pixels: CGFloat) -> URL? {
+        let side: Int = switch pixels {
+        case ..<130: 120
+        case ..<240: 226
+        case ..<420: 400
+        default: 544
+        }
+
+        // `...=w544-h544-l90-rj`: everything up to the marker is the image,
+        // everything after it is a list of options, and the first two are the
+        // size. Rebuilt by hand rather than by pattern, because a regex
+        // literal starting `=w` is ambiguous with an operator.
+        if let marker = text.range(of: "=w") {
+            let head = text[..<marker.lowerBound]
+            let options = text[marker.upperBound...].split(separator: "-").dropFirst(2)
+            let rest = options.isEmpty ? "" : "-" + options.joined(separator: "-")
+            return URL(string: "\(head)=w\(side)-h\(side)\(rest)")
+        }
+
+        let name: String = switch pixels {
+        case ..<130: "default"
+        case ..<340: "mqdefault"
+        case ..<500: "hqdefault"
+        default: "maxresdefault"
+        }
+
+        var rewritten = text
+        for known in ["maxresdefault", "sddefault", "hqdefault", "mqdefault", "default"] {
+            if rewritten.contains(known) {
+                rewritten = rewritten.replacingOccurrences(of: known, with: name)
+                break
+            }
+        }
+
+        return URL(string: rewritten)
     }
 }
 

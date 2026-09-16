@@ -69,8 +69,21 @@ class Settings(BaseSettings):
 
     # The proxy layer is written but stays off until a Russian-IP host exists.
     # With it disabled the app talks to Yandex directly, exactly as before.
+    #
+    # Measured from this host on 2026-09-05, so nobody has to guess again:
+    # `/account/status` answers 200 — the token and the account are fine from
+    # here — while `/search` answers 451. It is the content that is refused by
+    # region, not the credentials. Turning this on before the server has a
+    # Russian address would replace a working direct connection with a wall.
     music_proxy_enabled: bool = False
     music_proxy_upstream: str | None = None
+
+    # YouTube Music needs nothing signed in, but its media urls name the
+    # address that asked for them, so audio is relayed from here. The
+    # extractor is invoked as a separate process; this is where it lives when
+    # it is not simply on PATH.
+    ytmusic_enabled: bool = True
+    ytdlp_path: str | None = None
 
     cors_origins: list[str] = Field(default_factory=list)
     rate_limit_per_minute: int = 120

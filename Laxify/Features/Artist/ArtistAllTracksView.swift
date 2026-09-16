@@ -10,6 +10,14 @@ struct ArtistAllTracksView: View {
     @State private var isLoading = false
     @State private var hasMore = true
     @State private var hasError = false
+    /// Pages that came back empty in a row.
+    ///
+    /// The server assembles this list from a metadata catalogue and then has
+    /// to find something playable behind each entry, and the ones it cannot
+    /// place in time are left out — so a page can legitimately arrive empty
+    /// with plenty still to come after it. Stopping on the first empty page
+    /// is why an artist with two hundred tracks showed forty and then nothing.
+    @State private var emptyPages = 0
 
     var body: some View {
         ScrollView {
@@ -83,11 +91,22 @@ struct ArtistAllTracksView: View {
         isLoading = true
         hasError = false
         do {
-            let batch = try await CatalogService.shared.artistTracks(artistId: artistId, page: page)
+            let batch = try await CatalogService.shared.artistTracks(
+                artistId: artistId, page: page
+            )
             let existing = Set(songs.map(\.id))
             let fresh = batch.filter { !existing.contains($0.id) }
             songs.append(contentsOf: fresh)
-            hasMore = !batch.isEmpty && !fresh.isEmpty
+
+            // Covers, started now rather than when each row scrolls into
+            // place. Every other list in the app does this; this one did not,
+            // which is why its artwork came in one tile at a time.
+            AsyncCoverImage.prefetchCovers(for: fresh, width: 56)
+
+            emptyPages = fresh.isEmpty ? emptyPages + 1 : 0
+            // Three empty pages in a row is the end of the catalogue; one is
+            // a page whose tracks could not be placed in time.
+            hasMore = emptyPages < 3
             page += 1
         } catch {
             hasError = true

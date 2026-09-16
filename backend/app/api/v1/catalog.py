@@ -22,7 +22,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.models import ReferenceArtist
-from app.services import audio_cache, authenticity, catalog_meta, spotify_meta
+from app.services import audio_cache, authenticity, catalog_meta, rescue, spotify_meta
 from app.services.playability import filter_playable
 from app.services.soundcloud import SoundCloudError, soundcloud
 
@@ -350,17 +350,58 @@ async def warm(track_id: str, user: CurrentUser) -> MessageOut:
     try:
         source = await soundcloud.resolved_stream(track_id)
     except SoundCloudError:
-        # A track that cannot be warmed is not an error worth surfacing; it
-        # will be skipped when its turn comes.
-        return MessageOut(detail="skip")
+        # Not playable from the source — but that is exactly the track worth
+        # warming, because finding it elsewhere is the slow part. Done in the
+        # background with whatever the source can tell us about it.
+        asyncio.create_task(_rescue_quietly(track_id))
+        return MessageOut(detail="rescue")
 
     asyncio.create_task(audio_cache.ensure(track_id, source))
     return MessageOut(detail="ok")
 
 
+async def _rescue_quietly(track_id: str) -> None:
+    try:
+        title, artist, duration = await _identity(track_id, None, None, None)
+        await rescue.audio(track_id, title, artist, duration)
+    except Exception:  # noqa: BLE001 — a warm-up that fails costs nothing
+        pass
+
+
+async def _identity(
+    track_id: str, title: str | None, artist: str | None, duration: float | None
+) -> tuple[str, str, float]:
+    """Which song this is, for finding it somewhere else.
+
+    The app sends what it is showing — the cleaned title and the credited
+    artist, which match other catalogues far better than an uploader's own
+    spelling does. When it has not, the source's own description is used.
+    """
+    if title:
+        return title, artist or "", float(duration or 0)
+
+    try:
+        raw = await soundcloud.track(track_id)
+    except SoundCloudError:
+        return "", "", 0.0
+
+    return (
+        raw.get("title") or "",
+        _credited(raw) or (raw.get("user") or {}).get("username") or "",
+        float(raw.get("full_duration") or raw.get("duration") or 0) / 1000,
+    )
+
+
 @router.get("/tracks/{track_id}/audio")
-async def audio(track_id: str, user: CurrentUser, request: Request) -> Response:
-    """Streams the audio for a track.
+async def audio(
+    track_id: str,
+    user: CurrentUser,
+    request: Request,
+    title: str | None = Query(None, max_length=300),
+    artist: str | None = Query(None, max_length=300),
+    duration: float | None = Query(None, ge=0, le=6 * 3600),
+) -> Response:
+    """Streams the audio for a track, from wherever it can be found.
 
     The signed url the source hands out is bound to the region it was issued
     in, so a phone elsewhere is refused even though the link looks valid. The
@@ -370,23 +411,47 @@ async def audio(track_id: str, user: CurrentUser, request: Request) -> Response:
     ranged requests before the first sound, more while it plays — and going
     back to the source for each one meant a new connection every time, which
     was almost all of the delay before playback began.
+
+    And when the source will not serve the track at all — locked behind DRM,
+    blocked, or only a thirty-second preview — the same recording is found
+    elsewhere rather than answering with an error. That error used to be the
+    end of the track: of the requests that reached here in the two weeks
+    before this existed, most were exactly that, and every one was a song
+    skipped in front of a listener.
     """
+    # A copy found elsewhere earlier is used before asking the source again:
+    # the source's answer for that track is already known.
+    if (rescued := rescue.cached(track_id)) is not None:
+        return _ranged_file(rescued, request, "audio/mp4")
+
+    source: str | None = None
     try:
         source = await soundcloud.resolved_stream(track_id)
-    except SoundCloudError as exc:
-        raise _guard(exc) from exc
+    except SoundCloudError:
+        source = None
 
-    path = await audio_cache.ensure(track_id, source)
+    if source is not None:
+        path = await audio_cache.ensure(track_id, source)
+        if path is not None:
+            return _ranged_file(path, request, "audio/mpeg")
 
-    if path is None:
-        # Nothing cached and the fetch failed: fall back to passing the
-        # source through, which is slower but better than silence.
+    wanted_title, wanted_artist, wanted_length = await _identity(track_id, title, artist, duration)
+    rescued = await rescue.audio(track_id, wanted_title, wanted_artist, wanted_length)
+    if rescued is not None:
+        return _ranged_file(rescued, request, "audio/mp4")
+
+    if source is not None:
+        # The source did give a link, the download failed, and nothing else
+        # had the song: pass the source through as the very last attempt.
         return await _passthrough(source, request)
 
-    return _ranged_file(path, request)
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Трек не удалось найти ни в одном источнике",
+    )
 
 
-def _ranged_file(path: Path, request: Request) -> Response:
+def _ranged_file(path: Path, request: Request, content_type: str = "audio/mpeg") -> Response:
     """Serves a file, honouring the Range header.
 
     Without ranges a player cannot seek and will often refuse to start at
@@ -426,7 +491,7 @@ def _ranged_file(path: Path, request: Request) -> Response:
     headers = {
         "Content-Length": str(length),
         "Accept-Ranges": "bytes",
-        "Content-Type": "audio/mpeg",
+        "Content-Type": content_type,
     }
     if partial:
         headers["Content-Range"] = f"bytes {start}-{end}/{size}"

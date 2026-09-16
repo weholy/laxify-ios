@@ -29,6 +29,13 @@ final class StreamLoader: NSObject, @unchecked Sendable {
     /// What has arrived, and how much is expected in total.
     private var buffer = Data()
     private var expectedLength: Int?
+    /// What the file actually is, as the server described it.
+    ///
+    /// It used to be declared an mp3 whatever arrived. That was true while
+    /// everything behind this loader came from one source; a track found
+    /// elsewhere arrives as AAC in an MP4, and telling the player it is an
+    /// mp3 makes it refuse a perfectly good file as damaged.
+    private var contentType = AVFileType.mp3.rawValue
     private var isComplete = false
     private var failure: Error?
 
@@ -44,7 +51,11 @@ final class StreamLoader: NSObject, @unchecked Sendable {
         // Forty seconds of nothing before this gave up, on top of whatever
         // the resolve step already cost — long enough that a listener who
         // had given up and locked the phone was gone well before it did.
-        configuration.timeoutIntervalForRequest = 18
+        // Longer than it was. The server may have to find a track somewhere
+        // else before its first byte exists — a few seconds normally, more
+        // when that other source is slow — and giving up at eighteen turned
+        // a track that was on its way into a skip.
+        configuration.timeoutIntervalForRequest = 45
         // One connection carrying the whole file is the entire point.
         configuration.httpMaximumConnectionsPerHost = 1
         configuration.waitsForConnectivity = false
@@ -74,9 +85,26 @@ final class StreamLoader: NSObject, @unchecked Sendable {
         return asset
     }
 
+    /// Why the download failed, if it did.
+    ///
+    /// The player only ever sees its own wrapped version of this — "the media
+    /// may be damaged" — which cannot tell "the server found this song
+    /// nowhere" from "the connection dropped". The player asks here instead.
+    /// Called from the main actor only, never from the loader's own queue.
+    var failureReason: Error? {
+        queue.sync { failure }
+    }
+
     func cancel() {
         task?.cancel()
         queue.async { self.waiting.removeAll() }
+        // The session holds a strong reference to its delegate — that is
+        // this object — until it is invalidated. Without this a loader
+        // dropped because the listener moved on stayed alive, and its
+        // download stayed alive with it: a queue skipped through quickly
+        // left half a dozen connections still pulling whole tracks nobody
+        // was going to hear, on the very connection the next track needed.
+        session.invalidateAndCancel()
     }
 
     // MARK: - Downloading
@@ -95,6 +123,12 @@ final class StreamLoader: NSObject, @unchecked Sendable {
     }
 
     private func finished(with error: Error?) {
+        // The first answer is the true one. Refusing a response above cancels
+        // the task, and the cancellation arrives here a moment later as an
+        // error of its own — "cancelled" would then replace the status that
+        // explains why, which is the only part worth keeping.
+        guard failure == nil, !isComplete else { return }
+
         if let error {
             failure = error
             let pending = waiting
@@ -137,7 +171,7 @@ final class StreamLoader: NSObject, @unchecked Sendable {
             // body.
             guard let expectedLength else { return false }
 
-            information.contentType = AVFileType.mp3.rawValue
+            information.contentType = contentType
             information.contentLength = Int64(expectedLength)
             // The whole file arrives in order, so a seek forward may have to
             // wait — but declaring ranges unsupported would stop the player
@@ -232,7 +266,44 @@ extension StreamLoader: URLSessionDataDelegate {
         didReceive response: URLResponse,
         completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
     ) {
+        // Whatever the server said before any of it is treated as audio.
+        //
+        // This used to be skipped entirely: the body was appended, the
+        // download "finished" without an error, and a 401 from an expired
+        // session or a 404 for a track the server cannot resolve was handed
+        // to AVPlayer as if it were an mp3. The player took a moment to
+        // decide that four hundred bytes of JSON were not music, failed, and
+        // the track was written off as unplayable — for a reason that had
+        // nothing to do with the track. Refuse it here instead, with the
+        // status intact so the player can tell a dead track from a dead
+        // session.
+        let http = response as? HTTPURLResponse
+        let status = http?.statusCode ?? 200
+        let type = (http?.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased()
+
+        let looksLikeAnError = !(200..<300).contains(status)
+            || type.contains("json")
+            || type.hasPrefix("text/")
+
+        guard !looksLikeAnError else {
+            let error: Error = looksLikeATransientStatus(status)
+                ? MusicServiceError.temporarilyUnavailable
+                : MusicServiceError.underlying(
+                    APIError.server(status: status, detail: "поток не отдан: \(type)")
+                )
+            queue.async { self.finished(with: error) }
+            completionHandler(.cancel)
+            return
+        }
+
+        let declared: String = if type.contains("mp4") || type.contains("m4a") || type.contains("aac") {
+            AVFileType.m4a.rawValue
+        } else {
+            AVFileType.mp3.rawValue
+        }
+
         queue.async {
+            self.contentType = declared
             if response.expectedContentLength > 0 {
                 self.expectedLength = Int(response.expectedContentLength)
             }
@@ -240,6 +311,13 @@ extension StreamLoader: URLSessionDataDelegate {
             self.serveWaiting()
         }
         completionHandler(.allow)
+    }
+
+    /// Whether a refusal says something about the moment rather than about
+    /// the track. A throttled or briefly broken server must never cost a
+    /// working song its place in the queue.
+    private func looksLikeATransientStatus(_ status: Int) -> Bool {
+        status == 408 || status == 425 || status == 429 || (500..<600).contains(status)
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
