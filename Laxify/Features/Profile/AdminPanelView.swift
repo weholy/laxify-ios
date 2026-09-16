@@ -1,390 +1,342 @@
 import SwiftUI
 import PhotosUI
 
-/// The operator's panel — who is here, what they do, and what can be done
-/// about them.
+/// Випка — the operator's panel.
 ///
-/// Reloads whenever it opens, whenever the tab changes and after every action,
-/// because a stale list of people is worse than no list: a ban you have
-/// already applied has to be visible or you will apply it twice.
+/// Rebuilt around what the operator comes here to do. It used to open on a
+/// raw list of people under five tabs squeezed into one segmented control,
+/// with statistics as ten tables in a row and errors as three hundred
+/// unsorted log lines — everything was there and nothing was findable.
+///
+/// Now it opens the way iOS Settings does: the handful of numbers that say
+/// how things are, then a list of sections that say what is inside them and
+/// how much needs attention. Errors are grouped by what went wrong, with how
+/// often, instead of printed one by one; the action log speaks words rather
+/// than codes.
 struct AdminPanelView: View {
     var onBack: () -> Void
 
-    private enum Tab: String, CaseIterable, Identifiable {
-        case users
-        case overview
-        case diagnostics
+    enum Destination: Hashable {
+        case people
+        case problems
+        case statistics
         case broadcast
-        case log
-
-        var id: String { rawValue }
-
-        @MainActor
-        var title: String {
-            switch self {
-            case .users: L("admin.users", "Люди")
-            case .overview: L("admin.overview", "Обзор")
-            case .diagnostics: L("admin.diagnosticsTab", "Ошибки")
-            case .broadcast: L("admin.broadcastTab", "Рассылка")
-            case .log: L("admin.logTab", "Журнал")
-            }
-        }
+        case journal
     }
 
-    @State private var tab: Tab = .users
-    @State private var users: [LaxifyAPI.AdminUserDTO] = []
+    @State private var path: [Destination] = []
     @State private var stats: LaxifyAPI.AdminStatsDTO?
-    @State private var diagnostics: [LaxifyAPI.AdminDiagnosticRow] = []
-    @State private var diagnosticsLevel: String?
-    @State private var log: [LaxifyAPI.AdminLogRow] = []
-    @State private var query = ""
+    @State private var problems: [LaxifyAPI.AdminDiagnosticRow] = []
     @State private var isLoading = false
     @State private var failure: String?
-    @State private var selected: LaxifyAPI.AdminUserDTO?
 
     var body: some View {
+        NavigationStack(path: $path) {
+            hub
+                .toolbar(.hidden, for: .navigationBar)
+                .navigationDestination(for: Destination.self) { destination in
+                    switch destination {
+                    case .people: AdminPeopleScreen()
+                    case .problems: AdminProblemsScreen()
+                    case .statistics: AdminStatisticsScreen()
+                    case .broadcast: AdminBroadcastScreen()
+                    case .journal: AdminJournalScreen()
+                    }
+                }
+        }
+        .tint(LaxifyPalette.accent)
+    }
+
+    // MARK: - Hub
+
+    private var hub: some View {
         ZStack {
             LaxifyPalette.background.ignoresSafeArea()
 
             VStack(spacing: 0) {
                 SettingsHeader(title: L("settings.admin", "Випка"), onBack: onBack)
 
-                Picker("", selection: $tab) {
-                    ForEach(Tab.allCases) { entry in
-                        Text(entry.title).tag(entry)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, LaxifyMetrics.screenPadding)
-                .padding(.bottom, 12)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 22) {
+                        if let failure { AdminNotice(text: failure) }
 
-                content
+                        summary
+                        sections
+
+                        AdminSectionTitle(L("admin.appVersion", "Версия приложения"))
+                        AdminVersionGateCard()
+                    }
+                    .padding(.horizontal, LaxifyMetrics.screenPadding)
+                    .padding(.top, 4)
+                    .padding(.bottom, 60)
+                }
+                .refreshable { await reload() }
             }
         }
-        .task(id: tab) { await reload() }
+        .task { await reload() }
+    }
+
+    /// Four numbers, each with the one piece of context that makes it mean
+    /// something. Tapping one opens the section it summarises.
+    private var summary: some View {
+        let errorsToday = problems.filter {
+            $0.level == "error" && $0.happenedAt > Date().addingTimeInterval(-86_400)
+        }.count
+
+        return LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
+            AdminSummaryTile(
+                value: stats.map { "\($0.usersTotal)" } ?? "—",
+                title: L("admin.sum.people", "Людей"),
+                detail: stats.map { "+\($0.usersToday) " + L("admin.sum.today", "сегодня") },
+                symbol: "person.2.fill",
+                tint: LaxifyPalette.accent
+            ) { path.append(.people) }
+
+            AdminSummaryTile(
+                value: stats.map { "\($0.usersActive24h)" } ?? "—",
+                title: L("admin.sum.active", "Заходили за сутки"),
+                detail: stats.map { "\($0.usersActive7d) " + L("admin.sum.week", "за неделю") },
+                symbol: "bolt.fill",
+                tint: Color(hex: 0x34C759)
+            ) { path.append(.statistics) }
+
+            AdminSummaryTile(
+                value: stats.map { "\($0.plays24h)" } ?? "—",
+                title: L("admin.sum.plays", "Прослушиваний за сутки"),
+                detail: stats.map { "\($0.plays7d) " + L("admin.sum.week", "за неделю") },
+                symbol: "play.fill",
+                tint: Color(hex: 0xAF52DE)
+            ) { path.append(.statistics) }
+
+            AdminSummaryTile(
+                value: isLoading && problems.isEmpty ? "—" : "\(errorsToday)",
+                title: L("admin.sum.errors", "Ошибок за сутки"),
+                detail: errorsToday == 0
+                    ? L("admin.sum.allGood", "всё спокойно")
+                    : L("admin.sum.look", "посмотреть"),
+                symbol: errorsToday == 0 ? "checkmark.seal.fill" : "exclamationmark.triangle.fill",
+                tint: errorsToday == 0 ? Color(hex: 0x34C759) : Color(hex: 0xFF453A)
+            ) { path.append(.problems) }
+        }
+    }
+
+    private var sections: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            AdminSectionTitle(L("admin.sections", "Разделы"))
+
+            SettingsCard {
+                AdminSectionRow(
+                    symbol: "person.2.fill",
+                    tint: LaxifyPalette.accent,
+                    title: L("admin.people", "Люди"),
+                    subtitle: stats.map {
+                        "\($0.usersTotal) " + L("admin.row.accounts", "аккаунтов") + " · "
+                            + "\($0.usersBanned) " + L("admin.row.banned", "заблокировано")
+                    } ?? L("admin.row.peopleSub", "Поиск, баны, права")
+                ) { path.append(.people) }
+
+                SettingsDivider()
+
+                AdminSectionRow(
+                    symbol: "exclamationmark.triangle.fill",
+                    tint: Color(hex: 0xFF9F0A),
+                    title: L("admin.problems", "Ошибки"),
+                    subtitle: L("admin.row.problemsSub", "Что ломается у людей, по группам"),
+                    badge: problemGroupsCount
+                ) { path.append(.problems) }
+
+                SettingsDivider()
+
+                AdminSectionRow(
+                    symbol: "chart.bar.fill",
+                    tint: Color(hex: 0xAF52DE),
+                    title: L("admin.statistics", "Статистика"),
+                    subtitle: L("admin.row.statsSub", "Графики, топ треков и артистов")
+                ) { path.append(.statistics) }
+
+                SettingsDivider()
+
+                AdminSectionRow(
+                    symbol: "megaphone.fill",
+                    tint: Color(hex: 0x30B0C7),
+                    title: L("admin.broadcast", "Рассылка"),
+                    subtitle: L("admin.row.broadcastSub", "Уведомление всем пользователям")
+                ) { path.append(.broadcast) }
+
+                SettingsDivider()
+
+                AdminSectionRow(
+                    symbol: "list.bullet.rectangle.portrait.fill",
+                    tint: Color(hex: 0x8E8E93),
+                    title: L("admin.journal", "Журнал действий"),
+                    subtitle: L("admin.row.journalSub", "Кто что менял в Випке")
+                ) { path.append(.journal) }
+            }
+        }
+    }
+
+    private var problemGroupsCount: Int? {
+        let recent = problems.filter {
+            $0.level == "error" && $0.happenedAt > Date().addingTimeInterval(-86_400)
+        }
+        let groups = Set(recent.map(\.message)).count
+        return groups > 0 ? groups : nil
+    }
+
+    private func reload() async {
+        isLoading = true
+        failure = nil
+        defer { isLoading = false }
+
+        async let loadedStats = LaxifyAPI.shared.adminStats()
+        async let loadedProblems = LaxifyAPI.shared.adminDiagnostics(level: "error", limit: 300)
+
+        do {
+            stats = try await loadedStats
+        } catch APIError.server(_, let detail) {
+            failure = detail
+        } catch {
+            failure = L("admin.failed", "Сервер не ответил. Потяните вниз, чтобы повторить")
+        }
+        problems = (try? await loadedProblems) ?? problems
+    }
+}
+
+// MARK: - People
+
+private struct AdminPeopleScreen: View {
+    private enum Filter: String, CaseIterable, Identifiable {
+        case all, active, new, banned, admins
+        var id: String { rawValue }
+
+        @MainActor
+        var title: String {
+            switch self {
+            case .all: L("admin.filter.all", "Все")
+            case .active: L("admin.filter.active", "Активные")
+            case .new: L("admin.filter.new", "Новые")
+            case .banned: L("admin.filter.banned", "Заблокированные")
+            case .admins: L("admin.filter.admins", "Админы")
+            }
+        }
+    }
+
+    @State private var users: [LaxifyAPI.AdminUserDTO] = []
+    @State private var query = ""
+    @State private var filter: Filter = .all
+    @State private var isLoading = false
+    @State private var failure: String?
+    @State private var selected: LaxifyAPI.AdminUserDTO?
+
+    private var shown: [LaxifyAPI.AdminUserDTO] {
+        let day = Date().addingTimeInterval(-86_400)
+        let week = Date().addingTimeInterval(-7 * 86_400)
+        return users.filter { user in
+            switch filter {
+            case .all: true
+            case .active: (user.lastSeenAt ?? .distantPast) > day
+            case .new: user.createdAt > week
+            case .banned: user.isBanned
+            case .admins: user.isAdmin
+            }
+        }
+    }
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 10) {
+                AdminSearchField(
+                    placeholder: L("admin.search", "Имя, ник или почта"),
+                    text: $query
+                ) { Task { await reload() } }
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(Filter.allCases) { item in
+                            AdminChip(
+                                title: item.title,
+                                count: count(for: item),
+                                isOn: filter == item
+                            ) { filter = item }
+                        }
+                    }
+                }
+
+                if let failure { AdminNotice(text: failure) }
+
+                if isLoading && users.isEmpty {
+                    ProgressView().frame(maxWidth: .infinity).padding(.top, 40)
+                }
+
+                ForEach(shown) { user in
+                    Button { selected = user } label: { AdminPersonRow(user: user) }
+                        .buttonStyle(.plain)
+                }
+
+                if !isLoading && shown.isEmpty && failure == nil {
+                    AdminNotice(text: L("admin.empty", "Никого не нашлось"))
+                }
+            }
+            .padding(.horizontal, LaxifyMetrics.screenPadding)
+            .padding(.bottom, 60)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .refreshable { await reload() }
+        .adminScreen(title: L("admin.people", "Люди"))
+        .task { await reload() }
         .sheet(item: $selected) { user in
             AdminUserSheet(user: user) { await reload() } onClose: { selected = nil }
         }
     }
 
-    @ViewBuilder
-    private var content: some View {
-        switch tab {
-        case .users: userList
-        case .overview: overviewList
-        case .diagnostics: diagnosticsList
-        case .broadcast: AdminBroadcastForm()
-        case .log: logList
-        }
+    private func count(for item: Filter) -> Int? {
+        guard item != .all else { return users.isEmpty ? nil : users.count }
+        let day = Date().addingTimeInterval(-86_400)
+        let week = Date().addingTimeInterval(-7 * 86_400)
+        let value = users.filter { user in
+            switch item {
+            case .all: true
+            case .active: (user.lastSeenAt ?? .distantPast) > day
+            case .new: user.createdAt > week
+            case .banned: user.isBanned
+            case .admins: user.isAdmin
+            }
+        }.count
+        return value > 0 ? value : nil
     }
 
-    /// Every error the app has phoned home with, newest first. This is the
-    /// direct answer to "let me see every failure myself" — the data was
-    /// already being collected; nothing looked at it.
-    private var diagnosticsList: some View {
-        ScrollView {
-            LazyVStack(spacing: 8) {
-                diagnosticsFilterRow
-
-                if let failure { notice(failure) }
-
-                if isLoading && diagnostics.isEmpty {
-                    ProgressView().padding(.top, 40)
-                }
-
-                ForEach(diagnostics) { entry in
-                    diagnosticsRow(entry)
-                }
-
-                if !isLoading && diagnostics.isEmpty && failure == nil {
-                    notice(L("admin.noData", "Ничего не случилось — и это хорошо"))
-                }
-            }
-            .padding(.horizontal, LaxifyMetrics.screenPadding)
-            .padding(.bottom, 120)
-        }
-        .refreshable { await reload() }
-    }
-
-    private var diagnosticsFilterRow: some View {
-        HStack(spacing: 8) {
-            diagnosticsChip(L("admin.diag.all", "Все"), isOn: diagnosticsLevel == nil) {
-                diagnosticsLevel = nil
-                Task { await reload() }
-            }
-            diagnosticsChip(L("admin.diag.errors", "Ошибки"), isOn: diagnosticsLevel == "error") {
-                diagnosticsLevel = "error"
-                Task { await reload() }
-            }
-            diagnosticsChip(L("admin.diag.warnings", "Предупреждения"), isOn: diagnosticsLevel == "warn") {
-                diagnosticsLevel = "warn"
-                Task { await reload() }
-            }
-
-            Spacer()
-
-            // Everything on screen as one file. Reading a fault out of a
-            // screenshot means retyping ids and truncated error strings by
-            // hand; the file carries the whole context that makes a report
-            // actionable.
-            if !diagnostics.isEmpty, let dump = diagnosticsDump() {
-                ShareLink(item: dump) {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(LaxifyPalette.accent)
-                        .frame(width: 32, height: 32)
-                        .background(LaxifyPalette.surface, in: Circle())
-                }
-            }
-        }
-    }
-
-    /// Writes the loaded diagnostics to a file for the share sheet.
-    ///
-    /// Plain text rather than JSON: this gets pasted into a chat as often as
-    /// it gets attached, and it has to stay readable when it does.
-    private func diagnosticsDump() -> URL? {
-        var lines: [String] = [
-            "Laxify — диагностика",
-            "Выгружено: \(AdminFormat.full.string(from: Date()))",
-            "Фильтр: \(diagnosticsLevel ?? "все")",
-            "Записей: \(diagnostics.count)",
-            ""
-        ]
-
-        for entry in diagnostics {
-            lines.append("[\(entry.level.uppercased())] \(entry.category) — \(AdminFormat.full.string(from: entry.happenedAt))")
-            lines.append(entry.message)
-
-            if !entry.context.isEmpty {
-                for (key, value) in entry.context.sorted(by: { $0.key < $1.key }) {
-                    lines.append("    \(key): \(value)")
-                }
-            }
-
-            var tail: [String] = []
-            if let device = entry.deviceModel { tail.append(device) }
-            if let version = entry.appVersion { tail.append("v\(version)") }
-            if let ms = entry.durationMs { tail.append("\(ms) мс") }
-            if !tail.isEmpty { lines.append("    — " + tail.joined(separator: " · ")) }
-
-            lines.append("")
-        }
-
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("laxify-диагностика.txt")
-
+    private func reload() async {
+        isLoading = true
+        failure = nil
+        defer { isLoading = false }
         do {
-            try lines.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
-            return url
+            users = try await LaxifyAPI.shared.adminUsers(query: query, limit: 200)
+        } catch APIError.server(_, let detail) {
+            failure = detail
         } catch {
-            return nil
+            failure = L("admin.failed", "Сервер не ответил. Потяните вниз, чтобы повторить")
         }
     }
+}
 
-    private func diagnosticsChip(_ title: String, isOn: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(isOn ? .white : LaxifyPalette.textSecondary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
-                .background(
-                    isOn ? LaxifyPalette.accent : LaxifyPalette.surface,
-                    in: Capsule()
-                )
-        }
-        .buttonStyle(.plain)
-    }
+private struct AdminPersonRow: View {
+    let user: LaxifyAPI.AdminUserDTO
 
-    private func diagnosticsRow(_ entry: LaxifyAPI.AdminDiagnosticRow) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(diagnosticsColor(entry.level))
-                    .frame(width: 7, height: 7)
-
-                Text(entry.category)
-                    .font(.system(size: 11, weight: .heavy))
-                    .tracking(0.4)
-                    .foregroundStyle(LaxifyPalette.textTertiary)
-
-                Spacer(minLength: 6)
-
-                Text(AdminFormat.full.string(from: entry.happenedAt))
-                    .font(.system(size: 11))
-                    .foregroundStyle(LaxifyPalette.textTertiary)
-            }
-
-            Text(entry.message)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(LaxifyPalette.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            // The context is where a track id or an error string lives —
-            // exactly what turns "something failed" into something fixable.
-            if !entry.context.isEmpty {
-                WordFlowLayout(horizontalSpacing: 6, lineSpacing: 6) {
-                    ForEach(entry.context.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
-                        Text("\(key): \(value)")
-                            .font(.system(size: 11))
-                            .foregroundStyle(LaxifyPalette.textSecondary)
-                            .lineLimit(1)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(LaxifyPalette.surfaceElevated, in: Capsule())
-                    }
-                }
-            }
-
-            HStack(spacing: 6) {
-                if let device = entry.deviceModel {
-                    Text(device)
-                }
-                if let version = entry.appVersion {
-                    Text("v\(version)")
-                }
-                if let ms = entry.durationMs {
-                    Text("\(ms) мс")
-                        .foregroundStyle(LaxifyPalette.accent)
-                }
-            }
-            .font(.system(size: 10))
-            .foregroundStyle(LaxifyPalette.textTertiary)
-        }
-        .padding(12)
-        .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
-
-    private func diagnosticsColor(_ level: String) -> Color {
-        switch level {
-        case "error": .red
-        case "warn": .orange
-        default: LaxifyPalette.textTertiary
-        }
-    }
-
-    /// Who did what in here, newest first. An admin panel with no record of
-    /// its own actions is one you cannot check — including against yourself.
-    private var logList: some View {
-        ScrollView {
-            LazyVStack(spacing: 8) {
-                if let failure { notice(failure) }
-
-                if isLoading && log.isEmpty {
-                    ProgressView().padding(.top, 40)
-                }
-
-                ForEach(log) { entry in
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(entry.action)
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(LaxifyPalette.textPrimary)
-                                .lineLimit(1)
-
-                            Text(entry.actor.map { "@\($0)" } ?? "—")
-                                .font(.system(size: 12))
-                                .foregroundStyle(LaxifyPalette.textSecondary)
-                        }
-
-                        Spacer(minLength: 6)
-
-                        Text(AdminFormat.full.string(from: entry.createdAt))
-                            .font(.system(size: 11))
-                            .foregroundStyle(LaxifyPalette.textTertiary)
-                    }
-                    .padding(12)
-                    .background(
-                        LaxifyPalette.surface,
-                        in: RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    )
-                }
-
-                if !isLoading && log.isEmpty && failure == nil {
-                    notice(L("admin.noData", "Пока нечего показать"))
-                }
-            }
-            .padding(.horizontal, LaxifyMetrics.screenPadding)
-            .padding(.bottom, 120)
-        }
-        .refreshable { await reload() }
-    }
-
-    // MARK: - People
-
-    private var userList: some View {
-        ScrollView {
-            LazyVStack(spacing: 10) {
-                searchField
-
-                if let failure { notice(failure) }
-
-                if isLoading && users.isEmpty {
-                    ProgressView().padding(.top, 40)
-                }
-
-                ForEach(users) { user in
-                    Button { selected = user } label: { row(user) }
-                        .buttonStyle(.plain)
-                }
-
-                if !isLoading && users.isEmpty && failure == nil {
-                    notice(L("admin.empty", "Никого не нашлось"))
-                }
-            }
-            .padding(.horizontal, LaxifyMetrics.screenPadding)
-            .padding(.bottom, 120)
-        }
-        .refreshable { await reload() }
-        .scrollDismissesKeyboard(.interactively)
-    }
-
-    private var searchField: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(LaxifyPalette.textTertiary)
-
-            TextField(L("admin.search", "Имя, ник или почта"), text: $query)
-                .font(.system(size: 15))
-                .foregroundStyle(LaxifyPalette.textPrimary)
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
-                .submitLabel(.search)
-                .onSubmit { Task { await reload() } }
-
-            if !query.isEmpty {
-                Button {
-                    query = ""
-                    Task { await reload() }
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(LaxifyPalette.textTertiary)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-    }
-
-    private func row(_ user: LaxifyAPI.AdminUserDTO) -> some View {
+    var body: some View {
         HStack(spacing: 12) {
             CachedImage(url: user.avatarURL, displaySize: 90) {
                 Circle()
                     .fill(LaxifyPalette.surfaceElevated)
                     .overlay {
                         Image(systemName: "person.fill")
-                            .font(.system(size: 16))
+                            .font(.system(size: 17))
                             .foregroundStyle(LaxifyPalette.textTertiary)
                     }
             }
-            .frame(width: 42, height: 42)
+            .frame(width: 48, height: 48)
             .clipShape(Circle())
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(user.displayName)
                         .font(.system(size: 16, weight: .semibold))
@@ -392,61 +344,326 @@ struct AdminPanelView: View {
                         .lineLimit(1)
 
                     if user.isAdmin {
-                        Text("VIP")
-                            .font(.system(size: 9, weight: .heavy))
-                            .foregroundStyle(.black)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 2)
-                            .background(Color(hex: 0xFFD60A), in: Capsule())
+                        AdminBadge(text: L("admin.badge.admin", "Админ"), tint: Color(hex: 0xFFD60A), dark: true)
                     }
-
                     if user.isBanned {
-                        Image(systemName: "nosign")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(.red)
+                        AdminBadge(text: L("admin.badge.banned", "Бан"), tint: Color(hex: 0xFF453A))
                     }
                 }
 
-                Text("@\(user.username)")
+                Text("@\(user.username)" + ((user.email?.isEmpty == false) ? " · \(user.email!)" : ""))
                     .font(.system(size: 13))
                     .foregroundStyle(LaxifyPalette.textSecondary)
                     .lineLimit(1)
-
-                Text(user.email ?? "—")
-                    .font(.system(size: 12))
-                    .foregroundStyle(LaxifyPalette.textTertiary)
-                    .lineLimit(1)
                     .truncationMode(.middle)
+
+                Text(seenLine)
+                    .font(.system(size: 12))
+                    .foregroundStyle(isOnlineRecently ? Color(hex: 0x34C759) : LaxifyPalette.textTertiary)
+                    .lineLimit(1)
             }
 
             Spacer(minLength: 6)
 
-            VStack(alignment: .trailing, spacing: 2) {
-                Text(AdminFormat.day.string(from: user.createdAt))
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(LaxifyPalette.textSecondary)
-                Text(AdminFormat.time.string(from: user.createdAt))
-                    .font(.system(size: 11))
-                    .foregroundStyle(LaxifyPalette.textTertiary)
-            }
+            Image(systemName: "chevron.right")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(LaxifyPalette.textTertiary)
         }
         .padding(12)
         .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .contentShape(Rectangle())
     }
 
-    // MARK: - Overview
+    private var isOnlineRecently: Bool {
+        (user.lastSeenAt ?? .distantPast) > Date().addingTimeInterval(-15 * 60)
+    }
 
-    private var overviewList: some View {
+    private var seenLine: String {
+        let joined = L("admin.joined", "с нами с") + " " + AdminFormat.day.string(from: user.createdAt)
+        guard let seen = user.lastSeenAt else { return joined }
+        if isOnlineRecently { return L("admin.onlineNow", "в сети") + " · " + joined }
+        return L("admin.seen", "был(а)") + " " + AdminFormat.relative(seen) + " · " + joined
+    }
+}
+
+// MARK: - Problems
+
+/// What is going wrong, grouped by what went wrong.
+///
+/// A fault that happened eighty times is one problem, not eighty rows. The
+/// groups are ordered by how often they happen, so the thing worth fixing
+/// first is at the top; a group opens onto its occurrences, with the full
+/// context of each, and can be exported as a file.
+private struct AdminProblemsScreen: View {
+    private enum Level: String, CaseIterable, Identifiable {
+        case error, warn, all
+        var id: String { rawValue }
+
+        @MainActor
+        var title: String {
+            switch self {
+            case .error: L("admin.diag.errors", "Ошибки")
+            case .warn: L("admin.diag.warnings", "Предупреждения")
+            case .all: L("admin.diag.all", "Всё")
+            }
+        }
+
+        var query: String? { self == .all ? nil : rawValue }
+    }
+
+    struct ProblemGroup: Identifiable {
+        let message: String
+        let category: String
+        let level: String
+        let rows: [LaxifyAPI.AdminDiagnosticRow]
+        var id: String { level + category + message }
+        var last: Date { rows.map(\.happenedAt).max() ?? .distantPast }
+        var devices: Int { Set(rows.map(\.sessionId)).count }
+    }
+
+    @State private var level: Level = .error
+    @State private var rows: [LaxifyAPI.AdminDiagnosticRow] = []
+    @State private var isLoading = false
+    @State private var failure: String?
+
+    private var groups: [ProblemGroup] {
+        Dictionary(grouping: rows) { "\($0.level)|\($0.category)|\($0.message)" }
+            .values
+            .compactMap { items in
+                guard let first = items.first else { return nil }
+                return ProblemGroup(message: first.message, category: first.category, level: first.level, rows: items)
+            }
+            .sorted { $0.rows.count == $1.rows.count ? $0.last > $1.last : $0.rows.count > $1.rows.count }
+    }
+
+    var body: some View {
         ScrollView {
-            VStack(spacing: 14) {
-                if let failure { notice(failure) }
+            LazyVStack(alignment: .leading, spacing: 10) {
+                Picker("", selection: $level) {
+                    ForEach(Level.allCases) { item in
+                        Text(item.title).tag(item)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                if !rows.isEmpty {
+                    Text(
+                        "\(rows.count) " + L("admin.diag.records", "записей") + " · "
+                            + "\(groups.count) " + L("admin.diag.kinds", "видов")
+                    )
+                    .font(LaxifyTypography.footnote)
+                    .foregroundStyle(LaxifyPalette.textSecondary)
+                    .padding(.top, 2)
+                }
+
+                if let failure { AdminNotice(text: failure) }
+
+                if isLoading && rows.isEmpty {
+                    ProgressView().frame(maxWidth: .infinity).padding(.top, 40)
+                }
+
+                ForEach(groups) { group in
+                    NavigationLink {
+                        AdminProblemDetailScreen(group: group)
+                    } label: {
+                        AdminProblemGroupRow(group: group)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                if !isLoading && rows.isEmpty && failure == nil {
+                    AdminNotice(text: L("admin.noData", "Ничего не случилось — и это хорошо"))
+                }
+            }
+            .padding(.horizontal, LaxifyMetrics.screenPadding)
+            .padding(.bottom, 60)
+        }
+        .refreshable { await reload() }
+        .adminScreen(title: L("admin.problems", "Ошибки"))
+        .task(id: level) { await reload() }
+    }
+
+    private func reload() async {
+        isLoading = true
+        failure = nil
+        defer { isLoading = false }
+        do {
+            rows = try await LaxifyAPI.shared.adminDiagnostics(level: level.query, limit: 300)
+        } catch APIError.server(_, let detail) {
+            failure = detail
+        } catch {
+            failure = L("admin.failed", "Сервер не ответил. Потяните вниз, чтобы повторить")
+        }
+    }
+}
+
+private struct AdminProblemGroupRow: View {
+    let group: AdminProblemsScreen.ProblemGroup
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text("\(group.rows.count)")
+                .font(.system(size: 17, weight: .heavy, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(tint)
+                .frame(minWidth: 44)
+                .padding(.vertical, 8)
+                .background(tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(group.message)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(LaxifyPalette.textPrimary)
+                    .lineLimit(3)
+                    .multilineTextAlignment(.leading)
+
+                Text(
+                    group.category + " · "
+                        + L("admin.diag.last", "последний раз") + " " + AdminFormat.relative(group.last)
+                        + " · " + "\(group.devices) " + L("admin.diag.sessions", "сессий")
+                )
+                .font(.system(size: 12))
+                .foregroundStyle(LaxifyPalette.textTertiary)
+                .lineLimit(2)
+            }
+
+            Spacer(minLength: 4)
+
+            Image(systemName: "chevron.right")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(LaxifyPalette.textTertiary)
+                .padding(.top, 10)
+        }
+        .padding(12)
+        .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .contentShape(Rectangle())
+    }
+
+    private var tint: Color {
+        switch group.level {
+        case "error": Color(hex: 0xFF453A)
+        case "warn": Color(hex: 0xFF9F0A)
+        default: LaxifyPalette.textSecondary
+        }
+    }
+}
+
+private struct AdminProblemDetailScreen: View {
+    let group: AdminProblemsScreen.ProblemGroup
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 8) {
+                Text(group.message)
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(LaxifyPalette.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.bottom, 6)
+
+                ForEach(group.rows.sorted { $0.happenedAt > $1.happenedAt }) { entry in
+                    AdminOccurrenceRow(entry: entry)
+                }
+            }
+            .padding(.horizontal, LaxifyMetrics.screenPadding)
+            .padding(.bottom, 60)
+        }
+        .adminScreen(title: group.category)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                if let file = export() {
+                    ShareLink(item: file) {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                }
+            }
+        }
+    }
+
+    /// The whole group as a readable text file, for pasting into a chat.
+    private func export() -> URL? {
+        var lines = [
+            "Laxify — \(group.message)",
+            "Выгружено: \(AdminFormat.full.string(from: Date()))",
+            "Случаев: \(group.rows.count)",
+            ""
+        ]
+        for entry in group.rows.sorted(by: { $0.happenedAt > $1.happenedAt }) {
+            lines.append("[\(entry.level.uppercased())] \(AdminFormat.full.string(from: entry.happenedAt))")
+            for (key, value) in entry.context.sorted(by: { $0.key < $1.key }) {
+                lines.append("    \(key): \(value)")
+            }
+            var tail: [String] = []
+            if let device = entry.deviceModel { tail.append(device) }
+            if let version = entry.appVersion { tail.append("v\(version)") }
+            if let ms = entry.durationMs { tail.append("\(ms) мс") }
+            if !tail.isEmpty { lines.append("    — " + tail.joined(separator: " · ")) }
+            lines.append("")
+        }
+
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("laxify-ошибка.txt")
+        return (try? lines.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)) != nil
+            ? url : nil
+    }
+}
+
+private struct AdminOccurrenceRow: View {
+    let entry: LaxifyAPI.AdminDiagnosticRow
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(AdminFormat.full.string(from: entry.happenedAt))
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(LaxifyPalette.textSecondary)
+                Spacer()
+                if let ms = entry.durationMs {
+                    Text("\(ms) мс")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(LaxifyPalette.accent)
+                }
+            }
+
+            // Where a track, a title or an error string lives — the part that
+            // turns "something failed" into something fixable.
+            ForEach(entry.context.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(key)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(LaxifyPalette.textTertiary)
+                        .frame(width: 80, alignment: .leading)
+                    Text(value)
+                        .font(.system(size: 12))
+                        .foregroundStyle(LaxifyPalette.textPrimary)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            let tail = [entry.deviceModel, entry.appVersion.map { "v\($0)" }].compactMap { $0 }
+            if !tail.isEmpty {
+                Text(tail.joined(separator: " · "))
+                    .font(.system(size: 11))
+                    .foregroundStyle(LaxifyPalette.textTertiary)
+            }
+        }
+        .padding(12)
+        .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+}
+
+// MARK: - Statistics
+
+private struct AdminStatisticsScreen: View {
+    @State private var stats: LaxifyAPI.AdminStatsDTO?
+    @State private var isLoading = false
+    @State private var failure: String?
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                if let failure { AdminNotice(text: failure) }
 
                 if let stats {
-                    // The two numbers an operator actually opens this for,
-                    // given the room they deserve: how many people there are,
-                    // and how many of them came back this week. Everything
-                    // else is detail underneath.
                     AdminHeadline(
                         total: stats.usersTotal,
                         activeWeek: stats.usersActive7d,
@@ -454,7 +671,11 @@ struct AdminPanelView: View {
                         newToday: stats.usersToday
                     )
 
-                    AdminVersionGateCard()
+                    AdminBars(title: L("admin.playsChart", "Прослушивания, 14 дней"), values: stats.playsByDay)
+                    AdminBars(title: L("admin.signups", "Регистрации, 14 дней"), values: stats.signupsByDay)
+
+                    AdminRanked(title: L("admin.topTracks", "Топ треков"), rows: stats.topTracks)
+                    AdminRanked(title: L("admin.topArtists", "Топ артистов"), rows: stats.topArtists)
 
                     AdminStatGrid(
                         title: L("admin.people", "Люди"),
@@ -495,61 +716,24 @@ struct AdminPanelView: View {
                             .init(L("admin.notifications", "Уведомлений"), stats.notificationsTotal)
                         ]
                     )
-
-                    AdminBars(
-                        title: L("admin.signups", "Регистрации, 14 дней"),
-                        values: stats.signupsByDay
-                    )
-                    AdminBars(
-                        title: L("admin.playsChart", "Прослушивания, 14 дней"),
-                        values: stats.playsByDay
-                    )
-
-                    AdminRanked(title: L("admin.topTracks", "Топ треков"), rows: stats.topTracks)
-                    AdminRanked(title: L("admin.topArtists", "Топ артистов"), rows: stats.topArtists)
                 } else if isLoading {
-                    ProgressView().padding(.top, 40)
+                    ProgressView().frame(maxWidth: .infinity).padding(.top, 40)
                 }
             }
             .padding(.horizontal, LaxifyMetrics.screenPadding)
-            .padding(.bottom, 120)
+            .padding(.bottom, 60)
         }
         .refreshable { await reload() }
+        .adminScreen(title: L("admin.statistics", "Статистика"))
+        .task { await reload() }
     }
-
-    private func notice(_ text: String) -> some View {
-        Text(text)
-            .font(LaxifyTypography.footnote)
-            .foregroundStyle(LaxifyPalette.textSecondary)
-            .multilineTextAlignment(.center)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 30)
-    }
-
-    // MARK: - Loading
 
     private func reload() async {
         isLoading = true
         failure = nil
         defer { isLoading = false }
-
         do {
-            switch tab {
-            case .users:
-                users = try await LaxifyAPI.shared.adminUsers(query: query)
-            case .overview:
-                stats = try await LaxifyAPI.shared.adminStats()
-            case .diagnostics:
-                // Deep enough that the export is worth sending: a fault worth
-                // reporting usually has its cause a hundred lines above it.
-                diagnostics = try await LaxifyAPI.shared.adminDiagnostics(
-                    level: diagnosticsLevel, limit: 300
-                )
-            case .log:
-                log = try await LaxifyAPI.shared.adminLog()
-            case .broadcast:
-                break
-            }
+            stats = try await LaxifyAPI.shared.adminStats()
         } catch APIError.server(_, let detail) {
             failure = detail
         } catch {
@@ -558,11 +742,366 @@ struct AdminPanelView: View {
     }
 }
 
+// MARK: - Broadcast
+
+private struct AdminBroadcastScreen: View {
+    var body: some View {
+        AdminBroadcastForm()
+            .adminScreen(title: L("admin.broadcast", "Рассылка"))
+    }
+}
+
+// MARK: - Journal
+
+/// Who did what, in words.
+///
+/// Sign-ins are the bulk of the log and almost never what the operator is
+/// looking for, so they are hidden until asked for.
+private struct AdminJournalScreen: View {
+    @State private var rows: [LaxifyAPI.AdminLogRow] = []
+    @State private var showsSignIns = false
+    @State private var isLoading = false
+    @State private var failure: String?
+
+    private var shown: [LaxifyAPI.AdminLogRow] {
+        showsSignIns ? rows : rows.filter { $0.action.hasPrefix("admin.") }
+    }
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 8) {
+                Toggle(L("admin.journal.signIns", "Показывать входы в аккаунты"), isOn: $showsSignIns)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(LaxifyPalette.textPrimary)
+                    .tint(LaxifyPalette.accent)
+                    .padding(14)
+                    .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+                if let failure { AdminNotice(text: failure) }
+
+                if isLoading && rows.isEmpty {
+                    ProgressView().frame(maxWidth: .infinity).padding(.top, 40)
+                }
+
+                ForEach(shown) { entry in
+                    let meaning = AdminAction(code: entry.action)
+                    HStack(spacing: 12) {
+                        Image(systemName: meaning.symbol)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 34, height: 34)
+                            .background(meaning.tint, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(meaning.title)
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(LaxifyPalette.textPrimary)
+                                .lineLimit(1)
+                            Text((entry.actor.map { "@\($0)" } ?? "—") + " · " + AdminFormat.relative(entry.createdAt))
+                                .font(.system(size: 12))
+                                .foregroundStyle(LaxifyPalette.textSecondary)
+                                .lineLimit(1)
+                        }
+
+                        Spacer(minLength: 6)
+                    }
+                    .padding(12)
+                    .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+
+                if !isLoading && shown.isEmpty && failure == nil {
+                    AdminNotice(text: L("admin.noData", "Пока нечего показать"))
+                }
+            }
+            .padding(.horizontal, LaxifyMetrics.screenPadding)
+            .padding(.bottom, 60)
+        }
+        .refreshable { await reload() }
+        .adminScreen(title: L("admin.journal", "Журнал действий"))
+        .task { await reload() }
+    }
+
+    private func reload() async {
+        isLoading = true
+        failure = nil
+        defer { isLoading = false }
+        do {
+            rows = try await LaxifyAPI.shared.adminLog(limit: 300)
+        } catch APIError.server(_, let detail) {
+            failure = detail
+        } catch {
+            failure = L("admin.failed", "Сервер не ответил. Потяните вниз, чтобы повторить")
+        }
+    }
+}
+
+/// An audit code, said the way a person would say it.
+private struct AdminAction {
+    let title: String
+    let symbol: String
+    let tint: Color
+
+    @MainActor
+    init(code: String) {
+        let meaning: (String, String, Color) = switch code {
+        case "admin.ban": (L("admin.act.ban", "Заблокировал пользователя"), "nosign", Color(hex: 0xFF453A))
+        case "admin.unban": (L("admin.act.unban", "Разблокировал пользователя"), "checkmark.circle.fill", Color(hex: 0x34C759))
+        case "admin.set_admin": (L("admin.act.setAdmin", "Изменил права админа"), "star.fill", Color(hex: 0xFFD60A))
+        case "admin.delete_user": (L("admin.act.delete", "Удалил аккаунт"), "trash.fill", Color(hex: 0xFF453A))
+        case "admin.logout_all": (L("admin.act.logoutAll", "Завершил все сессии пользователя"), "rectangle.portrait.and.arrow.right", Color(hex: 0xFF9F0A))
+        case "admin.clear_history": (L("admin.act.clearHistory", "Очистил историю прослушиваний"), "clock.arrow.circlepath", Color(hex: 0xFF9F0A))
+        case "admin.notify": (L("admin.act.notify", "Отправил уведомление"), "bell.fill", LaxifyPalette.accent)
+        case "admin.broadcast": (L("admin.act.broadcast", "Сделал рассылку"), "megaphone.fill", Color(hex: 0x30B0C7))
+        case "admin.set_min_version": (L("admin.act.minVersion", "Изменил минимальную версию"), "arrow.up.circle.fill", Color(hex: 0xAF52DE))
+        case "admin.token_add": (L("admin.act.tokenAdd", "Добавил токен"), "key.fill", Color(hex: 0x8E8E93))
+        case "admin.token_delete": (L("admin.act.tokenDelete", "Удалил токен"), "key.slash", Color(hex: 0x8E8E93))
+        case "auth.sign_in", "login.email": (L("admin.act.signIn", "Вход в аккаунт"), "person.crop.circle.badge.checkmark", Color(hex: 0x8E8E93))
+        case "auth.sign_up": (L("admin.act.signUp", "Регистрация"), "person.crop.circle.badge.plus", Color(hex: 0x34C759))
+        case "login.failed": (L("admin.act.loginFailed", "Неудачная попытка входа"), "exclamationmark.lock.fill", Color(hex: 0xFF9F0A))
+        case "auth.link.google", "auth.link.telegram": (L("admin.act.link", "Привязал способ входа"), "link", Color(hex: 0x8E8E93))
+        case "email.bound", "email.changed": (L("admin.act.email", "Изменил почту"), "envelope.fill", Color(hex: 0x8E8E93))
+        default: (code, "circle.fill", Color(hex: 0x8E8E93))
+        }
+        title = meaning.0
+        symbol = meaning.1
+        tint = meaning.2
+    }
+}
+
+// MARK: - Shared pieces
+
+private extension View {
+    /// Every pushed screen in the panel: the app's background, and the system
+    /// navigation bar with its back button and swipe-back, which is the most
+    /// ordinary way to be able to get back out of something.
+    func adminScreen(title: String) -> some View {
+        self
+            .background(LaxifyPalette.background.ignoresSafeArea())
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.large)
+            .toolbarBackground(LaxifyPalette.background, for: .navigationBar)
+    }
+}
+
+private struct AdminSectionTitle: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(LaxifyPalette.textSecondary)
+            .textCase(.uppercase)
+            .kerning(0.5)
+            .padding(.leading, 4)
+    }
+}
+
+private struct AdminSummaryTile: View {
+    let value: String
+    let title: String
+    let detail: String?
+    let symbol: String
+    let tint: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 8) {
+                Image(systemName: symbol)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(tint)
+
+                Text(value)
+                    .font(.system(size: 30, weight: .heavy, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(LaxifyPalette.textPrimary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                    .contentTransition(.numericText())
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(LaxifyPalette.textPrimary)
+                        .lineLimit(2)
+                    if let detail {
+                        Text(detail)
+                            .font(.system(size: 12))
+                            .foregroundStyle(LaxifyPalette.textSecondary)
+                            .lineLimit(1)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
+            .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct AdminSectionRow: View {
+    let symbol: String
+    let tint: Color
+    let title: String
+    let subtitle: String
+    var badge: Int?
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                Image(systemName: symbol)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 36, height: 36)
+                    .background(tint, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(LaxifyPalette.textPrimary)
+                    Text(subtitle)
+                        .font(LaxifyTypography.footnote)
+                        .foregroundStyle(LaxifyPalette.textSecondary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 4)
+
+                if let badge {
+                    Text("\(badge)")
+                        .font(.system(size: 13, weight: .bold))
+                        .monospacedDigit()
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color(hex: 0xFF453A), in: Capsule())
+                }
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(LaxifyPalette.textTertiary)
+            }
+            .padding(16)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct AdminSearchField: View {
+    let placeholder: String
+    @Binding var text: String
+    let onSubmit: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(LaxifyPalette.textTertiary)
+
+            TextField(placeholder, text: $text)
+                .font(.system(size: 15))
+                .foregroundStyle(LaxifyPalette.textPrimary)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+                .submitLabel(.search)
+                .onSubmit(onSubmit)
+
+            if !text.isEmpty {
+                Button {
+                    text = ""
+                    onSubmit()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(LaxifyPalette.textTertiary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(LaxifyPalette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+}
+
+private struct AdminChip: View {
+    let title: String
+    var count: Int?
+    let isOn: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Text(title)
+                if let count {
+                    Text("\(count)")
+                        .monospacedDigit()
+                        .opacity(0.7)
+                }
+            }
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(isOn ? .white : LaxifyPalette.textSecondary)
+            .padding(.horizontal, 13)
+            .padding(.vertical, 8)
+            .background(isOn ? LaxifyPalette.accent : LaxifyPalette.surface, in: Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct AdminBadge: View {
+    let text: String
+    let tint: Color
+    var dark = false
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 10, weight: .heavy))
+            .foregroundStyle(dark ? .black : .white)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(tint, in: Capsule())
+    }
+}
+
+private struct AdminNotice: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(LaxifyTypography.footnote)
+            .foregroundStyle(LaxifyPalette.textSecondary)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 30)
+    }
+}
+
 // MARK: - Building blocks
 
 /// The operator's own clock — a registration time only means something next
 /// to the day they are having.
 enum AdminFormat {
+    /// "5 минут назад", "вчера" — how recent something is, which is what the
+    /// operator wants to know far more often than the exact timestamp.
+    @MainActor
+    static func relative(_ date: Date) -> String {
+        relativeFormatter.localizedString(for: date, relativeTo: Date())
+    }
+
+    @MainActor
+    private static let relativeFormatter: RelativeDateTimeFormatter = {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.locale = .current
+        formatter.unitsStyle = .full
+        return formatter
+    }()
+
     static let day: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = .current
