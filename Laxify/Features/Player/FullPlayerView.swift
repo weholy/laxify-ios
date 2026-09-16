@@ -139,6 +139,12 @@ struct FullPlayerView: View {
 
     private var menuButton: some View {
         Menu {
+            Button {
+                startTrackWave()
+            } label: {
+                Label(L("player.trackWave", "Волна от трека"), systemImage: "dot.radiowaves.left.and.right")
+            }
+
             Menu {
                 ForEach(PlaybackSpeedOption.allCases) { option in
                     Button {
@@ -344,6 +350,20 @@ struct FullPlayerView: View {
         } else {
             modelContext.insert(FavoriteTrack(song: song))
             SyncService.shared.favoriteAdded(song)
+        }
+    }
+
+    /// "Радио от этого трека" — a fresh wave session favouring whatever is
+    /// playing, same engine as Моя волна (endless, thumbs, settings), just
+    /// opened from here instead of the tab. Replaces the current queue, the
+    /// way starting any other wave does.
+    private func startTrackWave() {
+        guard let song = player.currentSong else { return }
+        Task {
+            guard let batch = try? await CatalogService.shared.waveBatch(seedTrackId: song.id),
+                  let first = batch.songs.first
+            else { return }
+            player.play(first, queue: batch.songs, waveBatchId: batch.batchId)
         }
     }
 

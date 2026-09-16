@@ -133,6 +133,11 @@ struct LibraryView: View {
                         .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
+
+                // Balances the button on the other side so the title lands
+                // centred rather than just hugging the back button — without
+                // this the trailing Spacer alone pulled it hard left.
+                Spacer()
             }
 
             Text(showsFavorites
@@ -166,6 +171,8 @@ struct LibraryView: View {
                         .contentShape(Circle())
                 }
                 .disabled(isImporting)
+            } else {
+                Color.clear.frame(width: 44, height: 44)
             }
         }
         .padding(.horizontal, LaxifyMetrics.screenPadding)

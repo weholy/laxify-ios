@@ -129,9 +129,16 @@ struct ReportTrackSheet: View {
 
                 Spacer(minLength: 8)
 
-                Image(systemName: isOn ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 19))
-                    .foregroundStyle(isOn ? LaxifyPalette.accent : LaxifyPalette.textTertiary)
+                // A disclosure chevron, not a selection checkmark — this row
+                // expands to reveal the composer, it isn't being "chosen"
+                // the way a form field is. Rotating the same right-pointing
+                // glyph is what turns it into a down-pointing one; always
+                // grey, no accent tint either way.
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(LaxifyPalette.textTertiary)
+                    .rotationEffect(.degrees(isOn ? 90 : 0))
+                    .animation(.snappy(duration: 0.2), value: isOn)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
