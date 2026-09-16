@@ -76,17 +76,9 @@ struct ArtistView: View {
             LaxifyPalette.background
 
             if let url = viewModel.detail?.artist.imageURL {
-                AsyncImage(url: url) { phase in
-                    if let image = phase.image {
-                        image
-                            .resizable()
-                            .scaledToFill()
-                            .blur(radius: 90)
-                            .opacity(0.4)
-                    }
-                }
-                .frame(height: 520)
-                .frame(maxHeight: .infinity, alignment: .top)
+                BlurredBackdrop(url: url, blur: 90, opacity: 0.4)
+                    .frame(height: 520)
+                    .frame(maxHeight: .infinity, alignment: .top)
             }
 
             LinearGradient(
@@ -113,13 +105,7 @@ struct ArtistView: View {
                 .frame(height: 340)
                 .overlay {
                     if let url = detail.artist.imageURL {
-                        AsyncImage(url: url) { phase in
-                            if let image = phase.image {
-                                image
-                                    .resizable()
-                                    .scaledToFill()
-                            }
-                        }
+                        CachedImage(url: url, displaySize: 400)
                     } else {
                         LaxifyPalette.surface
                     }

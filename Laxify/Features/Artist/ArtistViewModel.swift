@@ -20,7 +20,13 @@ final class ArtistViewModel {
         isLoading = true
         errorMessage = nil
         do {
-            detail = try await service.artistDetail(artistId: artistId)
+            let loaded = try await service.artistDetail(artistId: artistId)
+            detail = loaded
+            // Warms the cache before the rows scroll into view — the same
+            // reason every other list does this. Artist and album screens
+            // were the two places that didn't, which is what made covers
+            // there noticeably slower to appear than everywhere else.
+            AsyncCoverImage.prefetchCovers(for: loaded.topTracks, width: 56)
         } catch {
             errorMessage = "Не удалось загрузить артиста"
         }

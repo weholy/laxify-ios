@@ -44,17 +44,9 @@ struct AlbumDetailView: View {
             LaxifyPalette.background
 
             if let url = displayed.coverURL {
-                AsyncImage(url: url) { phase in
-                    if let image = phase.image {
-                        image
-                            .resizable()
-                            .scaledToFill()
-                            .blur(radius: 80)
-                            .opacity(0.45)
-                    }
-                }
-                .frame(height: 460)
-                .frame(maxHeight: .infinity, alignment: .top)
+                BlurredBackdrop(url: url, blur: 80, opacity: 0.45)
+                    .frame(height: 460)
+                    .frame(maxHeight: .infinity, alignment: .top)
             }
 
             LinearGradient(
@@ -186,6 +178,7 @@ struct AlbumDetailView: View {
         do {
             let detail = try await CatalogService.shared.albumDetail(albumId: album.id)
             songs = detail.songs
+            AsyncCoverImage.prefetchCovers(for: songs, width: 56)
         } catch {
             hasError = true
         }
