@@ -53,6 +53,7 @@ struct LaxifyCheckmarkButtonStyle: ButtonStyle {
             .foregroundStyle(.white)
             .frame(width: diameter, height: diameter)
             .glassEffect(.regular.tint(LaxifyPalette.accent).interactive(), in: Circle())
+            .contentShape(Circle())
             .scaleEffect(configuration.isPressed ? 0.9 : 1)
             .animation(.spring(response: 0.3, dampingFraction: 0.7), value: configuration.isPressed)
     }

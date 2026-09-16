@@ -882,18 +882,34 @@ async def playlist_tracks(
     items = raw.get("tracks") or []
 
     # A playlist response often carries only ids past the first few tracks;
-    # those have to be fetched before they can be shown.
-    hydrated = [item for item in items if item.get("title")]
-    missing = [str(item["id"]) for item in items if not item.get("title") and item.get("id")]
+    # those have to be fetched before they can be shown. They used to be
+    # appended after the ones that arrived hydrated, which silently moved
+    # every fetched-separately track to the end — a set's real running order
+    # never survived that. Fetched by id instead, then re-assembled in the
+    # order `items` already has.
+    by_id: dict[str, dict] = {}
+    missing: list[str] = []
+    for item in items:
+        item_id = str(item["id"]) if item.get("id") is not None else None
+        if item.get("title"):
+            if item_id:
+                by_id[item_id] = item
+        elif item_id:
+            missing.append(item_id)
 
     for index in range(0, len(missing), 50):
         chunk = missing[index : index + 50]
         try:
-            hydrated.extend(await soundcloud.tracks(chunk))
+            fetched = await soundcloud.tracks(chunk)
         except SoundCloudError:
             break
+        for track in fetched:
+            if track.get("id") is not None:
+                by_id[str(track["id"])] = track
 
-    return await catalog_meta.spotify_only(_tracks(hydrated))
+    ordered = [by_id[str(item["id"])] for item in items if str(item.get("id")) in by_id]
+
+    return await catalog_meta.spotify_only(_tracks(ordered))
 
 
 class SourceKey(BaseModel):

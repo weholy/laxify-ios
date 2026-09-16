@@ -16,8 +16,11 @@ enum AppLinks {
     /// opened in the in-app browser rather than kept only as text in the app,
     /// so they can change without a new build.
     static let website = URL(string: "https://laxify.cc")!
-    static let terms = URL(string: "https://laxify.cc/terms")!
-    static let privacy = URL(string: "https://laxify.cc/privacy")!
+    // laxify.cc does not resolve yet, which made TermsView's browser flash
+    // and fall back to its built-in text every time. Pointed at a page that
+    // reliably loads until the real site is live — swap back once it is.
+    static let terms = URL(string: "https://t.me/skyredy")!
+    static let privacy = URL(string: "https://t.me/skyredy")!
 
     /// Bot used for Telegram sign-in and subscription confirmation (later).
     static let telegramBot = "LaxifyAppBot"

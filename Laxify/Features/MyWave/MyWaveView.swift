@@ -105,11 +105,20 @@ struct MyWaveView: View {
         // Unless the wave is already the thing playing: then the deck is
         // showing the live queue, and replacing what is behind it would open
         // a second session for nobody to hear.
-        .task {
-            if player.isPlayingWave {
-                await viewModel.loadIfNeeded()
-            } else {
-                await viewModel.load()
+        //
+        // `.onAppear`, not `.task`: this view is one of several `Tab` bodies
+        // in the root `TabView`, which keeps every tab's content alive and
+        // only changes which one is visible. `.task` runs once for the
+        // view's whole lifetime, so it never fired again on switching back —
+        // `.onAppear` does, on every reselection, which is what "every
+        // visit" actually needs.
+        .onAppear {
+            Task {
+                if player.isPlayingWave {
+                    await viewModel.loadIfNeeded()
+                } else {
+                    await viewModel.load()
+                }
             }
         }
         .task(id: focus?.id) {

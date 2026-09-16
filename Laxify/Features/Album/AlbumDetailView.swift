@@ -4,12 +4,16 @@ struct AlbumDetailView: View {
     let album: MusicAlbum
     var onClose: () -> Void
 
-    @State private var loadedAlbum: MusicAlbum?
     @State private var songs: [Song] = []
     @State private var isLoading = false
     @State private var hasError = false
 
-    private var displayed: MusicAlbum { loadedAlbum ?? album }
+    // The album passed in already carries a real title/cover/year from
+    // wherever it was found (artist releases, search). `albumDetail` only
+    // returns tracks worth trusting — its own album guess is inferred from a
+    // track's tag metadata and used to replace this with "Подборка" and a
+    // mismatched title, so only the track list comes from it.
+    private var displayed: MusicAlbum { album }
 
     var body: some View {
         ScrollView {
@@ -180,7 +184,6 @@ struct AlbumDetailView: View {
         hasError = false
         do {
             let detail = try await CatalogService.shared.albumDetail(albumId: album.id)
-            loadedAlbum = detail.album
             songs = detail.songs
         } catch {
             hasError = true

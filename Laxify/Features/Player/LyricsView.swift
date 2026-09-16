@@ -88,17 +88,17 @@ struct LyricsView: View {
                     }
                 }
 
-                Menu {
+                // A `Picker` here, not a hand-built `Menu` of `Button`s: two
+                // levels of plain `Menu` is the exact shape that eats the
+                // first tap on a submenu row the moment it appears — the
+                // system menu is still animating in and does not hit-test
+                // yet, so a size only took after a second try. A `Picker`
+                // inside a `Menu` renders the same checked-list submenu
+                // through the system's own selection element instead, which
+                // does not have that race.
+                Picker(selection: $fontScale) {
                     ForEach(LyricsFontStep.allCases) { step in
-                        Button {
-                            fontScale = step.scale
-                        } label: {
-                            if abs(fontScale - step.scale) < 0.01 {
-                                Label(step.title, systemImage: "checkmark")
-                            } else {
-                                Text(step.title)
-                            }
-                        }
+                        Text(step.title).tag(step.scale)
                     }
                 } label: {
                     Label(L("player.lyricsSize", "Размер текста"), systemImage: "textformat.size")
