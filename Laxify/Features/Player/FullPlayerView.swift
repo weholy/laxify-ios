@@ -125,7 +125,7 @@ struct FullPlayerView: View {
             } else {
                 ProgressView().tint(.white)
             }
-            Text(L("player.exporting", "Готовим файл…"))
+            Text(L("player.exporting", "Скачиваю трек"))
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(.white.opacity(0.85))
         }

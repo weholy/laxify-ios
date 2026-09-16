@@ -591,12 +591,19 @@ async def artist_tracks(
         pool = await _spotify_artist_catalogue(artist_id)
         return await _catalog_from_spotify_tracks(session, pool[offset : offset + limit])
 
-    try:
-        profile = await soundcloud.user(artist_id)
-    except SoundCloudError as exc:
-        raise _guard(exc) from exc
+    # The profile fetch exists only to feed `name` to _artist_catalogue's
+    # search-fallback source — which only runs on a cache miss; a cache hit
+    # returns the first call's result untouched, ignoring `name` entirely.
+    # Every later page of the same artist's "Все треки" used to pay for this
+    # round trip for a value nothing was going to read.
+    name = ""
+    if not _artist_catalogue_is_warm(artist_id):
+        try:
+            profile = await soundcloud.user(artist_id)
+        except SoundCloudError as exc:
+            raise _guard(exc) from exc
+        name = profile.get("username") or ""
 
-    name = profile.get("username") or ""
     every = await _artist_catalogue(artist_id, name)
 
     return await catalog_meta.spotify_only(_tracks(every[offset : offset + limit]))
@@ -604,6 +611,13 @@ async def artist_tracks(
 
 _artist_cache: dict[str, tuple[list[dict], float]] = {}
 _ARTIST_TTL = 15 * 60
+
+
+def _artist_catalogue_is_warm(artist_id: str, cap: int = 300) -> bool:
+    """Same freshness check `_artist_catalogue` makes internally, exposed so
+    a caller can skip work that only matters on a miss (see `artist_tracks`)."""
+    cached = _artist_cache.get(f"{artist_id}:{cap}")
+    return cached is not None and time.monotonic() - cached[1] < _ARTIST_TTL
 
 
 async def _artist_catalogue(artist_id: str, name: str, cap: int = 300) -> list[dict]:
@@ -847,9 +861,15 @@ async def artist_detail(
 
     normalised.is_verified = await authenticity.is_genuine(profile, session=session)
 
-    # Enough for a shortlist and an honest count; the full catalogue is
-    # a separate request, made only when someone asks to see all of it.
-    tracks = await _artist_catalogue(artist_id, normalised.name, cap=120)
+    # Same cap the "all tracks" route below asks for (its default, 300) —
+    # deliberately, not the smaller shortlist this screen actually shows.
+    # `_artist_catalogue` caches by `{artist_id}:{cap}`, so a different cap
+    # here meant opening an artist and then tapping "Все треки" moments
+    # later paid for the same expensive gather (own uploads + reposts + a
+    # name search, three SoundCloud round trips) *twice* — the second one
+    # is exactly the "долго грузит все треки" complaint, on a page that had
+    # just been fetched already.
+    tracks = await _artist_catalogue(artist_id, normalised.name)
 
     top = _tracks(tracks)
     top.sort(key=lambda track: track.playback_count or 0, reverse=True)
