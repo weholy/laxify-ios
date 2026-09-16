@@ -31,6 +31,7 @@ struct ArtistAllTracksView: View {
                         SongRowView(song: song)
                     }
                     .buttonStyle(.plain)
+                    .trackContextMenu(song: song)
                     .padding(.horizontal, LaxifyMetrics.screenPadding)
                 }
 

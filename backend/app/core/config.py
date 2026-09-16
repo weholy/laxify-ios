@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     telegram_bot_username: str = "LaxifyAppBot"
     # How old a widget payload's auth_date may be before it is rejected.
     telegram_login_ttl_seconds: int = 86400
+    # Numeric chat id the same bot relays track-problem reports to. Unset
+    # means reports still save (they show in Випка → Ошибки either way) but
+    # nothing is pushed to Telegram.
+    telegram_report_chat_id: str | None = None
 
     # Comment attachments go to Catbox; a userhash ties uploads to an account
     # (optional — anonymous uploads work without it). Litterbox is the

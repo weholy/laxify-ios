@@ -48,6 +48,7 @@ struct PlaylistDetailView: View {
                                 SongRowView(song: song)
                             }
                             .buttonStyle(.plain)
+                            .trackContextMenu(song: song)
                         }
                     }
                 }

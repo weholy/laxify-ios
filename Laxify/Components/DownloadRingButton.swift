@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 /// Save-for-offline, as one control that says where it has got to.
 ///
@@ -95,8 +96,9 @@ struct CircleGlassButton: View {
     }
 }
 
-/// The long-press menu a track carries wherever it is listed: keep it on the
-/// device, or take it out of the list it is sitting in.
+/// The long-press menu a track carries wherever it is listed: favourite it,
+/// file it into a playlist, flag something wrong with it, keep it on the
+/// device — or take it out of the list it is sitting in.
 struct TrackContextMenu: ViewModifier {
     let song: Song
     /// What "remove" means here. Nil leaves the option out — a downloads
@@ -105,33 +107,84 @@ struct TrackContextMenu: ViewModifier {
     var onRemove: (() -> Void)?
 
     var downloads = DownloadManager.shared
+    @Environment(\.modelContext) private var modelContext
+    @Query private var favorites: [FavoriteTrack]
+
+    @State private var isAddToPlaylistPresented = false
+    @State private var isReportPresented = false
+
+    private var isFavorite: Bool {
+        favorites.contains { $0.id == song.id }
+    }
 
     func body(content: Content) -> some View {
-        content.contextMenu {
-            if downloads.isDownloaded(song.id) {
-                Button(role: .destructive) {
-                    downloads.remove(song.id)
-                } label: {
-                    Label(L("download.remove", "Удалить загрузку"), systemImage: "trash")
-                }
-            } else if downloads.isDownloading(song.id) {
+        content
+            .contextMenu {
                 Button {
-                    downloads.remove(song.id)
+                    toggleFavorite()
                 } label: {
-                    Label(L("download.cancel", "Отменить загрузку"), systemImage: "xmark")
+                    Label(
+                        isFavorite
+                            ? L("track.unfavorite", "Убрать из избранного")
+                            : L("track.favorite", "Добавить в избранное"),
+                        systemImage: isFavorite ? "heart.slash" : "heart"
+                    )
                 }
-            } else {
+
                 Button {
-                    downloads.download(song)
+                    isAddToPlaylistPresented = true
                 } label: {
-                    Label(L("download.save", "Скачать"), systemImage: "arrow.down.circle")
+                    Label(L("player.addToPlaylist", "Добавить в плейлист"), systemImage: "text.badge.plus")
+                }
+
+                if downloads.isDownloaded(song.id) {
+                    Button(role: .destructive) {
+                        downloads.remove(song.id)
+                    } label: {
+                        Label(L("download.remove", "Удалить загрузку"), systemImage: "trash")
+                    }
+                } else if downloads.isDownloading(song.id) {
+                    Button {
+                        downloads.remove(song.id)
+                    } label: {
+                        Label(L("download.cancel", "Отменить загрузку"), systemImage: "xmark")
+                    }
+                } else {
+                    Button {
+                        downloads.download(song)
+                    } label: {
+                        Label(L("download.save", "Скачать"), systemImage: "arrow.down.circle")
+                    }
+                }
+
+                Button {
+                    isReportPresented = true
+                } label: {
+                    Label(L("report.title", "Сообщить об ошибке"), systemImage: "exclamationmark.bubble")
+                }
+
+                if let onRemove, let removeTitle {
+                    Button(role: .destructive, action: onRemove) {
+                        Label(removeTitle, systemImage: "minus.circle")
+                    }
                 }
             }
+            .sheet(isPresented: $isAddToPlaylistPresented) {
+                AddToPlaylistSheet(songs: [song]) { isAddToPlaylistPresented = false }
+            }
+            .sheet(isPresented: $isReportPresented) {
+                ReportTrackSheet(song: song) { isReportPresented = false }
+            }
+    }
 
-            if let onRemove, let removeTitle {
-                Button(role: .destructive, action: onRemove) {
-                    Label(removeTitle, systemImage: "minus.circle")
-                }
+    private func toggleFavorite() {
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+            if let existing = favorites.first(where: { $0.id == song.id }) {
+                modelContext.delete(existing)
+                SyncService.shared.favoriteRemoved(trackId: song.id)
+            } else {
+                modelContext.insert(FavoriteTrack(song: song))
+                SyncService.shared.favoriteAdded(song)
             }
         }
     }

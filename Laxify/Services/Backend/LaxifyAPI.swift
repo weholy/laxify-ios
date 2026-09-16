@@ -911,6 +911,41 @@ actor LaxifyAPI {
         ) as Reply
     }
 
+    /// A listener flags something actually wrong with a track — mismatched
+    /// audio, mismatched lyrics, one that will not play. Lands in the same
+    /// diagnostics feed crash reports do (kind "track_report", visible in
+    /// Випка → Ошибки) plus a best-effort Telegram push server-side.
+    func reportTrack(
+        trackId: String,
+        trackTitle: String,
+        trackArtist: String,
+        reasons: [String],
+        message: String?,
+        photoURL: URL?
+    ) async throws {
+        struct Body: Encodable {
+            let trackId: String
+            let trackTitle: String
+            let trackArtist: String
+            let reasons: [String]
+            let message: String?
+            let photoUrl: String?
+        }
+        struct Reply: Decodable { let detail: String }
+
+        _ = try await send(
+            "/reports/track", method: "POST",
+            body: Body(
+                trackId: trackId,
+                trackTitle: trackTitle,
+                trackArtist: trackArtist,
+                reasons: reasons,
+                message: message,
+                photoUrl: photoURL?.absoluteString
+            )
+        ) as Reply
+    }
+
     /// trackStarted / trackFinished / skip / like / dislike.
     func waveFeedback(
         sessionId: String,

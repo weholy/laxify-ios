@@ -23,6 +23,7 @@ struct QueueView: View {
                             }
                         }
                         .buttonStyle(.plain)
+                        .trackContextMenu(song: song)
                         .opacity(index == player.currentIndex ? 1 : 0.7)
                     }
                 }

@@ -265,6 +265,7 @@ struct SearchView: View {
                         SongRowView(song: song)
                     }
                     .buttonStyle(.plain)
+                    .trackContextMenu(song: song)
                 }
             }
         }

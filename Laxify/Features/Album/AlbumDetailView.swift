@@ -165,6 +165,7 @@ struct AlbumDetailView: View {
                         }
                     }
                     .buttonStyle(.plain)
+                    .trackContextMenu(song: song)
                 }
             }
             .padding(.horizontal, LaxifyMetrics.screenPadding)
