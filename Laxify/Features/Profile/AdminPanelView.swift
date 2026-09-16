@@ -87,7 +87,7 @@ struct AdminPanelView: View {
             AdminSummaryTile(
                 value: stats.map { "\($0.usersTotal)" } ?? "—",
                 title: L("admin.sum.people", "Людей"),
-                detail: stats.map { "+\($0.usersToday) " + L("admin.sum.today", "сегодня") },
+                detail: stats.map { "+\($0.usersToday) \(L("admin.sum.today", "сегодня"))" },
                 symbol: "person.2.fill",
                 tint: LaxifyPalette.accent
             ) { path.append(.people) }
@@ -95,7 +95,7 @@ struct AdminPanelView: View {
             AdminSummaryTile(
                 value: stats.map { "\($0.usersActive24h)" } ?? "—",
                 title: L("admin.sum.active", "Заходили за сутки"),
-                detail: stats.map { "\($0.usersActive7d) " + L("admin.sum.week", "за неделю") },
+                detail: stats.map { "\($0.usersActive7d) \(L("admin.sum.week", "за неделю"))" },
                 symbol: "bolt.fill",
                 tint: Color(hex: 0x34C759)
             ) { path.append(.statistics) }
@@ -103,7 +103,7 @@ struct AdminPanelView: View {
             AdminSummaryTile(
                 value: stats.map { "\($0.plays24h)" } ?? "—",
                 title: L("admin.sum.plays", "Прослушиваний за сутки"),
-                detail: stats.map { "\($0.plays7d) " + L("admin.sum.week", "за неделю") },
+                detail: stats.map { "\($0.plays7d) \(L("admin.sum.week", "за неделю"))" },
                 symbol: "play.fill",
                 tint: Color(hex: 0xAF52DE)
             ) { path.append(.statistics) }
@@ -129,10 +129,7 @@ struct AdminPanelView: View {
                     symbol: "person.2.fill",
                     tint: LaxifyPalette.accent,
                     title: L("admin.people", "Люди"),
-                    subtitle: stats.map {
-                        "\($0.usersTotal) " + L("admin.row.accounts", "аккаунтов") + " · "
-                            + "\($0.usersBanned) " + L("admin.row.banned", "заблокировано")
-                    } ?? L("admin.row.peopleSub", "Поиск, баны, права")
+                    subtitle: peopleSubtitle
                 ) { path.append(.people) }
 
                 SettingsDivider()
@@ -173,6 +170,13 @@ struct AdminPanelView: View {
                 ) { path.append(.journal) }
             }
         }
+    }
+
+    private var peopleSubtitle: String {
+        guard let stats else { return L("admin.row.peopleSub", "Поиск, баны, права") }
+        let accounts = L("admin.row.accounts", "аккаунтов")
+        let banned = L("admin.row.banned", "заблокировано")
+        return "\(stats.usersTotal) \(accounts) · \(stats.usersBanned) \(banned)"
     }
 
     private var problemGroupsCount: Int? {
@@ -351,7 +355,7 @@ private struct AdminPersonRow: View {
                     }
                 }
 
-                Text("@\(user.username)" + ((user.email?.isEmpty == false) ? " · \(user.email!)" : ""))
+                Text(handleLine)
                     .font(.system(size: 13))
                     .foregroundStyle(LaxifyPalette.textSecondary)
                     .lineLimit(1)
@@ -378,11 +382,17 @@ private struct AdminPersonRow: View {
         (user.lastSeenAt ?? .distantPast) > Date().addingTimeInterval(-15 * 60)
     }
 
+    private var handleLine: String {
+        guard let email = user.email, !email.isEmpty else { return "@\(user.username)" }
+        return "@\(user.username) · \(email)"
+    }
+
     private var seenLine: String {
-        let joined = L("admin.joined", "с нами с") + " " + AdminFormat.day.string(from: user.createdAt)
+        let since = L("admin.joined", "с нами с")
+        let joined = "\(since) \(AdminFormat.day.string(from: user.createdAt))"
         guard let seen = user.lastSeenAt else { return joined }
-        if isOnlineRecently { return L("admin.onlineNow", "в сети") + " · " + joined }
-        return L("admin.seen", "был(а)") + " " + AdminFormat.relative(seen) + " · " + joined
+        if isOnlineRecently { return "\(L("admin.onlineNow", "в сети")) · \(joined)" }
+        return "\(L("admin.seen", "был(а)")) \(AdminFormat.relative(seen)) · \(joined)"
     }
 }
 
@@ -436,6 +446,12 @@ private struct AdminProblemsScreen: View {
             .sorted { $0.rows.count == $1.rows.count ? $0.last > $1.last : $0.rows.count > $1.rows.count }
     }
 
+    private var summaryLine: String {
+        let records = L("admin.diag.records", "записей")
+        let kinds = L("admin.diag.kinds", "видов")
+        return "\(rows.count) \(records) · \(groups.count) \(kinds)"
+    }
+
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 10) {
@@ -447,10 +463,7 @@ private struct AdminProblemsScreen: View {
                 .pickerStyle(.segmented)
 
                 if !rows.isEmpty {
-                    Text(
-                        "\(rows.count) " + L("admin.diag.records", "записей") + " · "
-                            + "\(groups.count) " + L("admin.diag.kinds", "видов")
-                    )
+                    Text(summaryLine)
                     .font(LaxifyTypography.footnote)
                     .foregroundStyle(LaxifyPalette.textSecondary)
                     .padding(.top, 2)
@@ -517,11 +530,7 @@ private struct AdminProblemGroupRow: View {
                     .lineLimit(3)
                     .multilineTextAlignment(.leading)
 
-                Text(
-                    group.category + " · "
-                        + L("admin.diag.last", "последний раз") + " " + AdminFormat.relative(group.last)
-                        + " · " + "\(group.devices) " + L("admin.diag.sessions", "сессий")
-                )
+                Text(detail)
                 .font(.system(size: 12))
                 .foregroundStyle(LaxifyPalette.textTertiary)
                 .lineLimit(2)
@@ -545,6 +554,15 @@ private struct AdminProblemGroupRow: View {
         case "warn": Color(hex: 0xFF9F0A)
         default: LaxifyPalette.textSecondary
         }
+    }
+
+    // Interpolated, not joined with `+`: a chain of a dozen string additions
+    // with calls mixed in is more than the type checker will finish in time.
+    private var detail: String {
+        let last = L("admin.diag.last", "последний раз")
+        let sessions = L("admin.diag.sessions", "сессий")
+        let when = AdminFormat.relative(group.last)
+        return "\(group.category) · \(last) \(when) · \(group.devices) \(sessions)"
     }
 }
 
@@ -767,6 +785,11 @@ private struct AdminJournalScreen: View {
         showsSignIns ? rows : rows.filter { $0.action.hasPrefix("admin.") }
     }
 
+    private static func byline(_ entry: LaxifyAPI.AdminLogRow) -> String {
+        let who = entry.actor.map { "@\($0)" } ?? "—"
+        return "\(who) · \(AdminFormat.relative(entry.createdAt))"
+    }
+
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 8) {
@@ -797,7 +820,7 @@ private struct AdminJournalScreen: View {
                                 .font(.system(size: 15, weight: .semibold))
                                 .foregroundStyle(LaxifyPalette.textPrimary)
                                 .lineLimit(1)
-                            Text((entry.actor.map { "@\($0)" } ?? "—") + " · " + AdminFormat.relative(entry.createdAt))
+                            Text(Self.byline(entry))
                                 .font(.system(size: 12))
                                 .foregroundStyle(LaxifyPalette.textSecondary)
                                 .lineLimit(1)
