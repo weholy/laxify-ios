@@ -583,7 +583,14 @@ actor SoundCloudDirect {
                 "всего_вариантов": "\(transcodings.count)"
             ]
         )
-        throw hasEncryptedOnly ? MusicServiceError.drmProtected : MusicServiceError.notFound
+        // `.confirmedUnavailable`, not the bare `.notFound` this file throws
+        // elsewhere for far weaker reasons — by this point the source has
+        // answered, resolving failed on a real (non-transient) verdict, and
+        // a rescue search also found nothing safe. One track sitting at 447
+        // failed attempts over two days (repeatedly re-served by the wave,
+        // never reported as settled) is what not distinguishing this case
+        // actually cost — see AudioPlayerController.isFinal.
+        throw hasEncryptedOnly ? MusicServiceError.drmProtected : MusicServiceError.confirmedUnavailable
     }
 
     /// What came of trying to open one upload.

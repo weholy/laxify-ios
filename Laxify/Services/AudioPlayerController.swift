@@ -705,9 +705,19 @@ final class AudioPlayerController {
         // a track that cannot exist.
         if isTransient(error) { return false }
 
+        // Two verdicts settle anything on their own, both reached only after
+        // the source has actually answered: DRM-only (no client outside the
+        // source can ever open it) and confirmedUnavailable (resolve failed
+        // *and* a rescue search found nothing safe). Everything else this
+        // file threw as a bare `notFound` used to fall into this branch too,
+        // which is exactly what let a dropped connection get read as "this
+        // song does not exist" — see MusicServiceError.confirmedUnavailable.
+        if case MusicServiceError.drmProtected = error { return true }
+        if case MusicServiceError.confirmedUnavailable = error { return true }
+
         // A locked recording is not final any more, and was the commonest
         // reason a song was skipped: the server now finds the same recording
-        // elsewhere. The one verdict left that settles anything is the
+        // elsewhere. The remaining verdict that settles anything here is the
         // server's own "found nowhere", which arrives as its 404.
         guard case MusicServiceError.underlying(let underlying) = error,
               case APIError.server(let status, _) = underlying else {

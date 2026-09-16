@@ -16,6 +16,20 @@ enum MusicServiceError: Error {
     /// queue for the rest of the session on that one, and doing so over a 429
     /// that clears a second later is how a working song gets written off.
     case temporarilyUnavailable
+    /// The source described this track, it has no playable copy under its
+    /// own upload, and a search for the same recording elsewhere also came
+    /// back with nothing safe to substitute. As settled a verdict as
+    /// `streamURL` ever reaches without a server round trip.
+    ///
+    /// Kept apart from the bare `notFound` thrown all over this file for
+    /// much weaker reasons — a client id fetch failing, a malformed url, any
+    /// non-2xx from the generic request helper — none of which say anything
+    /// about whether the track itself plays. Conflating those with this one
+    /// is the exact bug `AudioPlayerController.isFinal` was written to avoid:
+    /// a dropped connection reported as "this song does not exist" is how a
+    /// working track gets struck from everyone's catalogue over a bad
+    /// minute. Only *this* case may be trusted as final on sight.
+    case confirmedUnavailable
     case underlying(Error)
 }
 
