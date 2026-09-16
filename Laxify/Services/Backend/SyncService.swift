@@ -21,6 +21,16 @@ final class SyncService {
 
     private init() {}
 
+    /// Drops anything queued for the previous account. A play event sent
+    /// after the switch would land on whoever is signed in by then.
+    func reset() {
+        flushTask?.cancel()
+        flushTask = nil
+        pendingPlayback = []
+        isSyncing = false
+        lastSyncedAt = nil
+    }
+
     // MARK: - Favourites
 
     func favoriteAdded(_ song: Song) {

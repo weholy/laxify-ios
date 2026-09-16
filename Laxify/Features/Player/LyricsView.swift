@@ -105,9 +105,9 @@ struct LyricsView: View {
                 }
             } label: {
                 Image(systemName: "ellipsis")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(size: LaxifyMetrics.controlGlyph, weight: .semibold))
                     .foregroundStyle(.white)
-                    .frame(width: 34, height: 34)
+                    .frame(width: LaxifyMetrics.controlSize, height: LaxifyMetrics.controlSize)
                     .contentShape(Rectangle())
             }
             .disabled(shareableLyrics == nil)
@@ -116,9 +116,9 @@ struct LyricsView: View {
                 dismiss()
             } label: {
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(size: LaxifyMetrics.controlGlyph, weight: .semibold))
                     .foregroundStyle(.white)
-                    .frame(width: 34, height: 34)
+                    .frame(width: LaxifyMetrics.controlSize, height: LaxifyMetrics.controlSize)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -168,13 +168,30 @@ struct LyricsView: View {
                     Color.clear.frame(height: 20)
 
                     ForEach(Array(lyrics.syncedLines.enumerated()), id: \.element.id) { index, line in
-                        lineView(
-                            line,
-                            isActive: index == activeIndex,
+                        let isActive = index == activeIndex
+                        let text = line.text.isEmpty ? "♪" : line.text
+                        let words = text.split(separator: " ", omittingEmptySubsequences: true)
+                            .map(String.init)
+
+                        // Only the line being sung changes from one frame to
+                        // the next. Every other row is handed the same values
+                        // it had last frame and is skipped — before this, the
+                        // current time went into all of them, so every line of
+                        // the song was rebuilt sixty to a hundred and twenty
+                        // times a second, which is what the highlight was
+                        // trailing behind on a long song.
+                        LyricRow(
+                            text: text,
+                            words: isActive ? words : [],
+                            isActive: isActive,
                             isPast: activeIndex.map { index < $0 } ?? false,
-                            at: time,
-                            wordByWord: !lyrics.isApproximate
+                            spoken: isActive && !lyrics.isApproximate
+                                ? viewModel.spokenWordCount(in: words, at: time)
+                                : 0,
+                            wordByWord: !lyrics.isApproximate,
+                            fontScale: fontScale
                         )
+                        .equatable()
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .id(index)
                         .contentShape(Rectangle())
@@ -204,53 +221,6 @@ struct LyricsView: View {
                     }
                 }
             }
-        }
-    }
-
-    @ViewBuilder
-    private func lineView(
-        _ line: LyricLine,
-        isActive: Bool,
-        isPast: Bool,
-        at time: TimeInterval,
-        wordByWord: Bool
-    ) -> some View {
-        let text = line.text.isEmpty ? "♪" : line.text
-
-        if isActive && wordByWord {
-            // Real timestamps from the source: safe to fill word by word.
-            let words = text.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
-            // Weighted by word length rather than split evenly: "I" and
-            // "everything" take very different amounts of time to sing, and a
-            // uniform split drifts visibly across any long line.
-            let spoken = viewModel.spokenWordCount(in: words, at: time)
-
-            WordFlowLayout(horizontalSpacing: 7, lineSpacing: 6) {
-                ForEach(Array(words.enumerated()), id: \.offset) { index, word in
-                    let isSung = Double(index) < spoken
-                    Text(word)
-                        .font(.system(size: 26 * fontScale, weight: .bold))
-                        .foregroundStyle(isSung ? .white : .white.opacity(0.3))
-                        .shadow(color: .white.opacity(isSung ? 0.3 : 0), radius: 10)
-                        .scaleEffect(isSung ? 1 : 0.95, anchor: .bottom)
-                        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSung)
-                }
-            }
-        } else if isActive {
-            // Estimated timings: highlight the whole line and let it breathe.
-            // Filling word by word off an estimate looks like the lyrics are
-            // simply wrong as soon as it drifts.
-            Text(text)
-                .font(.system(size: 26 * fontScale, weight: .bold))
-                .foregroundStyle(.white)
-                .shadow(color: .white.opacity(0.22), radius: 12)
-                .transition(.opacity)
-        } else {
-            Text(text)
-                .font(.system(size: 21 * fontScale, weight: .semibold))
-                .foregroundStyle(.white.opacity(isPast ? 0.26 : 0.42))
-                .blur(radius: 0.5)
-                .scaleEffect(0.94, anchor: .leading)
         }
     }
 
@@ -294,6 +264,56 @@ struct LyricsView: View {
             return nil
         }
         return "\(song.title) — \(song.artistName)\n\n\(body)"
+    }
+}
+
+/// One line of synced lyrics.
+///
+/// Its own view, and `Equatable`, so SwiftUI can tell when a line has nothing
+/// new to draw. Only the line being sung is handed a changing `spoken`; every
+/// other line receives identical values frame after frame and is skipped
+/// entirely.
+private struct LyricRow: View, Equatable {
+    let text: String
+    /// The line split into words — only filled in for the active line.
+    let words: [String]
+    let isActive: Bool
+    let isPast: Bool
+    /// How many words have been sung, fractionally. Zero off the active line.
+    let spoken: Double
+    let wordByWord: Bool
+    let fontScale: Double
+
+    var body: some View {
+        if isActive && wordByWord {
+            // Real timestamps from the source: safe to fill word by word.
+            WordFlowLayout(horizontalSpacing: 7, lineSpacing: 6) {
+                ForEach(Array(words.enumerated()), id: \.offset) { index, word in
+                    let isSung = Double(index) < spoken
+                    Text(word)
+                        .font(.system(size: 26 * fontScale, weight: .bold))
+                        .foregroundStyle(isSung ? .white : .white.opacity(0.3))
+                        .shadow(color: .white.opacity(isSung ? 0.3 : 0), radius: 10)
+                        .scaleEffect(isSung ? 1 : 0.95, anchor: .bottom)
+                        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSung)
+                }
+            }
+        } else if isActive {
+            // Estimated timings: highlight the whole line and let it breathe.
+            // Filling word by word off an estimate looks like the lyrics are
+            // simply wrong as soon as it drifts.
+            Text(text)
+                .font(.system(size: 26 * fontScale, weight: .bold))
+                .foregroundStyle(.white)
+                .shadow(color: .white.opacity(0.22), radius: 12)
+                .transition(.opacity)
+        } else {
+            Text(text)
+                .font(.system(size: 21 * fontScale, weight: .semibold))
+                .foregroundStyle(.white.opacity(isPast ? 0.26 : 0.42))
+                .blur(radius: 0.5)
+                .scaleEffect(0.94, anchor: .leading)
+        }
     }
 }
 

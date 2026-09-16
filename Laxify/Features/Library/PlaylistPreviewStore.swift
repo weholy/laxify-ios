@@ -26,6 +26,14 @@ final class PlaylistPreviewStore {
         }
     }
 
+    /// Forgets every playlist's collage — they belong to whoever's playlists
+    /// they were drawn from.
+    func reset() {
+        covers = [:]
+        inFlight = []
+        try? FileManager.default.removeItem(at: Self.cacheURL)
+    }
+
     /// Cover URLs for a playlist, fetching them in the background on first ask.
     func previews(for playlist: PlaylistDTO) -> [URL] {
         if let cached = covers[playlist.id] { return cached }

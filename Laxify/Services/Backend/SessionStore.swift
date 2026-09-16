@@ -30,6 +30,10 @@ final class SessionStore {
     private(set) var lastError: String?
     private(set) var isBusy = false
 
+    /// Set when the server has said this account is blocked, with the reason
+    /// it gave. The root view shows it as an alert and clears it when read.
+    var blockedReason: String?
+
     /// Whether the server has said this account has never taken on data from
     /// a device. Only then is there anything worth offering it.
     private(set) var needsLocalMigration = false
@@ -81,11 +85,19 @@ final class SessionStore {
     func adopt(_ session: BackendSessionResponse) async {
         needsLocalMigration = session.needsLocalMigration
 
-        guard let user = try? await LaxifyAPI.shared.currentUser() else {
+        let fetched: BackendUser
+        do {
+            fetched = try await LaxifyAPI.shared.currentUser()
+        } catch APIError.accountBlocked(let reason) {
+            accountBlocked(reason: reason)
+            return
+        } catch {
             await restore()
             return
         }
 
+        let user = fetched
+        LocalStateReset.prepareForAccount(user.id, previouslyCached: self.user?.id, context: modelContext)
         self.user = user
         cache(user)
         state = session.needsOnboarding ? .needsOnboarding : .signedIn
@@ -101,23 +113,67 @@ final class SessionStore {
         }
 
         guard await LaxifyAPI.shared.isSignedIn else {
-            state = .signedOut
+            // No tokens, but a profile still cached: an account ended while
+            // the app was away. Its data goes with it — landing on the
+            // sign-in screen with the library still here is how the next
+            // account came to inherit it.
+            if user != nil { finishLocalSignOut() } else { state = .signedOut }
             return
         }
 
         do {
             let user = try await LaxifyAPI.shared.currentUser()
+            LocalStateReset.prepareForAccount(user.id, previouslyCached: self.user?.id, context: modelContext)
             self.user = user
             cache(user)
             state = user.hasCompletedOnboarding ? .signedIn : .needsOnboarding
             await claimOwnerHandle()
             await SyncOutbox.shared.flush()
         } catch APIError.notAuthenticated {
-            state = .signedOut
+            // The server ended this session — expired, revoked from another
+            // device, or the account removed. Same as signing out: this used
+            // to only flip the screen, and everything stayed behind.
+            finishLocalSignOut()
+        } catch APIError.accountBlocked(let reason) {
+            accountBlocked(reason: reason)
         } catch {
             // Offline: trust the stored session rather than dropping it.
             state = .signedIn
         }
+    }
+
+    /// The server has refused this account outright.
+    ///
+    /// Signs out locally — the tokens are no use any more — and leaves the
+    /// reason for the root view to put in front of the person, instead of
+    /// quietly dropping them at the sign-in screen to wonder why.
+    func accountBlocked(reason: String) {
+        let text = reason.isEmpty ? "Аккаунт заблокирован" : reason
+        // The same refusal can arrive twice — from the request that hit it,
+        // and from the caller that made that request.
+        if state == .signedOut, blockedReason == text { return }
+
+        blockedReason = text
+        KeychainStore.clear()
+        finishLocalSignOut()
+    }
+
+    /// The server has ended the session some other way than the sign-out
+    /// button. Reached from any request, not only at launch.
+    func sessionEnded() {
+        guard state == .signedIn || state == .needsOnboarding else { return }
+        finishLocalSignOut()
+    }
+
+    /// Everything a sign-out means on this device, whichever way it came.
+    private func finishLocalSignOut() {
+        AuthService.shared.signOut()
+        LocalStateReset.performOnSignOut(context: modelContext)
+
+        user = nil
+        needsLocalMigration = false
+        cache(nil)
+        state = .signedOut
     }
 
     func signIn(idToken: String, deviceName: String) async -> Bool {
@@ -130,12 +186,18 @@ final class SessionStore {
                 idToken: idToken, deviceName: deviceName
             )
             let user = try await LaxifyAPI.shared.currentUser()
+            LocalStateReset.prepareForAccount(user.id, previouslyCached: self.user?.id, context: modelContext)
             self.user = user
             cache(user)
             needsLocalMigration = session.needsLocalMigration
             state = session.needsOnboarding ? .needsOnboarding : .signedIn
             await SyncOutbox.shared.flush()
             return true
+        } catch APIError.accountBlocked(let reason) {
+            // Shown as the system alert, not as a line of red text under the
+            // button — a blocked account is not a sign-in that went wrong.
+            accountBlocked(reason: reason)
+            return false
         } catch {
             lastError = (error as? LocalizedError)?.errorDescription ?? "Не удалось войти"
             AppLogger.log("auth: backend sign-in failed \(error)")
@@ -153,12 +215,16 @@ final class SessionStore {
                 payload: payload, deviceName: deviceName
             )
             let user = try await LaxifyAPI.shared.currentUser()
+            LocalStateReset.prepareForAccount(user.id, previouslyCached: self.user?.id, context: modelContext)
             self.user = user
             cache(user)
             needsLocalMigration = session.needsLocalMigration
             state = session.needsOnboarding ? .needsOnboarding : .signedIn
             await SyncOutbox.shared.flush()
             return true
+        } catch APIError.accountBlocked(let reason) {
+            accountBlocked(reason: reason)
+            return false
         } catch {
             lastError = (error as? LocalizedError)?.errorDescription ?? "Не удалось войти"
             AppLogger.log("auth: telegram sign-in failed \(error)")
@@ -269,16 +335,10 @@ final class SessionStore {
 
     func signOut() async {
         await LaxifyAPI.shared.signOut()
-        AuthService.shared.signOut()
 
         // Everything this account left on the device goes with it. Without
         // this the next person to sign in inherited the library, the
         // listening time, and the queued changes still waiting to be sent.
-        LocalStateReset.performOnSignOut(context: modelContext)
-
-        user = nil
-        needsLocalMigration = false
-        cache(nil)
-        state = .signedOut
+        finishLocalSignOut()
     }
 }

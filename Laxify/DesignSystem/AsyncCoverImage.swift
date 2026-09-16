@@ -18,6 +18,9 @@ struct AsyncCoverImage: View {
 
     @State private var image: UIImage?
     @State private var isLoading = false
+    /// Which variant is on screen, so a network change does not blank and
+    /// refetch a cover that already loaded fine.
+    @State private var shownURL: URL?
 
     var body: some View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -32,7 +35,7 @@ struct AsyncCoverImage: View {
                 // No cover: just the flat surface — never a placeholder glyph.
             }
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .task(id: url) {
+            .task(id: CoverLoadKey(url: url, network: NetworkMonitor.shared.generation)) {
                 await load()
             }
     }
@@ -45,10 +48,15 @@ struct AsyncCoverImage: View {
 
         let sized = CoverImageLoader.variant(of: url, forDisplayWidth: displaySize)
 
+        // Already showing exactly this — a network change is no reason to
+        // fetch it again.
+        if image != nil, shownURL == sized { return }
+
         // A cache hit is set without animating: fading in artwork that was
         // already there reads as a flicker while scrolling.
         if let cached = CoverImageLoader.shared.cached(sized) {
             image = cached
+            shownURL = sized
             return
         }
 
@@ -58,6 +66,7 @@ struct AsyncCoverImage: View {
         withAnimation(.easeOut(duration: 0.2)) {
             image = loaded
         }
+        shownURL = sized
     }
 }
 
@@ -89,7 +98,12 @@ actor CoverImageLoader {
             diskCapacity: 256 * 1024 * 1024,
             diskPath: "laxify.covers"
         )
-        configuration.timeoutIntervalForRequest = 15
+        configuration.timeoutIntervalForRequest = 20
+        configuration.httpMaximumConnectionsPerHost = 6
+        // Waits for a connection rather than failing instantly while one is
+        // being set up — which is the whole moment a VPN is switching.
+        configuration.waitsForConnectivity = true
+        configuration.timeoutIntervalForResource = 40
         return URLSession(configuration: configuration)
     }()
 
@@ -110,12 +124,24 @@ actor CoverImageLoader {
         }
 
         let task = Task<UIImage?, Never> { [session] in
-            guard let (data, _) = try? await session.data(from: url) else { return nil }
-            guard let decoded = UIImage(data: data) else { return nil }
+            // Twice, briefly apart. Over a VPN a cover request that times out
+            // or drops is common and says nothing about the cover — and a
+            // cover that failed once used to stay an empty square for as long
+            // as the row was on screen.
+            for attempt in 0..<2 {
+                if attempt > 0 { try? await Task.sleep(for: .milliseconds(700)) }
+                guard let (data, response) = try? await session.data(from: url) else { continue }
+                if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+                    // A 404 will not become a cover by asking again.
+                    return nil
+                }
+                guard let decoded = UIImage(data: data) else { return nil }
 
-            // Decoding here, off the main actor, keeps the first draw from
-            // stuttering when the image finally appears.
-            return decoded.preparingForDisplay() ?? decoded
+                // Decoding here, off the main actor, keeps the first draw from
+                // stuttering when the image finally appears.
+                return decoded.preparingForDisplay() ?? decoded
+            }
+            return nil
         }
 
         inFlight[url] = task
@@ -145,11 +171,23 @@ actor CoverImageLoader {
         guard !wanted.isEmpty else { return }
 
         Task.detached(priority: .utility) {
-            // Sequential on purpose: these are background fetches, and firing
-            // thirty at once would compete with whatever the listener is
-            // actually waiting for.
-            for url in wanted.prefix(40) {
-                _ = await shared.image(for: url)
+            // Six at a time. This was strictly one after another so as not to
+            // compete with what the listener is waiting for — but over a VPN
+            // each cover costs a slow round trip of its own, and forty of them
+            // in single file took long enough that people scrolled past rows
+            // whose covers had not started yet. Six matches the connections
+            // the session keeps to one host, so they share them rather than
+            // queueing behind each other.
+            await withTaskGroup(of: Void.self) { group in
+                var running = 0
+                for url in wanted.prefix(40) {
+                    if running == 6 {
+                        await group.next()
+                        running -= 1
+                    }
+                    group.addTask { _ = await shared.image(for: url) }
+                    running += 1
+                }
             }
         }
     }
@@ -298,4 +336,13 @@ extension AsyncCoverImage {
     static func prefetchCovers(for songs: [Song], width: CGFloat = 200) {
         CoverImageLoader.prefetch(songs.map(\.coverURL), displayWidth: width)
     }
+}
+
+/// What a cover's load is keyed on: the picture, and the network it is being
+/// fetched over. A cover that failed on one network gets another try the
+/// moment the network changes — a VPN switched on, a connection back — instead
+/// of staying an empty square until the row is scrolled away and back.
+struct CoverLoadKey: Hashable {
+    let url: URL?
+    let network: Int
 }

@@ -11,6 +11,14 @@ final class DeepLinkRouter {
 
     private init() {}
 
+    /// A link opened just before signing out should not open itself under the
+    /// next account.
+    func reset() {
+        pendingArtistId = nil
+        pendingAlbum = nil
+        pendingCollection = nil
+    }
+
     func handle(_ url: URL) -> Bool {
         guard let link = DeepLink(url: url) else { return false }
 

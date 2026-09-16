@@ -12,6 +12,8 @@ struct CachedImage<Placeholder: View>: View {
     @ViewBuilder var placeholder: () -> Placeholder
 
     @State private var image: UIImage?
+    /// See `AsyncCoverImage.shownURL`.
+    @State private var shownURL: URL?
 
     var body: some View {
         // The image is drawn as an overlay on a shape that takes whatever
@@ -33,7 +35,7 @@ struct CachedImage<Placeholder: View>: View {
                 }
             }
             .clipped()
-            .task(id: url) { await load() }
+            .task(id: CoverLoadKey(url: url, network: NetworkMonitor.shared.generation)) { await load() }
     }
 
     private func load() async {
@@ -44,14 +46,18 @@ struct CachedImage<Placeholder: View>: View {
 
         let sized = CoverImageLoader.variant(of: url, forDisplayWidth: displaySize)
 
+        if image != nil, shownURL == sized { return }
+
         if let cached = CoverImageLoader.shared.cached(sized) {
             image = cached
+            shownURL = sized
             return
         }
 
         image = nil
         guard let loaded = await CoverImageLoader.shared.image(for: sized) else { return }
         withAnimation(.easeOut(duration: 0.25)) { image = loaded }
+        shownURL = sized
     }
 }
 

@@ -1697,6 +1697,18 @@ final class AudioPlayerController {
         Task { await extendWaveQueue() }
     }
 
+    /// Makes the queue already playing into the wave, once its session exists.
+    ///
+    /// For a track started from the wave's deck in the moment before the
+    /// session had arrived. It carries on untouched; from here on its skips
+    /// and finishes are reported, and the queue tops itself up like any wave.
+    func adoptWaveSession(_ batchId: String) {
+        guard waveBatchId == nil, currentSong != nil else { return }
+        waveBatchId = batchId
+        if let song = currentSong { reportWaveStart(for: song) }
+        extendWaveQueueIfNeeded()
+    }
+
     /// Drops the unplayed tail and refills it from the wave, so what comes
     /// next reflects a signal that just changed — a settings tweak, usually.
     func reshapeWaveTail() {

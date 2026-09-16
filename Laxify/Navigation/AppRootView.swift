@@ -5,6 +5,7 @@ import UIKit
 struct AppRootView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openURL) private var openURL
     @Query private var favorites: [FavoriteTrack]
     @Query private var dislikedTracks: [DislikedTrack]
 
@@ -68,8 +69,36 @@ struct AppRootView: View {
         // it cannot be missed by a route that did not exist when it was
         // written.
         .onChange(of: session.state) { previous, current in
+            if current == .signedOut, previous != .signedOut {
+                Self.dismissPresentedScreens()
+            }
             guard current == .signedIn, previous != .signedIn else { return }
             Task { await adoptAccount() }
+        }
+        // The system's own alert, because a blocked account is a moment for
+        // the most ordinary, least surprising thing iOS can show — not a
+        // custom sheet. An alert's message cannot hold a tappable link, so
+        // the link is the button, which is how iOS itself does it.
+        .alert(
+            L("account.blocked.title", "Аккаунт заблокирован"),
+            isPresented: Binding(
+                get: { session.blockedReason != nil },
+                set: { if !$0 { session.blockedReason = nil } }
+            ),
+            presenting: session.blockedReason
+        ) { _ in
+            Button(L("account.blocked.support", "Написать в поддержку")) {
+                openURL(AppLinks.support)
+            }
+            Button(L("common.ok", "Понятно"), role: .cancel) {}
+        } message: { reason in
+            Text(
+                "\(reason)\n\n"
+                    + L(
+                        "account.blocked.message",
+                        "Чтобы разблокировать аккаунт, напишите в поддержку: t.me/skyredy"
+                    )
+            )
         }
         .onChange(of: scenePhase) { _, phase in
             // Coming back to the app is the most likely moment for the
@@ -203,6 +232,33 @@ struct AppRootView: View {
 
     private static var deviceName: String {
         UIDevice.current.name
+    }
+
+    /// Closes every screen presented over the app.
+    ///
+    /// Signing out swaps the app's root for the sign-in screen — but a screen
+    /// presented *over* the old root is not part of that swap. SwiftUI leaves
+    /// a presented full-screen cover in place when the view that presented it
+    /// goes away, so signing out from settings replaced everything underneath
+    /// and left settings sitting on top, with the account's details already
+    /// wiped out of it. That is what "the data just disappears instead of
+    /// taking me to sign-in" was. The same happened for a session that ended
+    /// on its own with the player or any sheet open.
+    ///
+    /// An alert is left alone: it may be the one explaining why this is
+    /// happening.
+    @MainActor
+    private static func dismissPresentedScreens() {
+        for scene in UIApplication.shared.connectedScenes {
+            guard let windowScene = scene as? UIWindowScene else { continue }
+            for window in windowScene.windows {
+                guard let root = window.rootViewController,
+                      let presented = root.presentedViewController,
+                      !(presented is UIAlertController)
+                else { continue }
+                root.dismiss(animated: false)
+            }
+        }
     }
 }
 

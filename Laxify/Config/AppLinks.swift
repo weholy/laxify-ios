@@ -12,6 +12,13 @@ enum AppLinks {
     /// Where "связаться с нами" goes — the project's own channel.
     static let contact = URL(string: "https://t.me/laxify")!
 
+    /// The project's own site. Terms and the privacy note live there, and are
+    /// opened in the in-app browser rather than kept only as text in the app,
+    /// so they can change without a new build.
+    static let website = URL(string: "https://laxify.cc")!
+    static let terms = URL(string: "https://laxify.cc/terms")!
+    static let privacy = URL(string: "https://laxify.cc/privacy")!
+
     /// Bot used for Telegram sign-in and subscription confirmation (later).
     static let telegramBot = "LaxifyAppBot"
 

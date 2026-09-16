@@ -23,6 +23,19 @@ final class PlaylistStore {
         playlists = Self.loadCache()
     }
 
+    /// Forgets the account's playlists, in memory and on disk.
+    ///
+    /// Held by a singleton that outlives any one account, so without this the
+    /// next person to sign in opened their library and saw the previous
+    /// person's playlists until the network happened to replace them.
+    func reset() {
+        playlists = []
+        isLoading = false
+        lastError = nil
+        loadedAt = nil
+        UserDefaults.standard.removeObject(forKey: Self.cacheKey)
+    }
+
     func loadIfNeeded() async {
         if let loadedAt, Date().timeIntervalSince(loadedAt) < Self.freshness, !playlists.isEmpty {
             return

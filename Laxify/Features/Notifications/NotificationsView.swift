@@ -194,6 +194,13 @@ final class NotificationStore {
 
     private init() {}
 
+    /// Clears the previous account's notifications — and, more visibly, its
+    /// unread badge, which otherwise sat on the next person's tab bar.
+    func reset() {
+        items = []
+        unreadCount = 0
+    }
+
     func load() async {
         async let list = LaxifyAPI.shared.notifications()
         async let count = LaxifyAPI.shared.notificationsUnreadCount()

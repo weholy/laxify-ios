@@ -455,7 +455,11 @@ struct SettingsView: View {
         isSigningOut = true
         Task {
             await session.signOut()
+            // Out of settings too. The root switches to the sign-in screen on
+            // its own, and also closes anything left presented — this just
+            // lets settings leave with its own animation rather than vanish.
             isSigningOut = false
+            onClose()
         }
     }
 
@@ -750,9 +754,9 @@ struct SettingsHeader: View {
         HStack {
             Button(action: onBack) {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 19, weight: .bold))
+                    .font(.system(size: LaxifyMetrics.controlGlyph, weight: .bold))
                     .foregroundStyle(LaxifyPalette.textPrimary)
-                    .frame(width: 46, height: 46)
+                    .frame(width: LaxifyMetrics.controlSize, height: LaxifyMetrics.controlSize)
                     .glassEffect(.regular.interactive(), in: .circle)
                     // Interactive glass otherwise swallows taps that miss the
                     // glyph; re-declare the whole circle as the hit region.
@@ -769,7 +773,7 @@ struct SettingsHeader: View {
             Spacer()
 
             // Balances the back button so the title sits centred.
-            Color.clear.frame(width: 46, height: 46)
+            Color.clear.frame(width: LaxifyMetrics.controlSize, height: LaxifyMetrics.controlSize)
         }
         .padding(.horizontal, LaxifyMetrics.screenPadding)
         .padding(.bottom, 14)

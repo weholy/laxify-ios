@@ -98,6 +98,16 @@ enum AudioCache {
         }
     }
 
+    /// Empties the cache entirely. What someone listened to is theirs; the
+    /// next person to sign in on this phone should not find those tracks
+    /// starting suspiciously fast.
+    static func removeAll() {
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: nil
+        ) else { return }
+        for file in files { try? FileManager.default.removeItem(at: file) }
+    }
+
     // MARK: - Keeping it small and fresh
 
     /// Wipes everything once a week. Called at launch.

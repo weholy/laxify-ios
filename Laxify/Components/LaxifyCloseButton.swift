@@ -27,7 +27,7 @@ struct LaxifyCloseButton: View {
     var tinted: Bool = true
     var action: () -> Void
 
-    private let diameter: CGFloat = 46
+    private let diameter: CGFloat = LaxifyMetrics.controlSize
 
     /// Deliberately **not** interactive glass.
     ///

@@ -100,14 +100,7 @@ struct CategoryTracksView: View {
         .clipShape(RoundedRectangle(cornerRadius: LaxifyMetrics.cardCornerRadius, style: .continuous))
         .padding(.horizontal, LaxifyMetrics.screenPadding)
         .overlay(alignment: .topTrailing) {
-            Button(action: onClose) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 34, height: 34)
-                    .background(.black.opacity(0.35), in: Circle())
-            }
-            .buttonStyle(.plain)
+            LaxifyCloseButton(style: .xmark, tinted: false, action: onClose)
             .padding(.trailing, LaxifyMetrics.screenPadding + 12)
             .padding(.top, 12)
         }

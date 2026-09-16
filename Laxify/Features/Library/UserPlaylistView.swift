@@ -135,9 +135,9 @@ struct UserPlaylistView: View {
                     // Same size and same material as the collapse chevron
                     // opposite it — they are a pair, and they read as one.
                     Image(systemName: "ellipsis")
-                        .font(.system(size: 17, weight: .bold))
+                        .font(.system(size: LaxifyMetrics.controlGlyph, weight: .bold))
                         .foregroundStyle(LaxifyPalette.textPrimary)
-                        .frame(width: 46, height: 46)
+                        .frame(width: LaxifyMetrics.controlSize, height: LaxifyMetrics.controlSize)
                         .glassEffect(.regular, in: .circle)
                         .contentShape(Circle())
                 }

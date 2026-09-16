@@ -20,7 +20,16 @@ struct MyWaveView: View {
     @State private var centredCardId: String?
 
     private var focus: Song? {
-        player.isPlayingWave ? player.currentSong : viewModel.tracks.first
+        if player.isPlayingWave { return player.currentSong }
+        // A deck track that is playing is the focus whether or not the wave
+        // session behind it has arrived yet. Tying the ring to the session
+        // alone is why tapping a card before the refresh finished played the
+        // song and left the ring on the first card.
+        if let current = player.currentSong,
+           viewModel.tracks.contains(where: { $0.id == current.id }) {
+            return current
+        }
+        return viewModel.tracks.first
     }
 
     private var deckSource: [Song] {
@@ -44,13 +53,16 @@ struct MyWaveView: View {
         let source = deckSource
         guard !source.isEmpty else { return [] }
 
-        if player.isPlayingWave {
-            let index = player.currentIndex
-            let lower = max(0, index - 3)
-            let upper = min(source.count, index + 13)
-            return Array(source[lower..<upper])
-        }
-        return Array(source.prefix(15))
+        // Centred on whatever is in focus — the live position when the wave is
+        // playing, otherwise wherever the focused card sits in the deck. A
+        // fixed first fifteen dropped a tapped card further along out of the
+        // window altogether.
+        let index = player.isPlayingWave
+            ? player.currentIndex
+            : (focus.flatMap { song in source.firstIndex(where: { $0.id == song.id }) } ?? 0)
+        let lower = max(0, index - 3)
+        let upper = min(source.count, max(index + 13, lower + 15))
+        return Array(source[lower..<upper])
     }
 
     var body: some View {
@@ -225,7 +237,7 @@ struct MyWaveView: View {
                         // with anything else playing, the deck still focuses
                         // its first card, and that card used to claim to be
                         // playing while the mini player showed another song.
-                        isPlaying: player.isPlayingWave && song.id == player.currentSong?.id
+                        isPlaying: song.id == player.currentSong?.id
                     )
                     .id(song.id)
                     .onTapGesture { playFrom(song) }

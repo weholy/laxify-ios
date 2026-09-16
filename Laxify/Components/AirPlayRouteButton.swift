@@ -30,7 +30,7 @@ struct AirPlayRouteButton: View {
                 // Below 0.01 UIKit stops delivering touches.
                 .opacity(0.02)
         }
-        .frame(width: 40, height: 40)
+        .frame(width: LaxifyMetrics.controlSize, height: LaxifyMetrics.controlSize)
         .contentShape(Rectangle())
         .accessibilityLabel(route.name)
         .onReceive(

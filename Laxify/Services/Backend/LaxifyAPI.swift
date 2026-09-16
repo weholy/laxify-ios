@@ -3,6 +3,8 @@ import UIKit
 
 enum APIError: LocalizedError {
     case notAuthenticated
+    /// The server has blocked this account. Carries the reason it gave.
+    case accountBlocked(reason: String)
     case server(status: Int, detail: String)
     case transport(Error)
     case decoding(Error)
@@ -11,6 +13,8 @@ enum APIError: LocalizedError {
         switch self {
         case .notAuthenticated:
             "Нужно войти в аккаунт"
+        case .accountBlocked(let reason):
+            reason
         case .server(_, let detail):
             detail
         case .transport:
@@ -47,7 +51,24 @@ actor LaxifyAPI {
     /// Guards against a burst of 401s each kicking off its own refresh — the
     /// server rotates refresh tokens, so a second concurrent refresh would
     /// present an already-used token and invalidate the whole session.
-    private var refreshTask: Task<Bool, Never>?
+    private var refreshTask: Task<RefreshOutcome, Never>?
+
+    /// What trying to refresh the session actually established.
+    ///
+    /// It used to be a yes or a no, and "no" wiped the tokens. But "no" also
+    /// covered a refresh that never reached the server — a dropped connection,
+    /// a network interfering with the handshake — and those said nothing
+    /// about the session at all. People were signed out of a perfectly valid
+    /// account for having had bad signal at the minute their token expired.
+    private enum RefreshOutcome: Sendable {
+        case refreshed
+        /// The server answered and turned the session down.
+        case rejected
+        /// The server answered that the account is blocked.
+        case blocked(reason: String)
+        /// The server was not reached. The session may be fine.
+        case unreachable
+    }
 
     private let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
@@ -95,6 +116,12 @@ actor LaxifyAPI {
     /// The report is the point: from the server there is no way to tell
     /// which routes a listener's network permits, and that is exactly what
     /// has to be known to stop guessing at it.
+    /// Takes up whichever route the router settled on most recently — after
+    /// the network changed and the routes were raced again.
+    func adoptCurrentRoute() async {
+        route = await APIRouter.shared.route
+    }
+
     func prepare() async {
         route = await APIRouter.shared.discover()
 
@@ -1514,13 +1541,34 @@ actor LaxifyAPI {
         }
 
         if http.statusCode == 401, authenticated, !isRetry {
-            guard await refreshSession() else {
+            switch await refreshSession() {
+            case .refreshed:
+                return try await perform(
+                    path, method: method, bodyData: bodyData, authenticated: true, isRetry: true
+                )
+            case .rejected:
                 KeychainStore.clear()
+                // Every screen used to find out one failed request at a time,
+                // while the app went on showing an account it no longer had.
+                await MainActor.run { SessionStore.shared.sessionEnded() }
                 throw APIError.notAuthenticated
+            case .blocked(let reason):
+                await MainActor.run { SessionStore.shared.accountBlocked(reason: reason) }
+                throw APIError.accountBlocked(reason: reason)
+            case .unreachable:
+                // Tokens kept: nothing has been said about the session.
+                throw APIError.transport(URLError(.networkConnectionLost))
             }
-            return try await perform(
-                path, method: method, bodyData: bodyData, authenticated: true, isRetry: true
-            )
+        }
+
+        if let reason = Self.blockedReason(http, data: data) {
+            // Only reported here for requests made on the account's behalf.
+            // A sign-in attempt throws the same error, and its caller shows
+            // the alert itself.
+            if authenticated {
+                await MainActor.run { SessionStore.shared.accountBlocked(reason: reason) }
+            }
+            throw APIError.accountBlocked(reason: reason)
         }
 
         guard (200..<300).contains(http.statusCode) else {
@@ -1542,18 +1590,18 @@ actor LaxifyAPI {
         }
     }
 
-    private func refreshSession() async -> Bool {
+    private func refreshSession() async -> RefreshOutcome {
         if let existing = refreshTask {
             return await existing.value
         }
 
-        let task = Task<Bool, Never> {
-            guard let refreshToken = KeychainStore.read(.refreshToken) else { return false }
+        let task = Task<RefreshOutcome, Never> {
+            guard let refreshToken = KeychainStore.read(.refreshToken) else { return .rejected }
 
             struct Body: Encodable { let refreshToken: String }
             guard let url = URL(string: baseURL.absoluteString + "/auth/refresh"),
                   let bodyData = try? encoder.encode(Body(refreshToken: refreshToken)) else {
-                return false
+                return .unreachable
             }
 
             var request = URLRequest(url: url)
@@ -1561,20 +1609,59 @@ actor LaxifyAPI {
             request.httpBody = bodyData
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-            guard let (data, response) = try? await session.data(for: request),
-                  let http = response as? HTTPURLResponse,
-                  (200..<300).contains(http.statusCode),
-                  let tokens = try? decoder.decode(BackendTokens.self, from: data) else {
-                return false
+            // `activeSession`, not `session`. On the route that reaches the
+            // server by address the certificate has to be checked against the
+            // name it carries, which only the pinned session does — the plain
+            // one refused the handshake every time, so on that route every
+            // refresh "failed" and the person was signed out the moment their
+            // token expired. It is the route people end up on precisely when
+            // their network is interfering, so it was the worst place for it.
+            let data: Data
+            let response: URLResponse
+            do {
+                (data, response) = try await activeSession.data(for: request)
+            } catch {
+                return .unreachable
+            }
+
+            guard let http = response as? HTTPURLResponse else { return .unreachable }
+
+            if let reason = Self.blockedReason(http, data: data) {
+                KeychainStore.clear()
+                return .blocked(reason: reason)
+            }
+
+            guard (200..<300).contains(http.statusCode) else {
+                // The server answered and said no: that is a real verdict on
+                // the session. Anything it says with a 5xx is not.
+                return (500..<600).contains(http.statusCode) ? .unreachable : .rejected
+            }
+
+            guard let tokens = try? decoder.decode(BackendTokens.self, from: data) else {
+                return .unreachable
             }
 
             store(tokens)
-            return true
+            return .refreshed
         }
 
         refreshTask = task
         let result = await task.value
         refreshTask = nil
         return result
+    }
+
+    /// The reason a blocked account was given, if this response is that.
+    ///
+    /// Recognised by the header the server attaches, not by the status alone:
+    /// a 403 also means "not an admin", and that one must not sign anyone out.
+    private static func blockedReason(_ http: HTTPURLResponse, data: Data) -> String? {
+        guard http.statusCode == 403,
+              http.value(forHTTPHeaderField: "X-Account-Status")?.lowercased() == "banned"
+        else { return nil }
+
+        struct Body: Decodable { let detail: String? }
+        let detail = (try? JSONDecoder().decode(Body.self, from: data))?.detail
+        return (detail?.isEmpty == false) ? detail! : "Аккаунт заблокирован"
     }
 }

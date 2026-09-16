@@ -32,7 +32,7 @@ struct RepeatButton: View {
                         .transition(.scale.combined(with: .opacity))
                 }
             }
-            .frame(width: 36, height: 36)
+            .frame(width: LaxifyMetrics.controlSize, height: LaxifyMetrics.controlSize)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -65,7 +65,7 @@ struct FavouriteHeart: View {
             }
             .font(.system(size: 20, weight: .semibold))
             .scaleEffect(pop)
-            .frame(width: 40, height: 40)
+            .frame(width: LaxifyMetrics.controlSize, height: LaxifyMetrics.controlSize)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

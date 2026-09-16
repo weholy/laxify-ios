@@ -87,7 +87,7 @@ struct ReplayView: View {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(palette.textColor)
-                    .frame(width: 44, height: 44)
+                    .frame(width: LaxifyMetrics.controlSize, height: LaxifyMetrics.controlSize)
                     .glassEffect(.regular.interactive(), in: .circle)
                     .contentShape(Circle())
             }
@@ -101,7 +101,7 @@ struct ReplayView: View {
 
             Spacer()
 
-            Color.clear.frame(width: 38, height: 38)
+            Color.clear.frame(width: LaxifyMetrics.controlSize, height: LaxifyMetrics.controlSize)
         }
         .padding(.horizontal, LaxifyMetrics.screenPadding)
         .padding(.bottom, 8)

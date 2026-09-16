@@ -17,7 +17,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import desc, func, select
 
-from app.api.deps import ClientIP, CurrentUser, SessionDep
+from app.api.deps import ClientIP, CurrentUser, SessionDep, banned_error
 from app.core.config import settings
 from app.core.security import (
     create_access_token,
@@ -385,10 +385,7 @@ async def login(payload: EmailLoginIn, session: SessionDep, ip: ClientIP) -> Ses
         raise invalid
 
     if user.is_banned:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=user.ban_reason or "Аккаунт заблокирован",
-        )
+        raise banned_error(user)
 
     device = _new_device(user.id, payload.device_name, payload.device_model, payload.app_version)
     session.add(device)

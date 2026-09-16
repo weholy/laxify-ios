@@ -62,9 +62,9 @@ struct ProfileView: View {
                     isSettingsPresented = true
                 } label: {
                     Image(systemName: "gearshape.fill")
-                        .font(.system(size: 19, weight: .semibold))
+                        .font(.system(size: LaxifyMetrics.controlGlyph, weight: .semibold))
                         .foregroundStyle(LaxifyPalette.textPrimary)
-                        .frame(width: 48, height: 48)
+                        .frame(width: LaxifyMetrics.controlSize, height: LaxifyMetrics.controlSize)
                         .glassEffect(.regular.interactive(), in: .circle)
                         .contentShape(Circle())
                 }

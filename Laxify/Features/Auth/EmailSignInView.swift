@@ -88,10 +88,11 @@ struct EmailSignInView: View {
                 back()
             } label: {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: LaxifyMetrics.controlGlyph, weight: .bold))
                     .foregroundStyle(LaxifyPalette.textPrimary)
-                    .frame(width: 38, height: 38)
+                    .frame(width: LaxifyMetrics.controlSize, height: LaxifyMetrics.controlSize)
                     .glassEffect(.regular.interactive(), in: .circle)
+                    .contentShape(Circle())
             }
             .buttonStyle(.plain)
 

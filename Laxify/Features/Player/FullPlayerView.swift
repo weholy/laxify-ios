@@ -126,7 +126,7 @@ struct FullPlayerView: View {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.6))
-                    .frame(width: 36, height: 36)
+                    .frame(width: LaxifyMetrics.controlSize, height: LaxifyMetrics.controlSize)
                     .contentShape(Rectangle())
             }
             .buttonStyle(PlayerGlyphButtonStyle())
@@ -191,7 +191,7 @@ struct FullPlayerView: View {
             Image(systemName: "ellipsis")
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.6))
-                .frame(width: 36, height: 36)
+                .frame(width: LaxifyMetrics.controlSize, height: LaxifyMetrics.controlSize)
                 .contentShape(Rectangle())
         }
         .disabled(player.currentSong == nil)
@@ -207,11 +207,11 @@ struct FullPlayerView: View {
                 .frame(maxWidth: .infinity)
 
             AirPlayRouteButton()
-                .frame(width: 40, height: 40)
+                .frame(width: LaxifyMetrics.controlSize, height: LaxifyMetrics.controlSize)
                 .frame(maxWidth: .infinity)
 
             RepeatButton()
-                .frame(width: 40, height: 40)
+                .frame(width: LaxifyMetrics.controlSize, height: LaxifyMetrics.controlSize)
                 .frame(maxWidth: .infinity)
         }
         .padding(.horizontal, 6)
@@ -226,7 +226,7 @@ struct FullPlayerView: View {
             Image(systemName: systemName)
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.75))
-                .frame(width: 40, height: 40)
+                .frame(width: LaxifyMetrics.controlSize, height: LaxifyMetrics.controlSize)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

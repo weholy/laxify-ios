@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
-from app.api.deps import ClientIP, CurrentUser, SessionDep
+from app.api.deps import ClientIP, CurrentUser, SessionDep, banned_error
 from app.core.config import settings
 from app.core.security import (
     REFRESH_TOKEN_TYPE,
@@ -68,6 +68,10 @@ async def sign_in_with_google(
         user.email = identity.email or user.email
         if identity.picture:
             user.google_avatar_url = identity.picture
+        # Refused here rather than after a session has been handed out: a
+        # blocked account used to get tokens, then fail its first request.
+        if user.is_banned:
+            raise banned_error(user)
 
     user.last_seen_at = datetime.now(UTC)
 
@@ -136,6 +140,8 @@ async def sign_in_with_telegram(
             user.telegram_username = identity.username
         if identity.photo_url:
             user.telegram_photo_url = identity.photo_url
+        if user.is_banned:
+            raise banned_error(user)
 
     user.last_seen_at = datetime.now(UTC)
 
@@ -180,6 +186,15 @@ async def refresh_session(payload: RefreshRequest, session: SessionDep) -> Token
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
 
     device = await session.get(Device, claims["did"])
+
+    # A ban revokes every device, so without this the refresh below always
+    # failed on the revoked device first — and a blocked person was simply
+    # logged out, with nothing to say why. The ban is checked ahead of it.
+    if device is not None:
+        owner = await session.get(User, device.user_id)
+        if owner is not None and owner.is_banned:
+            raise banned_error(owner)
+
     if device is None or device.revoked_at is not None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Сессия завершена")
 
@@ -193,8 +208,10 @@ async def refresh_session(payload: RefreshRequest, session: SessionDep) -> Token
         )
 
     user = await session.get(User, device.user_id)
-    if user is None or user.is_banned:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Аккаунт недоступен")
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Аккаунт удалён")
+    if user.is_banned:
+        raise banned_error(user)
 
     tokens = _issue_tokens(user, device)
     device.refresh_token_hash = hash_refresh_token(tokens.refresh_token)

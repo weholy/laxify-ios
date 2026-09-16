@@ -9,7 +9,17 @@ import Foundation
 @Observable
 final class MyWaveViewModel {
     private(set) var tracks: [Song] = HomeCache.loadWave()
-    private(set) var batchId: String?
+    /// Remembered with the tracks it belongs to.
+    ///
+    /// The tracks were cached and this was not, so for the second or two
+    /// after opening the tab — exactly when people tap — the deck showed a
+    /// wave with no session behind it. A track tapped then started as an
+    /// ordinary queue rather than the wave: nothing ringed it, the deck did
+    /// not follow it, and only once the refresh landed did everything behave.
+    /// The server opens a fresh session if this one has lapsed, so a stale id
+    /// costs nothing.
+    private(set) var batchId: String? = UserDefaults.standard.string(forKey: MyWaveViewModel.batchKey)
+    static let batchKey = "laxify.wave.batchId"
     private(set) var isLoading = false
     private(set) var errorMessage: String?
 
@@ -45,8 +55,18 @@ final class MyWaveViewModel {
         errorMessage = nil
         do {
             let batch = try await CatalogService.shared.waveBatch()
-            tracks = batch.songs
+            // A track from the cached deck may already be playing without a
+            // session. It keeps playing; it just gets the session it was
+            // missing, so thumbs and the endless top-up work from here on.
+            let player = AudioPlayerController.shared
+            if !player.isPlayingWave, let current = player.currentSong,
+               tracks.contains(where: { $0.id == current.id }) {
+                player.adoptWaveSession(batch.batchId)
+            } else {
+                tracks = batch.songs
+            }
             batchId = batch.batchId
+            UserDefaults.standard.set(batch.batchId, forKey: Self.batchKey)
             loadedAt = Date()
             HomeCache.save(recommended: HomeCache.loadRecommended(), wave: batch.songs)
             AsyncCoverImage.prefetchCovers(for: Array(batch.songs.prefix(12)), width: 220)

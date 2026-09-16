@@ -49,8 +49,7 @@ final class LyricsViewModel {
     private var leadOffset: TimeInterval {
         if lyrics?.isApproximate ?? false { return 0.1 }
 
-        let session = AVAudioSession.sharedInstance()
-        let latency = session.outputLatency + session.ioBufferDuration
+        let latency = Self.outputLatency()
         // A floor, because some routes report zero, and a ceiling so a bad
         // reading cannot throw the whole lyric out of step.
         //
@@ -59,6 +58,48 @@ final class LyricsViewModel {
         // line being announced; the same distance late reads as the app
         // lagging behind the song, which is far more noticeable.
         return min(max(latency + 0.2, 0.2), 0.6)
+    }
+
+    /// The route's output delay, remembered rather than read cold.
+    ///
+    /// This is the "lyrics keep up until I pause, then they fall behind" bug.
+    /// After a pause the system lets the audio session go inactive, and an
+    /// inactive session reports an output latency of zero — so on resuming,
+    /// the compensation silently dropped from, say, a quarter of a second on
+    /// headphones to nothing, and every line lit up late. A zero is now only
+    /// believed when there has never been a real reading; otherwise the last
+    /// real one stands until the route itself changes.
+    ///
+    /// Also: this used to be two calls into the audio session on every
+    /// display frame. Once a second is plenty for a number that only changes
+    /// when headphones are plugged in or taken out.
+    private static var lastLatency: TimeInterval = 0
+    private static var readAt: Date = .distantPast
+    private static var routeObserver: NSObjectProtocol?
+
+    private static func outputLatency() -> TimeInterval {
+        if routeObserver == nil {
+            routeObserver = NotificationCenter.default.addObserver(
+                forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main
+            ) { _ in
+                // A different route has a different delay: let the next
+                // reading replace the remembered one, zero included.
+                MainActor.assumeIsolated {
+                    LyricsViewModel.lastLatency = 0
+                    LyricsViewModel.readAt = .distantPast
+                }
+            }
+        }
+
+        guard Date().timeIntervalSince(readAt) > 1 else { return lastLatency }
+        readAt = Date()
+
+        let session = AVAudioSession.sharedInstance()
+        let reading = session.outputLatency + session.ioBufferDuration
+        if session.outputLatency > 0 || lastLatency == 0 {
+            lastLatency = reading
+        }
+        return lastLatency
     }
 
     func activeLineIndex(at time: TimeInterval) -> Int? {

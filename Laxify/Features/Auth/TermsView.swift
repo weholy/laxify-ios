@@ -2,13 +2,38 @@ import SwiftUI
 
 /// What someone agrees to by signing in.
 ///
-/// Kept in the app rather than only on the web: this is read at the moment of
-/// signing in, which is exactly when someone may have no connection, and
-/// sending them out to a browser to read it loses their place.
+/// The site's page first, opened in the in-app browser, so the terms can be
+/// updated without shipping a build. The text below is kept as the fallback:
+/// this is read at the moment of signing in, which is exactly when someone
+/// may have no connection — or, until the domain is live, no page to load.
 struct TermsView: View {
     var onClose: () -> Void
+    /// Which of the two documents to open with.
+    var initialSection: Section = .terms
 
     @State private var section: Section = .terms
+    /// Whether the web page failed to load, and the built-in text is shown.
+    @State private var showsBuiltIn = false
+
+    var body: some View {
+        Group {
+            if showsBuiltIn {
+                builtIn
+                    .transition(.opacity)
+            } else {
+                InAppBrowser(
+                    url: initialSection == .terms ? AppLinks.terms : AppLinks.privacy,
+                    onFinish: onClose,
+                    onInitialLoad: { loaded in
+                        guard !loaded else { return }
+                        section = initialSection
+                        withAnimation(.easeOut(duration: 0.2)) { showsBuiltIn = true }
+                    }
+                )
+                .ignoresSafeArea()
+            }
+        }
+    }
 
     enum Section: String, CaseIterable, Identifiable {
         case terms
@@ -24,7 +49,7 @@ struct TermsView: View {
         }
     }
 
-    var body: some View {
+    private var builtIn: some View {
         ZStack {
             LaxifyPalette.background.ignoresSafeArea()
 
@@ -55,7 +80,7 @@ struct TermsView: View {
                             }
                         }
 
-                        Text("Полная версия — laxify.31-76-27-182.nip.io/terms")
+                        Text("Полная версия — laxify.cc/terms")
                             .font(.system(size: 13))
                             .foregroundStyle(LaxifyPalette.textTertiary)
                             .padding(.top, 8)
@@ -69,14 +94,7 @@ struct TermsView: View {
 
     private var header: some View {
         HStack {
-            Button(action: onClose) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(LaxifyPalette.textPrimary)
-                    .frame(width: 36, height: 36)
-                    .glassEffect(.regular.interactive(), in: .circle)
-            }
-            .buttonStyle(.plain)
+            LaxifyCloseButton(style: .xmark, tinted: false, action: onClose)
 
             Spacer()
 
@@ -86,7 +104,7 @@ struct TermsView: View {
 
             Spacer()
 
-            Color.clear.frame(width: 36, height: 36)
+            Color.clear.frame(width: LaxifyMetrics.controlSize, height: LaxifyMetrics.controlSize)
         }
         .padding(.horizontal, LaxifyMetrics.screenPadding)
         .padding(.vertical, 14)

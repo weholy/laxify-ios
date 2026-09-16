@@ -31,7 +31,7 @@ struct LaxifySecondaryButtonStyle: ButtonStyle {
 }
 
 struct LaxifyIconButtonStyle: ButtonStyle {
-    var diameter: CGFloat = 44
+    var diameter: CGFloat = LaxifyMetrics.controlSize
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -45,7 +45,7 @@ struct LaxifyIconButtonStyle: ButtonStyle {
 }
 
 struct LaxifyCheckmarkButtonStyle: ButtonStyle {
-    var diameter: CGFloat = 46
+    var diameter: CGFloat = LaxifyMetrics.controlSize
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label

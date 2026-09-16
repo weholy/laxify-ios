@@ -85,15 +85,7 @@ struct WaveSettingsView: View {
 
             Spacer()
 
-            Button(action: onClose) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(LaxifyPalette.textPrimary)
-                    .frame(width: 44, height: 44)
-                    .laxGlassCircle(interactive: true)
-                    .contentShape(Circle())
-            }
-            .buttonStyle(.plain)
+            LaxifyCloseButton(style: .xmark, tinted: false, action: onClose)
         }
         .padding(.horizontal, LaxifyMetrics.screenPadding)
         .padding(.top, 18)

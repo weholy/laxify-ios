@@ -39,12 +39,31 @@ async def get_current_user(
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Пользователь не найден")
     if user.is_banned:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=user.ban_reason or "Аккаунт заблокирован",
-        )
+        raise banned_error(user)
 
     return user
+
+
+# Read by the app. A 403 alone cannot tell "this account is blocked" from
+# "this account may not open the admin panel", and only the first should put
+# the listener in front of a sign-in screen with an explanation.
+ACCOUNT_STATUS_HEADER = "X-Account-Status"
+
+
+def banned_error(user: User) -> HTTPException:
+    """The one answer every door gives a blocked account.
+
+    Sign-in, session refresh and every authenticated request used to refuse
+    a banned account each in its own words — one said "account unavailable",
+    another the reason, another nothing an app could recognise. The app could
+    not tell a ban from any other failure and simply dropped the person at the
+    sign-in screen with no idea why.
+    """
+    return HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=user.ban_reason or "Аккаунт заблокирован",
+        headers={ACCOUNT_STATUS_HEADER: "banned"},
+    )
 
 
 async def get_optional_user(

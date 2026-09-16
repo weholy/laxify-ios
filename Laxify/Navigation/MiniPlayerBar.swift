@@ -40,12 +40,12 @@ struct MiniPlayerBar: View {
             } label: {
                 if player.isLoading {
                     ProgressView()
-                        .frame(width: 32, height: 32)
+                        .frame(width: LaxifyMetrics.inlineControlSize, height: LaxifyMetrics.inlineControlSize)
                 } else {
                     Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(LaxifyPalette.textPrimary)
-                        .frame(width: 32, height: 32)
+                        .frame(width: LaxifyMetrics.inlineControlSize, height: LaxifyMetrics.inlineControlSize)
                 }
             }
             .buttonStyle(.plain)
