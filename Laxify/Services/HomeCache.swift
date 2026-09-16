@@ -7,9 +7,19 @@ import Foundation
 /// refreshing behind it makes the app feel instant, and it still shows
 /// something useful when the network is unavailable.
 enum HomeCache {
-    private static let tracksKey = "laxify.home.tracks"
-    private static let waveKey = "laxify.home.wave"
-    private static let savedAtKey = "laxify.home.savedAt"
+    // Kept per source. One shared cache would paint the previous source's
+    // feed the moment a different one was chosen and leave it there until the
+    // network answered — the switch would look like it had done nothing, and
+    // switching back would be a fresh wait rather than what was already
+    // there. The suffix is left off SoundCloud's so that a feed cached by an
+    // earlier version, before any of this existed, is still found.
+    private static var suffix: String {
+        SelectedSource.current == .soundcloud ? "" : ".\(SelectedSource.current.rawValue)"
+    }
+
+    private static var tracksKey: String { "laxify.home.tracks\(suffix)" }
+    private static var waveKey: String { "laxify.home.wave\(suffix)" }
+    private static var savedAtKey: String { "laxify.home.savedAt\(suffix)" }
 
     /// Beyond this the cached feed is stale enough that showing it would be
     /// misleading rather than helpful.

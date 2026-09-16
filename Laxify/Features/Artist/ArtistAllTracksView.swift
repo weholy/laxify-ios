@@ -91,7 +91,7 @@ struct ArtistAllTracksView: View {
         isLoading = true
         hasError = false
         do {
-            let batch = try await CatalogService.shared.artistTracks(
+            let batch = try await MusicSourceRouter.shared.artistTracks(
                 artistId: artistId, page: page
             )
             let existing = Set(songs.map(\.id))

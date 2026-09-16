@@ -7,9 +7,14 @@ import Foundation
 /// job is to answer quickly. The last set of popular tracks and categories
 /// paints on the first frame and is replaced quietly when fresher ones land.
 enum BrowseCache {
-    private static let popularKey = "laxify.browse.popular"
-    private static let categoriesKey = "laxify.browse.categories"
-    private static let savedAtKey = "laxify.browse.savedAt"
+    // Per source, for the reason set out in `HomeCache`.
+    private static var suffix: String {
+        SelectedSource.current == .soundcloud ? "" : ".\(SelectedSource.current.rawValue)"
+    }
+
+    private static var popularKey: String { "laxify.browse.popular\(suffix)" }
+    private static var categoriesKey: String { "laxify.browse.categories\(suffix)" }
+    private static var savedAtKey: String { "laxify.browse.savedAt\(suffix)" }
 
     /// Popular picks and a category list move slowly; three days old is still
     /// a better answer than an empty screen.
