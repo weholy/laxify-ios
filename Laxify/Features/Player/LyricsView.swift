@@ -221,6 +221,16 @@ struct LyricsView: View {
                     }
                 }
             }
+            .onAppear {
+                // The screen used to always open scrolled to the top, and
+                // .onChange only fires on a *change* — so opening mid-song
+                // left whoever opened it staring at the wrong line until the
+                // next one happened to arrive. No animation here: this is the
+                // opening position, not a followed transition.
+                if let activeIndex {
+                    proxy.scrollTo(activeIndex, anchor: .center)
+                }
+            }
         }
     }
 

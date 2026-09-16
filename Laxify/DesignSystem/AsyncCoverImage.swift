@@ -124,18 +124,22 @@ actor CoverImageLoader {
         }
 
         let task = Task<UIImage?, Never> { [session] in
-            // Twice, briefly apart. Over a VPN a cover request that times out
-            // or drops is common and says nothing about the cover — and a
-            // cover that failed once used to stay an empty square for as long
-            // as the row was on screen.
-            for attempt in 0..<2 {
-                if attempt > 0 { try? await Task.sleep(for: .milliseconds(700)) }
+            // Four tries, increasingly spaced out. Over a VPN or DPI-throttled
+            // network a cover request that times out or drops mid-transfer is
+            // common and says nothing about the cover — and a cover that
+            // failed used to stay an empty square for as long as the row was
+            // on screen, with no path back short of the network itself
+            // changing. Two tries 700ms apart was not enough slack to ride
+            // out anything longer than a blip.
+            let backoffs: [Duration] = [.zero, .milliseconds(500), .milliseconds(1200), .milliseconds(2200)]
+            for delay in backoffs {
+                if delay != .zero { try? await Task.sleep(for: delay) }
                 guard let (data, response) = try? await session.data(from: url) else { continue }
                 if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
                     // A 404 will not become a cover by asking again.
                     return nil
                 }
-                guard let decoded = UIImage(data: data) else { return nil }
+                guard let decoded = UIImage(data: data) else { continue }
 
                 // Decoding here, off the main actor, keeps the first draw from
                 // stuttering when the image finally appears.

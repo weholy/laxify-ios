@@ -1,21 +1,23 @@
 import SwiftUI
 import PhotosUI
 
-/// "Сообщить об ошибке" — flag something wrong with a specific track: a
-/// checklist of the failure modes actually seen (mismatched audio, mismatched
-/// lyrics, won't play, …), an optional note and photo, sent to the same
-/// diagnostics feed crash reports land in, plus a best-effort Telegram push.
+/// "Сообщить о проблеме" — flag something wrong with a specific track. Pick
+/// one category and the explanation opens right under it (photo + note +
+/// send) — not a single block at the end of the list once everything above
+/// it has already been read.
 struct ReportTrackSheet: View {
     let song: Song
     var onDone: () -> Void = {}
 
-    @State private var selectedReasons: Set<ReportReason> = []
+    @State private var selectedReason: ReportReason?
     @State private var message = ""
     @State private var photoItem: PhotosPickerItem?
     @State private var photoData: Data?
     @State private var isSending = false
     @State private var didSend = false
     @State private var errorMessage: String?
+
+    private let messageLimit = 500
 
     var body: some View {
         ZStack {
@@ -28,10 +30,6 @@ struct ReportTrackSheet: View {
                     VStack(alignment: .leading, spacing: 24) {
                         trackHeader
                         reasonList
-
-                        if !selectedReasons.isEmpty {
-                            composer
-                        }
                     }
                     .padding(.horizontal, LaxifyMetrics.screenPadding)
                     .padding(.top, 4)
@@ -49,6 +47,11 @@ struct ReportTrackSheet: View {
             guard let item else { return }
             Task { photoData = try? await item.loadTransferable(type: Data.self) }
         }
+        .onChange(of: message) { _, newValue in
+            if newValue.count > messageLimit {
+                message = String(newValue.prefix(messageLimit))
+            }
+        }
     }
 
     private var header: some View {
@@ -57,7 +60,7 @@ struct ReportTrackSheet: View {
 
             Spacer()
 
-            Text(L("report.title", "Сообщить об ошибке"))
+            Text(L("report.title", "Сообщить о проблеме"))
                 .font(LaxifyTypography.headline)
                 .foregroundStyle(LaxifyPalette.textPrimary)
 
@@ -97,7 +100,13 @@ struct ReportTrackSheet: View {
 
             VStack(spacing: 1) {
                 ForEach(ReportReason.allCases) { reason in
-                    reasonRow(reason)
+                    VStack(spacing: 0) {
+                        reasonRow(reason)
+
+                        if selectedReason == reason {
+                            composer
+                        }
+                    }
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: LaxifyMetrics.cardCornerRadius, style: .continuous))
@@ -105,15 +114,11 @@ struct ReportTrackSheet: View {
     }
 
     private func reasonRow(_ reason: ReportReason) -> some View {
-        let isOn = selectedReasons.contains(reason)
+        let isOn = selectedReason == reason
 
         return Button {
-            withAnimation(.snappy(duration: 0.2)) {
-                if isOn {
-                    selectedReasons.remove(reason)
-                } else {
-                    selectedReasons.insert(reason)
-                }
+            withAnimation(.snappy(duration: 0.25)) {
+                selectedReason = isOn ? nil : reason
             }
         } label: {
             HStack(spacing: 12) {
@@ -136,21 +141,36 @@ struct ReportTrackSheet: View {
         .buttonStyle(.plain)
     }
 
+    /// Opens directly under the row it belongs to — text, photo and send all
+    /// travel together as one unit anchored to whichever category is picked.
     private var composer: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(L("report.details", "Детали (необязательно)"))
-                .font(LaxifyTypography.subheadline)
-                .foregroundStyle(LaxifyPalette.textSecondary)
+        VStack(alignment: .leading, spacing: 12) {
+            ZStack(alignment: .topLeading) {
+                TextEditor(text: $message)
+                    .scrollContentBackground(.hidden)
+                    .font(LaxifyTypography.body)
+                    .foregroundStyle(LaxifyPalette.textPrimary)
+                    .padding(10)
 
-            TextField(L("report.detailsPlaceholder", "Опишите, что заметили"), text: $message, axis: .vertical)
-                .font(LaxifyTypography.body)
-                .foregroundStyle(LaxifyPalette.textPrimary)
-                .lineLimit(3...6)
-                .padding(14)
-                .background(
-                    RoundedRectangle(cornerRadius: LaxifyMetrics.smallCornerRadius, style: .continuous)
-                        .fill(LaxifyPalette.surface)
-                )
+                if message.isEmpty {
+                    Text(L("report.detailsPlaceholder", "Расскажите нам о проблеме, с которой вы столкнулись"))
+                        .font(LaxifyTypography.body)
+                        .foregroundStyle(LaxifyPalette.textTertiary)
+                        .padding(.horizontal, 15)
+                        .padding(.vertical, 18)
+                        .allowsHitTesting(false)
+                }
+            }
+            .frame(height: 110)
+            .background(
+                RoundedRectangle(cornerRadius: LaxifyMetrics.smallCornerRadius, style: .continuous)
+                    .fill(LaxifyPalette.background.opacity(0.5))
+            )
+
+            Text("\(message.count) / \(messageLimit)")
+                .font(.caption)
+                .foregroundStyle(LaxifyPalette.textTertiary)
+                .frame(maxWidth: .infinity, alignment: .trailing)
 
             photoPicker
 
@@ -175,6 +195,8 @@ struct ReportTrackSheet: View {
                     .foregroundStyle(.red)
             }
         }
+        .padding(16)
+        .background(LaxifyPalette.surface)
         .transition(.opacity.combined(with: .move(edge: .top)))
     }
 
@@ -238,6 +260,7 @@ struct ReportTrackSheet: View {
     }
 
     private func send() async {
+        guard let selectedReason else { return }
         isSending = true
         errorMessage = nil
 
@@ -253,7 +276,7 @@ struct ReportTrackSheet: View {
                 trackId: song.id,
                 trackTitle: song.title,
                 trackArtist: song.artistName,
-                reasons: selectedReasons.map(\.title),
+                reasons: [selectedReason.title],
                 message: message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : message,
                 photoURL: uploadedURL
             )

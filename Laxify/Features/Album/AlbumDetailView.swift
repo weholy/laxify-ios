@@ -26,12 +26,16 @@ struct AlbumDetailView: View {
         }
         .background(albumBackground)
         .overlay(alignment: .topTrailing) {
-            Button(action: onClose) {
-                Image(systemName: "checkmark")
-            }
-            .buttonStyle(.laxifyCheckmark)
-            .padding(.horizontal, LaxifyMetrics.screenPadding)
-            .padding(.top, 12)
+            // Not `.laxifyCheckmark`: that style is interactive glass, which
+            // installs its own gesture recogniser that fights the ScrollView
+            // this button sits over — the same conflict `LaxifyCloseButton`
+            // was built to avoid (see its doc comment). That, not just the
+            // hit target, is the likelier reason this sometimes didn't
+            // respond. An X reads as "close" here too, and matches the
+            // close button everywhere else in the app.
+            LaxifyCloseButton(style: .xmark, tinted: false, action: onClose)
+                .padding(.horizontal, LaxifyMetrics.screenPadding)
+                .padding(.top, 12)
         }
         .task {
             await load()

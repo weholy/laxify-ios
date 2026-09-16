@@ -120,15 +120,23 @@ struct TrackContextMenu: ViewModifier {
     func body(content: Content) -> some View {
         content
             .contextMenu {
-                Button {
-                    toggleFavorite()
-                } label: {
-                    Label(
-                        isFavorite
-                            ? L("track.unfavorite", "Убрать из избранного")
-                            : L("track.favorite", "Добавить в избранное"),
-                        systemImage: isFavorite ? "heart.slash" : "heart"
-                    )
+                // A top row of two, not another line in the list — the
+                // two things worth one tap. `ControlGroup` is what renders
+                // a context menu's compact icon row; everything after it
+                // falls back to ordinary full-width rows.
+                ControlGroup {
+                    Button {
+                        toggleFavorite()
+                    } label: {
+                        Label(
+                            isFavorite
+                                ? L("track.unfavorite", "Убрать из избранного")
+                                : L("track.favorite", "Добавить избранное"),
+                            systemImage: isFavorite ? "heart.slash" : "heart"
+                        )
+                    }
+
+                    downloadButton
                 }
 
                 Button {
@@ -137,30 +145,10 @@ struct TrackContextMenu: ViewModifier {
                     Label(L("player.addToPlaylist", "Добавить в плейлист"), systemImage: "text.badge.plus")
                 }
 
-                if downloads.isDownloaded(song.id) {
-                    Button(role: .destructive) {
-                        downloads.remove(song.id)
-                    } label: {
-                        Label(L("download.remove", "Удалить загрузку"), systemImage: "trash")
-                    }
-                } else if downloads.isDownloading(song.id) {
-                    Button {
-                        downloads.remove(song.id)
-                    } label: {
-                        Label(L("download.cancel", "Отменить загрузку"), systemImage: "xmark")
-                    }
-                } else {
-                    Button {
-                        downloads.download(song)
-                    } label: {
-                        Label(L("download.save", "Скачать"), systemImage: "arrow.down.circle")
-                    }
-                }
-
                 Button {
                     isReportPresented = true
                 } label: {
-                    Label(L("report.title", "Сообщить об ошибке"), systemImage: "exclamationmark.bubble")
+                    Label(L("report.title", "Сообщить о проблеме"), systemImage: "exclamationmark.bubble")
                 }
 
                 if let onRemove, let removeTitle {
@@ -175,6 +163,29 @@ struct TrackContextMenu: ViewModifier {
             .sheet(isPresented: $isReportPresented) {
                 ReportTrackSheet(song: song) { isReportPresented = false }
             }
+    }
+
+    @ViewBuilder
+    private var downloadButton: some View {
+        if downloads.isDownloaded(song.id) {
+            Button(role: .destructive) {
+                downloads.remove(song.id)
+            } label: {
+                Label(L("download.remove", "Удалить загрузку"), systemImage: "trash")
+            }
+        } else if downloads.isDownloading(song.id) {
+            Button {
+                downloads.remove(song.id)
+            } label: {
+                Label(L("download.cancel", "Отменить загрузку"), systemImage: "xmark")
+            }
+        } else {
+            Button {
+                downloads.download(song)
+            } label: {
+                Label(L("download.save", "Скачать"), systemImage: "arrow.down.circle")
+            }
+        }
     }
 
     private func toggleFavorite() {

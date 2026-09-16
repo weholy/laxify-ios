@@ -47,7 +47,7 @@ final class LyricsViewModel {
     ///
     /// Smaller for timings we invented: leading an estimate compounds it.
     private var leadOffset: TimeInterval {
-        if lyrics?.isApproximate ?? false { return 0.1 }
+        if lyrics?.isApproximate ?? false { return 0.15 }
 
         let latency = Self.outputLatency()
         // A floor, because some routes report zero, and a ceiling so a bad
@@ -56,8 +56,11 @@ final class LyricsViewModel {
         // The constant on top is deliberately a little more than the measured
         // latency alone. A highlight that arrives a breath early reads as the
         // line being announced; the same distance late reads as the app
-        // lagging behind the song, which is far more noticeable.
-        return min(max(latency + 0.2, 0.2), 0.6)
+        // lagging behind the song, which is far more noticeable. Nudged up
+        // slightly (0.2→0.25) on the user's own read that the whole thing
+        // still trailed a touch — kept small on purpose, this is a global
+        // constant and not the fix for a single mistimed line.
+        return min(max(latency + 0.25, 0.25), 0.65)
     }
 
     /// The route's output delay, remembered rather than read cold.
