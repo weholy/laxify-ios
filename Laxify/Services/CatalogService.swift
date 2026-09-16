@@ -94,7 +94,17 @@ struct CatalogService: MusicService {
     }
 
     private func searchThroughServer(_ trimmed: String) async throws -> SearchResults {
+        // No timing data existed for this call at all before — the playback
+        // path has had it for a while (see AudioPlayerController's `Trace`)
+        // and it is what actually found the dead-track bug batch 113 fixed,
+        // rather than guessing. This is the same instrument aimed at search,
+        // the other place "долго грузит" gets said about, so the next report
+        // of it can be checked against real numbers instead of re-reading
+        // the resolve pipeline cold.
+        var trace = Trace("поиск", context: ["query": trimmed])
+        defer { trace.finish() }
         let response = try await api.catalogSearch(query: trimmed, limit: 30)
+        trace.mark("ответ сервера")
 
         let tracks = response.tracks.map(\.song)
         let artists = response.artists.map(\.artist)

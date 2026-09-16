@@ -9,12 +9,19 @@ struct FullPlayerView: View {
     @Query private var dislikedTracks: [DislikedTrack]
 
     var player = AudioPlayerController.shared
+    var downloads = DownloadManager.shared
 
     @State private var isLyricsPresented = false
     @Namespace private var lyricsZoom
     @State private var isAddToPlaylistPresented = false
     @State private var selectedArtistId: String?
     @State private var palette: ArtworkPalette = .neutral
+
+    // MARK: - Export
+    @State private var isExporting = false
+    @State private var isSharePresented = false
+    @State private var exportedFileURL: URL?
+    @State private var exportErrorMessage: String?
 
 
     private var isFavorite: Bool {
@@ -53,6 +60,10 @@ struct FullPlayerView: View {
             .padding(.horizontal, LaxifyMetrics.screenPadding)
             .padding(.top, 8)
             .padding(.bottom, 18)
+
+            if isExporting {
+                exportProgressOverlay
+            }
         }
         .task(id: player.currentSong?.id) {
             palette = await PaletteExtractor.shared.palette(for: player.currentSong?.coverURL)
@@ -77,6 +88,52 @@ struct FullPlayerView: View {
                 ArtistView(artistId: selectedArtistId) { self.selectedArtistId = nil }
             }
         }
+        .sheet(isPresented: $isSharePresented) {
+            if let exportedFileURL {
+                ShareSheet(items: [exportedFileURL])
+            }
+        }
+        .alert(
+            L("player.exportFailedTitle", "Не получилось"),
+            isPresented: Binding(
+                get: { exportErrorMessage != nil },
+                set: { if !$0 { exportErrorMessage = nil } }
+            )
+        ) {
+            Button(L("common.ok", "Ок"), role: .cancel) {}
+        } message: {
+            Text(exportErrorMessage ?? "")
+        }
+    }
+
+    /// A small centred card, not a full-screen block: the player underneath
+    /// keeps playing and stays visible while a track downloads for export,
+    /// which on a slow connection can take a few seconds worth watching
+    /// rather than staring at a blank screen for.
+    private var exportProgressOverlay: some View {
+        let fraction = player.currentSong.flatMap { downloads.progress[$0.id] }
+
+        return VStack(spacing: 14) {
+            if let fraction {
+                ProgressView(value: fraction)
+                    .tint(.white)
+                    .frame(width: 140)
+                Text("\(Int((fraction * 100).rounded()))%")
+                    .font(.system(size: 13, weight: .semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(.white.opacity(0.8))
+            } else {
+                ProgressView().tint(.white)
+            }
+            Text(L("player.exporting", "Готовим файл…"))
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(.white.opacity(0.85))
+        }
+        .padding(24)
+        .frame(minWidth: 180)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: LaxifyMetrics.cardCornerRadius, style: .continuous))
+        .transition(.opacity.combined(with: .scale(scale: 0.94)))
+        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isExporting)
     }
 
     /// The immersive backdrop, in the Yandex mould: the real cover fills the
@@ -241,6 +298,10 @@ struct FullPlayerView: View {
                     font: LaxifyTypography.playerTitle,
                     color: .white
                 )
+                .contentShape(Rectangle())
+                .onLongPressGesture {
+                    exportAudioFile()
+                }
 
                 artistRow
             }
@@ -335,6 +396,78 @@ struct FullPlayerView: View {
         .buttonStyle(.plain)
     }
 
+
+    /// Long-press on the title: hands the actual audio file to the system
+    /// share sheet, which is how "save this to Files" works on iOS. Reuses
+    /// the same download this track's ring button would start — no second
+    /// fetch path to keep in sync with the first.
+    private func exportAudioFile() {
+        guard let song = player.currentSong else { return }
+        exportErrorMessage = nil
+
+        if let local = DownloadManager.localURL(for: song.id) {
+            presentExport(of: local, song: song)
+            return
+        }
+
+        isExporting = true
+        downloads.download(song)
+
+        Task {
+            while downloads.isDownloading(song.id) {
+                try? await Task.sleep(for: .milliseconds(150))
+            }
+            guard let local = DownloadManager.localURL(for: song.id) else {
+                isExporting = false
+                exportErrorMessage = L("player.exportFailed", "Не удалось скачать трек для экспорта")
+                return
+            }
+            isExporting = false
+            presentExport(of: local, song: song)
+        }
+    }
+
+    /// Copies the saved file to a name a person would recognise — the raw
+    /// title as the source has it, untouched, per the user's own request —
+    /// leaving the download cache's own `<id>.mp3` alone.
+    private func presentExport(of local: URL, song: Song) {
+        let rawName = song.rawTitle ?? song.title
+        let safeName = rawName
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = safeName.isEmpty ? song.id : safeName
+
+        let destination = FileManager.default.temporaryDirectory
+            .appendingPathComponent(name)
+            .appendingPathExtension(Self.audioExtension(for: local))
+
+        try? FileManager.default.removeItem(at: destination)
+        do {
+            try FileManager.default.copyItem(at: local, to: destination)
+            exportedFileURL = destination
+            isSharePresented = true
+        } catch {
+            exportErrorMessage = L("player.exportFailed", "Не удалось подготовить файл")
+        }
+    }
+
+    /// The download cache names every file `.mp3` regardless of what is
+    /// actually inside it — fine for AVPlayer, which reads content rather
+    /// than trusting extensions, but a rescued track (served from the
+    /// YouTube fallback as `audio/mp4`) is really an M4A container, and
+    /// handing it to another app mislabelled is how it arrives unplayable
+    /// there. Sniffed from the file's own header rather than trusted.
+    private static func audioExtension(for url: URL) -> String {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return "mp3" }
+        defer { try? handle.close() }
+        guard let header = try? handle.read(upToCount: 12), header.count >= 8 else { return "mp3" }
+
+        if header.starts(with: [0x49, 0x44, 0x33]) { return "mp3" } // "ID3"
+        if header[0] == 0xFF, (header[1] & 0xE0) == 0xE0 { return "mp3" } // raw MPEG frame sync
+        if header[4] == 0x66, header[5] == 0x74, header[6] == 0x79, header[7] == 0x70 { return "m4a" } // "ftyp"
+        return "mp3"
+    }
 
     private func toggleFavorite() {
         guard let song = player.currentSong else { return }

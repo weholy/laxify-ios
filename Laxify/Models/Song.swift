@@ -19,6 +19,13 @@ struct Song: Identifiable, Hashable, Sendable {
     /// False for a Spotify track with no SoundCloud stream behind it — shown
     /// greyed, can't be played or saved.
     var playable: Bool = true
+    /// The title exactly as the source has it, before `TrackTitle.clean`
+    /// tidies it for display. Nil wherever a song is built from something
+    /// that never carried the untouched string (a backend DTO, a cached
+    /// favourite). The one place this exists to serve: naming an exported
+    /// file after what the uploader actually called it, not our cleaned-up
+    /// version of it.
+    var rawTitle: String?
 
     var artistName: String {
         artists.map(\.name).joined(separator: ", ")
@@ -35,7 +42,8 @@ struct Song: Identifiable, Hashable, Sendable {
         albumTitle: String? = nil,
         coverURL: URL? = nil,
         duration: TimeInterval = 0,
-        playable: Bool = true
+        playable: Bool = true,
+        rawTitle: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -44,6 +52,7 @@ struct Song: Identifiable, Hashable, Sendable {
         self.coverURL = coverURL
         self.duration = duration
         self.playable = playable
+        self.rawTitle = rawTitle
     }
 
     /// Convenience for the places that only ever had a name and an optional id
@@ -56,7 +65,8 @@ struct Song: Identifiable, Hashable, Sendable {
         albumTitle: String?,
         coverURL: URL?,
         duration: TimeInterval,
-        playable: Bool = true
+        playable: Bool = true,
+        rawTitle: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -67,5 +77,6 @@ struct Song: Identifiable, Hashable, Sendable {
         self.coverURL = coverURL
         self.duration = duration
         self.playable = playable
+        self.rawTitle = rawTitle
     }
 }

@@ -1029,7 +1029,8 @@ struct SCItem: Decodable {
             // full_duration is the real length; duration can be a preview
             // window for tracks the viewer cannot hear in full.
             coverURL: Self.upsized(artworkUrl ?? user?.avatarUrl),
-            duration: (fullDuration ?? duration ?? 0) / 1000
+            duration: (fullDuration ?? duration ?? 0) / 1000,
+            rawTitle: title
         )
     }
 
