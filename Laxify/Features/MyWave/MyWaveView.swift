@@ -265,6 +265,14 @@ struct MyWaveView: View {
         }
         .scrollPosition(id: $centredCardId, anchor: .center)
         .scrollClipDisabled()
+        // Locked to a finger, not to motion: `.scrollDisabled` only turns off
+        // the drag gesture, so the `.scrollPosition` binding above still
+        // animates the deck to the new current card every time the track
+        // changes. The centre card stays fixed with just a peek of its
+        // neighbours either side, exactly as it would with dragging allowed
+        // — the only thing removed is dragging there by hand. Tapping a
+        // neighbour still plays it and brings it to centre that way.
+        .scrollDisabled(true)
         .animation(.spring(response: 0.5, dampingFraction: 0.85), value: focus?.id)
         .onChange(of: focus?.id, initial: true) { _, id in
             guard let id, id != centredCardId else { return }
