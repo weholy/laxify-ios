@@ -76,10 +76,15 @@ struct MyWaveView: View {
                     // Space above and below, so the deck sits in the middle of
                     // what is left rather than being pushed down by the photo.
                     Spacer(minLength: 0)
-                    header.padding(.bottom, 20)
+                    // Nudged down from the top on the user's own request —
+                    // the deck read as sitting too close under the header.
+                    header.padding(.top, 24).padding(.bottom, 20)
                     trackDeck.padding(.bottom, 40)
                     Spacer(minLength: 0)
-                    controls
+                    // A smaller nudge than the header's: "чуть-чуть, не
+                    // сильно" — this row is already close to the mini
+                    // player below it, so it has less room to give.
+                    controls.padding(.top, 12)
                 }
                 .padding(.horizontal, LaxifyMetrics.screenPadding)
                 // Clear of the mini player, and no further. Ninety-six points
@@ -181,7 +186,7 @@ struct MyWaveView: View {
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 44, height: 44)
-                .glassEffect(.regular, in: .circle)
+                .glassEffect(.regular.interactive(), in: .circle)
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -308,8 +313,7 @@ struct MyWaveView: View {
                 .font(.system(size: 21, weight: .semibold))
                 .foregroundStyle(tint)
                 .frame(width: 56, height: 56)
-                .background(.white.opacity(0.14), in: Circle())
-                .overlay(Circle().stroke(.white.opacity(0.14), lineWidth: 1))
+                .glassEffect(.regular.interactive(), in: .circle)
                 .contentTransition(.symbolEffect)
         }
         .buttonStyle(.plain)

@@ -876,14 +876,10 @@ actor LaxifyAPI {
 
     /// Opens a wave session and returns the first batch. The `sessionId` it
     /// hands back is what the rest of the wave calls key off.
-    /// `seedTrackId`, when given, opens the session favouring that track —
-    /// "радио от этого трека" from the full player, rather than the usual
-    /// taste-profile seeds.
-    func waveStart(settings: WaveSettings, seedTrackId: String? = nil) async throws -> WaveSessionDTO {
-        struct Body: Encodable { let settings: WaveSettingsBody; let seedTrackId: String? }
+    func waveStart(settings: WaveSettings) async throws -> WaveSessionDTO {
+        struct Body: Encodable { let settings: WaveSettingsBody }
         return try await send(
-            "/wave/start", method: "POST",
-            body: Body(settings: WaveSettingsBody(settings), seedTrackId: seedTrackId)
+            "/wave/start", method: "POST", body: Body(settings: WaveSettingsBody(settings))
         )
     }
 

@@ -121,12 +121,6 @@ class WaveSettingsIn(BaseModel):
 
 class WaveStartIn(BaseModel):
     settings: WaveSettingsIn | None = None
-    # "Радио от этого трека" — the full player starting a fresh wave off
-    # whatever is playing. Seeded into `favored`, which `_fill` already reads
-    # on every top-up, not just the first — so the session stays shaped
-    # around the track for as long as it runs, the same as any other favored
-    # seed, rather than fading after one batch.
-    seed_track_id: str | None = Field(None, max_length=64)
 
 
 class WaveNextIn(BaseModel):
@@ -897,7 +891,7 @@ async def _load(db, session_id: str, user_id) -> WaveSession | None:
     return sess
 
 
-async def _open_session(db, user_id, settings: dict, *, seed_track_id: str | None = None) -> WaveSession:
+async def _open_session(db, user_id, settings: dict) -> WaveSession:
     """Replace any running wave with a fresh one and fill its first buffer."""
     await db.execute(delete(WaveSession).where(WaveSession.user_id == user_id))
     sess = WaveSession(
@@ -906,7 +900,7 @@ async def _open_session(db, user_id, settings: dict, *, seed_track_id: str | Non
         queue=[],
         history=[],
         suppressed=[],
-        favored=[seed_track_id] if seed_track_id else [],
+        favored=[],
         boosted=[],
         served=[],
         skips=[],
@@ -954,11 +948,10 @@ async def start_wave(
     payload: WaveStartIn | None = None,
 ) -> WaveSessionResponse:
     settings = _merged_settings(None, payload.settings if payload else None)
-    seed_track_id = payload.seed_track_id if payload else None
-    sess = await _open_session(session, user.id, settings, seed_track_id=seed_track_id)
+    sess = await _open_session(session, user.id, settings)
     await session.commit()
 
-    had_seeds = bool(seed_track_id) or bool(await _seed_track_ids(session, user.id))
+    had_seeds = bool(await _seed_track_ids(session, user.id))
     return _response(sess, sess.queue, personalised=had_seeds)
 
 

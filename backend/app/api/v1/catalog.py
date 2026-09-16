@@ -133,14 +133,20 @@ def _credited(raw: dict[str, Any]) -> str | None:
     return name
 
 
-def normalise_track(raw: dict[str, Any]) -> CatalogTrack | None:
+def normalise_track(raw: dict[str, Any], *, fallback_artwork: str | None = None) -> CatalogTrack | None:
     if not raw or raw.get("kind") != "track":
         return None
     if raw.get("policy") == "BLOCK" or raw.get("streamable") is False:
         return None
 
     user = raw.get("user") or {}
-    artwork = raw.get("artwork_url") or user.get("avatar_url")
+    # A track inside an album or playlist often carries no artwork of its
+    # own at all — the picture belongs to the release, not each track on it —
+    # so without this every row in an album with no per-track art showed
+    # nothing, not a slow load but a genuine absence the app had no fallback
+    # for. `fallback_artwork` is the set's own cover, passed in by whichever
+    # caller already has it.
+    artwork = raw.get("artwork_url") or user.get("avatar_url") or fallback_artwork
 
     return CatalogTrack(
         id=str(raw.get("id")),
@@ -201,8 +207,12 @@ def normalise_playlist(raw: dict[str, Any]) -> CatalogPlaylist | None:
     )
 
 
-def _tracks(items: list[dict]) -> list[CatalogTrack]:
-    return [track for track in (normalise_track(item) for item in items) if track]
+def _tracks(items: list[dict], *, fallback_artwork: str | None = None) -> list[CatalogTrack]:
+    return [
+        track
+        for track in (normalise_track(item, fallback_artwork=fallback_artwork) for item in items)
+        if track
+    ]
 
 
 def _guard(error: SoundCloudError) -> HTTPException:
@@ -879,6 +889,11 @@ async def playlist_tracks(
     except SoundCloudError as exc:
         raise _guard(exc) from exc
 
+    # The set's own cover, for tracks inside it that have none of their own —
+    # same fix as `normalise_playlist` already does for the set itself, just
+    # applied the other direction, per-track.
+    fallback_artwork = _upsize(raw.get("artwork_url"))
+
     items = raw.get("tracks") or []
 
     # A playlist response often carries only ids past the first few tracks;
@@ -909,7 +924,7 @@ async def playlist_tracks(
 
     ordered = [by_id[str(item["id"])] for item in items if str(item.get("id")) in by_id]
 
-    return await catalog_meta.spotify_only(_tracks(ordered))
+    return await catalog_meta.spotify_only(_tracks(ordered, fallback_artwork=fallback_artwork))
 
 
 class SourceKey(BaseModel):
