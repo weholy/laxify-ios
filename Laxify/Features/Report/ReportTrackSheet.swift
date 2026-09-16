@@ -197,7 +197,14 @@ struct ReportTrackSheet: View {
                 .foregroundStyle(LaxifyPalette.textPrimary)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
-                .laxGlassCapsule(interactive: true)
+                // Not `.laxGlassCapsule` here: that helper is a same-module
+                // extension call, and PhotosPicker's `label` closure isn't
+                // inferred @MainActor in this SDK, so calling into another
+                // main-actor-isolated function from inside it fails to
+                // compile ("non-Sendable 'some View' … to nonisolated
+                // context"). The raw modifier in the same expression chain
+                // doesn't cross that boundary.
+                .glassEffect(.regular.interactive(), in: Capsule())
             }
             .buttonStyle(.plain)
 
