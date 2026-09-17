@@ -38,6 +38,20 @@ struct AsyncCoverImage: View {
             .task(id: CoverLoadKey(url: url, network: NetworkMonitor.shared.generation)) {
                 await load()
             }
+            // `.task` only reruns when its `id` changes — a network change,
+            // here — so a cover that used up all four retries during one
+            // unlucky burst (twenty rows warming their covers at once, one
+            // of them loses the race for a connection) had no way back
+            // short of that, which on an otherwise-fine connection could be
+            // never. A long list scrolled far enough drops SwiftUI's own
+            // view for a row and rebuilds it on the way back, which fires
+            // this again — a real retry trigger for exactly the rows a
+            // person scrolls past twice, at no cost to the ones that
+            // already loaded (`load()` already no-ops when `image` matches
+            // `shownURL`).
+            .onAppear {
+                if image == nil { Task { await load() } }
+            }
     }
 
     private func load() async {

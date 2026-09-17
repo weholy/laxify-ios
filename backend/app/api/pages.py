@@ -120,3 +120,113 @@ async def open_in_app(kind: str, identifier: str) -> HTMLResponse:
     deep_link = escape(f"laxify://{kind}/{identifier}", quote=True)
     html = _OPEN_TEMPLATE.format(deep_link=deep_link)
     return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+
+
+# Same copy TermsView.swift's built-in fallback already shows in-app — this
+# is that text made into a real page, not new wording, so the two never
+# quietly disagree with each other.
+_LEGAL_TEMPLATE = """<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<title>Laxify — {title}</title>
+<style>
+  :root {{ color-scheme: dark; }}
+  * {{ box-sizing: border-box; }}
+  html, body {{ margin: 0; background: #000; }}
+  body {{
+    color: rgba(255,255,255,0.92);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    line-height: 1.55;
+    padding: 32px 20px 64px;
+    max-width: 640px;
+    margin: 0 auto;
+  }}
+  h1 {{ font-size: 26px; margin: 0 0 28px; }}
+  h2 {{ font-size: 17px; margin: 28px 0 8px; }}
+  p {{ font-size: 15px; color: rgba(255,255,255,0.72); margin: 0; }}
+  nav {{ margin-bottom: 22px; }}
+  nav a {{
+    color: rgba(255,255,255,0.55); text-decoration: none; font-size: 14px;
+    margin-right: 18px; border-bottom: 1px solid transparent;
+  }}
+  nav a.current {{ color: #fff; border-bottom-color: rgba(255,255,255,0.4); }}
+  footer {{ margin-top: 40px; font-size: 13px; color: rgba(255,255,255,0.4); }}
+  footer a {{ color: inherit; }}
+</style>
+</head>
+<body>
+  <nav>
+    <a class="{terms_class}" href="/terms">Условия</a>
+    <a class="{privacy_class}" href="/privacy">Данные</a>
+  </nav>
+  <h1>{title}</h1>
+  {body}
+  <footer>Laxify · вопросы — <a href="https://t.me/skyredy">t.me/skyredy</a></footer>
+</body>
+</html>
+"""
+
+
+def _section(heading: str, body: str) -> str:
+    return f"<h2>{escape(heading)}</h2><p>{escape(body)}</p>"
+
+
+_TERMS_SECTIONS = [
+    ("Что такое Laxify",
+     "Laxify — приложение для прослушивания музыки. Мы не размещаем музыку сами: приложение показывает "
+     "и воспроизводит то, что опубликовано на открытых музыкальных платформах, и права на неё принадлежат "
+     "их авторам и правообладателям."),
+    ("Ваш аккаунт",
+     "Аккаунт нужен, чтобы избранное, плейлисты и статистика были одинаковыми на всех ваших устройствах. "
+     "Отвечайте за сохранность пароля: любой, кто его знает, получит доступ к вашей библиотеке."),
+    ("Как пользоваться",
+     "Слушайте сколько угодно и для себя. Не используйте приложение для перепродажи музыки, массового "
+     "скачивания или обхода ограничений правообладателей."),
+    ("Если что-то не работает",
+     "Приложение зависит от внешних источников музыки. Иногда трек становится недоступен не по нашей вине — "
+     "мы стараемся такие случаи замечать и обходить, но гарантировать доступность каждой записи не можем."),
+    ("Изменения",
+     "Условия могут меняться. О существенных изменениях мы сообщим в приложении до того, как они вступят в силу."),
+]
+
+_PRIVACY_SECTIONS = [
+    ("Что мы храним",
+     "Почту, имя и то, что вы сами добавили в профиль. Избранное, плейлисты и историю прослушиваний — "
+     "чтобы они были на всех ваших устройствах и чтобы работала «Моя волна»."),
+    ("Статистика",
+     "Мы записываем, что и сколько вы слушали. Это нужно для экрана статистики и для подбора музыки. "
+     "По умолчанию её видите только вы — открыть её другим можно в настройках."),
+    ("Диагностика",
+     "Приложение отправляет технические записи о своей работе: сколько занял запуск трека, какие ошибки "
+     "произошли. Это нужно, чтобы находить и чинить проблемы. Содержимое вашей библиотеки в них не попадает."),
+    ("Чего мы не делаем",
+     "Не продаём ваши данные, не передаём их рекламным сетям и не читаем вашу переписку — приложение "
+     "к ней и не имеет доступа."),
+    ("Удаление",
+     "Вы можете выйти из аккаунта в любой момент. Чтобы удалить аккаунт вместе со всеми данными, "
+     "напишите нам — сделаем это без вопросов."),
+]
+
+
+def _legal_page(*, title: str, sections: list[tuple[str, str]], active: str) -> HTMLResponse:
+    body = "".join(_section(heading, text) for heading, text in sections)
+    html = _LEGAL_TEMPLATE.format(
+        title=title,
+        body=body,
+        terms_class="current" if active == "terms" else "",
+        privacy_class="current" if active == "privacy" else "",
+    )
+    return HTMLResponse(html, headers={"Cache-Control": "public, max-age=3600"})
+
+
+@router.get("/terms", response_class=HTMLResponse)
+async def terms_page() -> HTMLResponse:
+    return _legal_page(title="Условия использования", sections=_TERMS_SECTIONS, active="terms")
+
+
+@router.get("/privacy", response_class=HTMLResponse)
+async def privacy_page() -> HTMLResponse:
+    return _legal_page(title="Обработка данных", sections=_PRIVACY_SECTIONS, active="privacy")
