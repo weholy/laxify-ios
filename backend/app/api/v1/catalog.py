@@ -606,7 +606,28 @@ async def artist_tracks(
 
     every = await _artist_catalogue(artist_id, name)
 
-    return await catalog_meta.spotify_only(_tracks(every[offset : offset + limit]))
+    # The account's own uploads (the bulk of `every` — `all_user_tracks`)
+    # come back from that listing endpoint with no embedded `user` object at
+    # all on some accounts, so normalise_track finds neither a track-level
+    # artwork_url nor a user avatar to fall back to — the row stays blank
+    # forever, not slowly, since there is nothing left to retry client-side.
+    # Same class of bug as playlist/album tracks (see normalise_track's
+    # fallback_artwork), fixed the same way: whichever entry in the merged
+    # set — a repost or a search hit almost always does — actually carries a
+    # picture stands in for the ones that don't, rather than a fresh profile
+    # fetch, which the fix just above this stopped making on a warm cache.
+    fallback_artwork = next(
+        (
+            picture
+            for raw in every
+            if (picture := raw.get("artwork_url") or (raw.get("user") or {}).get("avatar_url"))
+        ),
+        None,
+    )
+
+    return await catalog_meta.spotify_only(
+        _tracks(every[offset : offset + limit], fallback_artwork=_upsize(fallback_artwork))
+    )
 
 
 _artist_cache: dict[str, tuple[list[dict], float]] = {}
