@@ -105,14 +105,19 @@ async def enrich(
             found.update(refreshed)
 
     missing: list[tuple[str, str, str, float]] = []
-    out: list = []
-    hidden: list = []
+    # Index -> row to show. Built up out of order (matches, then unchecked,
+    # then whatever the valve below restores) and sorted back into place at
+    # the end, so a hide/restore decision never has to touch rows that were
+    # never in question.
+    keep: dict[int, object] = {}
+    hidden_idx: set[int] = set()
     # Two different SoundCloud uploads of the same song both resolve to one
     # Spotify track, and after enrichment they render as identical rows. Keep
-    # the first and drop the rest.
+    # the first and drop the rest — this is a straight duplicate, not a "no
+    # match" case, so nothing below ever brings it back.
     seen_spotify: set[str] = set()
 
-    for row in rows:
+    for i, row in enumerate(rows):
         tid = id_of(row)
         meta = found.get(tid)
 
@@ -127,9 +132,9 @@ async def enrich(
                 # uploads the catalogue has never heard of kept appearing
                 # between real artists. Held back, and the background pass
                 # below will have an answer by the time it comes round again.
-                hidden.append(row)
+                hidden_idx.add(i)
             else:
-                out.append(row)  # unchecked — leave it as-is, show it
+                keep[i] = row  # unchecked — leave it as-is, show it
             continue
 
         if meta.matched:
@@ -138,24 +143,31 @@ async def enrich(
                     continue
                 seen_spotify.add(meta.spotify_id)
             apply(row, meta)
-            out.append(row)
+            keep[i] = row
         elif not hide_unmatched:
-            out.append(row)
+            keep[i] = row
         else:
-            hidden.append(row)
+            hidden_idx.add(i)
 
     # A screen with no music on it is worse than a screen with an uploader's
     # spelling on it. If the rule would take most of a listing, it is the rule
     # that is wrong — a bad afternoon upstream, or a corner of the catalogue
     # Spotify simply does not carry — so stand down and show everything.
-    if hidden and len(out) < len(rows) * MIN_SURVIVING_SHARE:
-        logger.info("catalog_meta: kept %s of %s — not hiding", len(out), len(rows))
-        return rows
+    # Rows that already matched keep the Spotify cover/name just applied to
+    # them either way: unhiding the rest is no reason to also throw away
+    # overlays that were already correct.
+    if hidden_idx and len(keep) < len(rows) * MIN_SURVIVING_SHARE:
+        logger.info(
+            "catalog_meta: %s of %s unmatched — restoring instead of hiding",
+            len(hidden_idx), len(rows),
+        )
+        for i in hidden_idx:
+            keep[i] = rows[i]
 
     if missing:
         _schedule(missing)
 
-    return out
+    return [keep[i] for i in sorted(keep)]
 
 
 async def _cached(ids: list[str]) -> dict[str, TrackMeta] | None:

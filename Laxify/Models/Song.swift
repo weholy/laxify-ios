@@ -6,6 +6,22 @@ struct SongArtist: Identifiable, Hashable, Sendable {
     let name: String
 }
 
+extension SongArtist {
+    /// Splits a single combined credit line ("A, B, C") into one entry per
+    /// name. A source that only ever hands over one id for the whole line
+    /// gives it to the first name — the usual "main artist, feature(s)"
+    /// order — and leaves the rest with no id rather than guessing wrong;
+    /// `artistRow` already treats an empty id as untappable.
+    static func credited(_ name: String, id: String?) -> [SongArtist] {
+        guard !name.isEmpty else { return [] }
+        let names = TrackTitle.splitCredited(name)
+        guard names.count > 1 else { return [SongArtist(id: id ?? "", name: name)] }
+        return names.enumerated().map { index, piece in
+            SongArtist(id: index == 0 ? (id ?? "") : "", name: piece)
+        }
+    }
+}
+
 struct Song: Identifiable, Hashable, Sendable {
     let id: String
     let title: String
@@ -70,9 +86,7 @@ struct Song: Identifiable, Hashable, Sendable {
     ) {
         self.id = id
         self.title = title
-        self.artists = artistName.isEmpty
-            ? []
-            : [SongArtist(id: artistId ?? "", name: artistName)]
+        self.artists = SongArtist.credited(artistName, id: artistId)
         self.albumTitle = albumTitle
         self.coverURL = coverURL
         self.duration = duration
