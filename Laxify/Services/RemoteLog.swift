@@ -236,7 +236,10 @@ struct Trace {
     }
 }
 
-private extension Duration {
+// Not `private`: DiagnosticsView's own cover-loading check needs the exact
+// same conversion, and duplicating the bit-twiddling in a second file is a
+// worse outcome than widening this one's visibility by one word.
+extension Duration {
     var milliseconds: Int64 {
         let (seconds, attoseconds) = components
         return seconds * 1000 + attoseconds / 1_000_000_000_000_000
