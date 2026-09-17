@@ -212,10 +212,26 @@ struct MyWaveView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(L("wave.label", "МОЯ ВОЛНА"))
-                .font(.system(size: 13, weight: .heavy))
-                .tracking(2.5)
-                .foregroundStyle(.white.opacity(0.75))
+            HStack(spacing: 6) {
+                Text(L("wave.label", "МОЯ ВОЛНА"))
+                    .font(.system(size: 13, weight: .heavy))
+                    .tracking(2.5)
+                    .foregroundStyle(.white.opacity(0.75))
+
+                // The refresh on every visit (see the .onAppear below) had
+                // no visible sign it was happening at all — a silent swap
+                // of the deck's contents reads as "did this actually
+                // update?" even when it did. This is that sign, on-screen
+                // only while a fetch not playing the wave is genuinely
+                // in flight.
+                if viewModel.isLoading {
+                    ProgressView()
+                        .tint(.white.opacity(0.6))
+                        .scaleEffect(0.6)
+                        .transition(.opacity)
+                }
+            }
+            .animation(.easeInOut(duration: 0.2), value: viewModel.isLoading)
 
             Text(focus?.artistName ?? L("wave.default.artist", "Ваша волна"))
                 .font(.system(size: 44, weight: .heavy))

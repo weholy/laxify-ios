@@ -72,6 +72,26 @@ enum TrackTitle {
         return stripped.isEmpty ? raw : stripped
     }
 
+    /// A credit line — "MORGENSHTERN, ELDZHEY", "Lil Peep & Lil Tracy",
+    /// "Skrillex feat. Sirah" — split into the individual names in it, in
+    /// credited order.
+    ///
+    /// The source only ever gives one id alongside this string (the
+    /// uploader's), so this by itself does not say which of several names
+    /// it belongs to — see the call site in `SoundCloudDirect.song`, which
+    /// matches by username and falls back to the first name rather than
+    /// guessing wrong.
+    static func splitCredited(_ name: String) -> [String] {
+        var working = name
+        for phrase in [" feat. ", " feat ", " ft. ", " ft ", " vs. ", " vs ", " and ", " x ", " & "] {
+            working = working.replacingOccurrences(of: phrase, with: ",", options: .caseInsensitive)
+        }
+        return working
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
     // MARK: - Pieces
 
     private static func splitLeadingArtist(from title: String) -> (artist: String, title: String)? {

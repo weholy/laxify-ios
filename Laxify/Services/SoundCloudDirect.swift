@@ -1023,8 +1023,7 @@ struct SCItem: Decodable {
         return Song(
             id: "\(id)",
             title: cleaned.title,
-            artistName: cleaned.artist ?? "Неизвестный исполнитель",
-            artistId: user?.id.map(String.init),
+            artists: Self.credits(cleaned.artist ?? "Неизвестный исполнитель", uploader: user),
             albumTitle: publisherMetadata?.albumTitle,
             // full_duration is the real length; duration can be a preview
             // window for tracks the viewer cannot hear in full.
@@ -1032,6 +1031,34 @@ struct SCItem: Decodable {
             duration: (fullDuration ?? duration ?? 0) / 1000,
             rawTitle: title
         )
+    }
+
+    /// A credit line turned into per-artist entries, each tappable only when
+    /// its identity is actually known.
+    ///
+    /// The response carries exactly one artist id — the uploader's — no
+    /// matter how many names the release credits ("MORGENSHTERN,
+    /// ELDZHEY"). Handing that one id to every split name is what made
+    /// tapping the second artist on a track open the first artist's
+    /// profile instead: every name pointed at the same id because there
+    /// was only ever one to give out. Matched by username where possible;
+    /// otherwise the first credited name is assumed to be the uploader
+    /// (the ordinary "main artist, feature" convention) and gets the id,
+    /// the rest stay present but untappable rather than guessing wrong.
+    private static func credits(_ credited: String, uploader: User?) -> [SongArtist] {
+        let names = TrackTitle.splitCredited(credited)
+        let uploaderId = uploader?.id.map(String.init) ?? ""
+        guard names.count > 1 else {
+            return [SongArtist(id: uploaderId, name: credited)]
+        }
+
+        let uploaderName = (uploader?.username ?? "").lowercased()
+        let matched = names.firstIndex { $0.lowercased() == uploaderName }
+
+        return names.enumerated().map { index, name in
+            let isUploader = matched.map { $0 == index } ?? (index == 0)
+            return SongArtist(id: isUploader ? uploaderId : "", name: name)
+        }
     }
 
     var artist: MusicArtist? {
