@@ -919,6 +919,7 @@ actor LaxifyAPI {
         trackId: String,
         trackTitle: String,
         trackArtist: String,
+        artistId: String?,
         reasons: [String],
         message: String?,
         photoURL: URL?
@@ -927,6 +928,7 @@ actor LaxifyAPI {
             let trackId: String
             let trackTitle: String
             let trackArtist: String
+            let artistId: String?
             let reasons: [String]
             let message: String?
             let photoUrl: String?
@@ -939,6 +941,7 @@ actor LaxifyAPI {
                 trackId: trackId,
                 trackTitle: trackTitle,
                 trackArtist: trackArtist,
+                artistId: artistId,
                 reasons: reasons,
                 message: message,
                 photoUrl: photoURL?.absoluteString

@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from html import escape
 
 import httpx
 from fastapi import APIRouter, Query, status
@@ -11,6 +12,13 @@ from app.models import ClientReport
 from app.schemas.common import MessageOut, Page
 
 router = APIRouter(tags=["diagnostics"])
+
+# From the pack at t.me/addemoji/ChicklingEmoji, which this bot can already
+# reference (verified via getStickerSet) — one glyph, used once, at the top
+# of a track report. The plain emoji after the id is the fallback shown to
+# anything that does not render <tg-emoji> (older clients, the id going
+# stale if the pack is ever edited), so it has to actually match.
+_REPORT_EMOJI = '<tg-emoji emoji-id="5262621933140194904">\U0001F61E</tg-emoji>'
 
 
 async def _notify_telegram(text: str, photo_url: str | None) -> None:
@@ -28,10 +36,23 @@ async def _notify_telegram(text: str, photo_url: str | None) -> None:
             if photo_url:
                 await client.post(
                     f"{base}/sendPhoto",
-                    data={"chat_id": chat_id, "photo": photo_url, "caption": text[:1024]},
+                    data={
+                        "chat_id": chat_id,
+                        "photo": photo_url,
+                        "caption": text[:1024],
+                        "parse_mode": "HTML",
+                    },
                 )
             else:
-                await client.post(f"{base}/sendMessage", data={"chat_id": chat_id, "text": text[:4096]})
+                await client.post(
+                    f"{base}/sendMessage",
+                    data={
+                        "chat_id": chat_id,
+                        "text": text[:4096],
+                        "parse_mode": "HTML",
+                        "link_preview_options": '{"is_disabled": true}',
+                    },
+                )
     except httpx.HTTPError:
         pass
 
@@ -94,6 +115,10 @@ class TrackReportIn(BaseModel):
     track_id: str = Field(max_length=64)
     track_title: str = Field(max_length=300)
     track_artist: str = Field(max_length=300)
+    # Nil wherever a Song never carried one (a backend DTO, a cached
+    # favourite) — the artist name still shows either way, it just isn't a
+    # link when this is missing.
+    artist_id: str | None = Field(default=None, max_length=64)
     reasons: list[str] = Field(min_length=1, max_length=10)
     message: str | None = Field(default=None, max_length=2000)
     photo_url: str | None = Field(default=None, max_length=1000)
@@ -124,21 +149,40 @@ async def submit_track_report(
                 "track_id": payload.track_id,
                 "track_title": payload.track_title,
                 "track_artist": payload.track_artist,
+                "artist_id": payload.artist_id,
                 "reasons": reasons,
                 "photo_url": payload.photo_url,
             },
         )
     )
 
+    # Not a bare laxify:// href — verified live that Telegram silently drops
+    # a custom-scheme link (no text_link entity came back at all). Routed
+    # through the /open/<kind>/<id> https bridge instead (app/api/pages.py),
+    # which just bounces straight on to the same laxify://track/<id> /
+    # laxify://artist/<id> DeepLink.swift already parses — an ordinary link
+    # Telegram will actually make tappable.
+    open_base = "https://laxify.31-76-27-182.sslip.io/open"
+    title_link = f'<a href="{open_base}/track/{escape(payload.track_id)}">{escape(payload.track_title)}</a>'
+    artist_text = escape(payload.track_artist)
+    artist_link = (
+        f'<a href="{open_base}/artist/{escape(payload.artist_id)}">{artist_text}</a>'
+        if payload.artist_id
+        else f"<i>{artist_text}</i>"
+    )
+
     lines = [
-        "🚩 Жалоба на трек",
-        f"{payload.track_title} — {payload.track_artist}",
-        f"id: {payload.track_id}",
-        f"Причины: {', '.join(reasons) or '—'}",
+        f"{_REPORT_EMOJI} <b>Жалоба на трек</b>",
+        "",
+        "<blockquote>"
+        f"{title_link} — {artist_link}\n"
+        f"id: <code>{escape(payload.track_id)}</code>\n"
+        f"Причины: {escape(', '.join(reasons) or '—')}"
+        "</blockquote>",
     ]
     if payload.message:
-        lines.append(payload.message)
-    lines.append(f"От: @{user.username}")
+        lines.append(f"<blockquote>{escape(payload.message)}</blockquote>")
+    lines.append(f"От: @{escape(user.username)}")
     await _notify_telegram("\n".join(lines), payload.photo_url)
 
     return MessageOut(detail="Спасибо, разберёмся")

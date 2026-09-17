@@ -41,7 +41,11 @@ struct ReportTrackSheet: View {
                 confirmation
             }
         }
-        .presentationDetents([.medium, .large])
+        // Full height only, not a choice of two — a half-height sheet for a
+        // form with a composer that can grow (photo + multi-line text) kept
+        // clipping its own content. Still closes by dragging down from the
+        // top, same as any sheet; only the "opens at half" option is gone.
+        .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .onChange(of: photoItem) { _, item in
             guard let item else { return }
@@ -283,6 +287,7 @@ struct ReportTrackSheet: View {
                 trackId: song.id,
                 trackTitle: song.title,
                 trackArtist: song.artistName,
+                artistId: song.artistId,
                 reasons: [selectedReason.title],
                 message: message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : message,
                 photoURL: uploadedURL

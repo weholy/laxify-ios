@@ -131,20 +131,38 @@ actor CoverImageLoader {
             // on screen, with no path back short of the network itself
             // changing. Two tries 700ms apart was not enough slack to ride
             // out anything longer than a blip.
+            var lastFailure = "нет ответа"
             let backoffs: [Duration] = [.zero, .milliseconds(500), .milliseconds(1200), .milliseconds(2200)]
             for delay in backoffs {
                 if delay != .zero { try? await Task.sleep(for: delay) }
-                guard let (data, response) = try? await session.data(from: url) else { continue }
+                guard let (data, response) = try? await session.data(from: url) else {
+                    lastFailure = "сеть"
+                    continue
+                }
                 if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
                     // A 404 will not become a cover by asking again.
-                    return nil
+                    lastFailure = "код \(http.statusCode)"
+                    break
                 }
-                guard let decoded = UIImage(data: data) else { continue }
+                guard let decoded = UIImage(data: data) else {
+                    lastFailure = "не декодировалось, байт: \(data.count)"
+                    continue
+                }
 
                 // Decoding here, off the main actor, keeps the first draw from
                 // stuttering when the image finally appears.
                 return decoded.preparingForDisplay() ?? decoded
             }
+
+            // Nothing logged this before — every failed cover was invisible
+            // outside of "the tile stayed blank," which is indistinguishable
+            // from a track that genuinely has no artwork. This is what the
+            // next diagnostics export actually needs to say which one it was.
+            RemoteLog.shared.warn(
+                "обложка не загрузилась",
+                category: "covers",
+                context: ["url": url.absoluteString, "причина": lastFailure]
+            )
             return nil
         }
 
