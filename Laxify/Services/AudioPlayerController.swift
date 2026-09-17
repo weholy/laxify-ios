@@ -27,6 +27,9 @@ final class AudioPlayerController {
     var isPlayingWave: Bool { waveBatchId != nil && currentSong != nil }
 
     private var isExtendingWave = false
+    private(set) var isRefreshingWave = false
+    private var lastWaveRefresh: Date?
+    private static let waveRefreshInterval: TimeInterval = 20
 
     private var player: AVPlayer?
     private var timeObserverToken: Any?
@@ -1717,6 +1720,38 @@ final class AudioPlayerController {
         waveBatchId = batchId
         if let song = currentSong { reportWaveStart(for: song) }
         extendWaveQueueIfNeeded()
+    }
+
+    /// Rebuilds everything after the current track server-side; `reshapeWaveTail`
+    /// only tops up, so the server would hand back the tail it already had.
+    func refreshWaveTail() {
+        guard let sessionId = waveBatchId, let current = currentSong, !isExtendingWave else { return }
+        if let lastWaveRefresh, Date().timeIntervalSince(lastWaveRefresh) < Self.waveRefreshInterval {
+            return
+        }
+        lastWaveRefresh = Date()
+        isExtendingWave = true
+        isRefreshingWave = true
+
+        Task {
+            defer {
+                isExtendingWave = false
+                isRefreshingWave = false
+            }
+            guard let batch = try? await CatalogService.shared.waveBatch(
+                sessionId: sessionId, lastTrackId: current.id, refresh: true
+            ), waveBatchId != nil else { return }
+
+            if batch.batchId != sessionId { waveBatchId = batch.batchId }
+
+            // A fade already carries the old next track; swapping it now would desync the queue.
+            guard !isCrossfading, queue.indices.contains(currentIndex) else { return }
+            let kept = Array(queue[...currentIndex])
+            let keptIds = Set(kept.map(\.id))
+            let fresh = batch.songs.filter { !keptIds.contains($0.id) }
+            guard !fresh.isEmpty else { return }
+            queue = kept + fresh
+        }
     }
 
     /// Drops the unplayed tail and refills it from the wave, so what comes

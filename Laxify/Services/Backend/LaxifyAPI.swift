@@ -884,12 +884,13 @@ actor LaxifyAPI {
     }
 
     /// Advances the chain. `lastTrackId` is the track the listener just left —
-    /// everything up to it is consumed and the buffer tops back up.
-    func waveNext(sessionId: String, lastTrackId: String?) async throws -> WaveSessionDTO {
-        struct Body: Encodable { let sessionId: String; let lastTrackId: String? }
+    /// everything up to it is consumed and the buffer tops back up. With
+    /// `refresh`, everything after it is rebuilt rather than topped up.
+    func waveNext(sessionId: String, lastTrackId: String?, refresh: Bool = false) async throws -> WaveSessionDTO {
+        struct Body: Encodable { let sessionId: String; let lastTrackId: String?; let refresh: Bool }
         return try await send(
             "/wave/next", method: "POST",
-            body: Body(sessionId: sessionId, lastTrackId: lastTrackId)
+            body: Body(sessionId: sessionId, lastTrackId: lastTrackId, refresh: refresh)
         )
     }
 

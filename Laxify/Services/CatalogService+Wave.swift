@@ -14,14 +14,16 @@ extension CatalogService {
     /// the track just left, so the buffer tops up after it rather than
     /// replaying what was already heard. A lapsed session falls back to a new
     /// one so the music never stops on a 409.
-    func waveBatch(sessionId: String? = nil, lastTrackId: String? = nil) async throws -> WaveBatch {
+    func waveBatch(
+        sessionId: String? = nil, lastTrackId: String? = nil, refresh: Bool = false
+    ) async throws -> WaveBatch {
         let settings = WaveSettings.load()
 
         do {
             let dto: WaveSessionDTO
             if let sessionId {
                 if let advanced = try? await LaxifyAPI.shared.waveNext(
-                    sessionId: sessionId, lastTrackId: lastTrackId
+                    sessionId: sessionId, lastTrackId: lastTrackId, refresh: refresh
                 ) {
                     dto = advanced
                 } else {

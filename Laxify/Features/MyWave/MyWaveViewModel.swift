@@ -33,20 +33,10 @@ final class MyWaveViewModel {
 
     var settings: WaveSettings = .load()
 
-    private var loadedAt: Date?
-    private static let freshness: TimeInterval = 15 * 60
-
     private let service: any MusicService
 
     init(service: any MusicService = CatalogService.shared) {
         self.service = service
-    }
-
-    func loadIfNeeded() async {
-        if let loadedAt, Date().timeIntervalSince(loadedAt) < Self.freshness, !tracks.isEmpty {
-            return
-        }
-        await load()
     }
 
     func load() async {
@@ -67,7 +57,6 @@ final class MyWaveViewModel {
             }
             batchId = batch.batchId
             UserDefaults.standard.set(batch.batchId, forKey: Self.batchKey)
-            loadedAt = Date()
             HomeCache.save(recommended: HomeCache.loadRecommended(), wave: batch.songs)
             AsyncCoverImage.prefetchCovers(for: Array(batch.songs.prefix(12)), width: 220)
         } catch {
@@ -101,7 +90,6 @@ final class MyWaveViewModel {
         if AudioPlayerController.shared.isPlayingWave {
             AudioPlayerController.shared.reshapeWaveTail()
         } else {
-            loadedAt = nil
             await load()
         }
     }

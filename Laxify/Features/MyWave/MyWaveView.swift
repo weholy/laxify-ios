@@ -36,6 +36,10 @@ struct MyWaveView: View {
         player.isPlayingWave ? player.queue : viewModel.tracks
     }
 
+    private var isRefreshing: Bool {
+        player.isPlayingWave ? player.isRefreshingWave : viewModel.isLoading
+    }
+
     private var isFocusFavorite: Bool {
         guard let focus else { return false }
         return favorites.contains { $0.id == focus.id }
@@ -101,29 +105,14 @@ struct MyWaveView: View {
                 .padding(.trailing, LaxifyMetrics.screenPadding)
                 .padding(.top, 6)
         }
-        // A fresh run on every visit rather than a cached one. The server
-        // builds each batch from what has been listened to since the last,
-        // so opening the tab is the moment to ask again — a quarter of an
-        // hour of cache meant coming back after listening showed the same
-        // wave that was there before any of it.
-        //
-        // Unless the wave is already the thing playing: then the deck is
-        // showing the live queue, and replacing what is behind it would open
-        // a second session for nobody to hear.
-        //
-        // `.onAppear`, not `.task`: this view is one of several `Tab` bodies
-        // in the root `TabView`, which keeps every tab's content alive and
-        // only changes which one is visible. `.task` runs once for the
-        // view's whole lifetime, so it never fired again on switching back —
-        // `.onAppear` does, on every reselection, which is what "every
-        // visit" actually needs.
+        // `.onAppear`, not `.task`: the root `TabView` keeps tab bodies alive,
+        // so `.task` never reruns on reselection. A playing wave keeps its
+        // session and only its upcoming tail is rebuilt.
         .onAppear {
-            Task {
-                if player.isPlayingWave {
-                    await viewModel.loadIfNeeded()
-                } else {
-                    await viewModel.load()
-                }
+            if player.isPlayingWave {
+                player.refreshWaveTail()
+            } else {
+                Task { await viewModel.load() }
             }
         }
         .task(id: focus?.id) {
@@ -218,20 +207,14 @@ struct MyWaveView: View {
                     .tracking(2.5)
                     .foregroundStyle(.white.opacity(0.75))
 
-                // The refresh on every visit (see the .onAppear below) had
-                // no visible sign it was happening at all — a silent swap
-                // of the deck's contents reads as "did this actually
-                // update?" even when it did. This is that sign, on-screen
-                // only while a fetch not playing the wave is genuinely
-                // in flight.
-                if viewModel.isLoading {
+                if isRefreshing {
                     ProgressView()
                         .tint(.white.opacity(0.6))
                         .scaleEffect(0.6)
                         .transition(.opacity)
                 }
             }
-            .animation(.easeInOut(duration: 0.2), value: viewModel.isLoading)
+            .animation(.easeInOut(duration: 0.2), value: isRefreshing)
 
             Text(focus?.artistName ?? L("wave.default.artist", "Ваша волна"))
                 .font(.system(size: 44, weight: .heavy))

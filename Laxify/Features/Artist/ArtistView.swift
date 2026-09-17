@@ -167,27 +167,12 @@ struct ArtistView: View {
 
     private func topTracksSection(_ tracks: [Song]) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Text("Популярное")
-                    .font(LaxifyTypography.title)
-                    .foregroundStyle(LaxifyPalette.textPrimary)
-
-                Spacer()
-
-                Button {
-                    isAllTracksPresented = true
-                } label: {
-                    HStack(spacing: 3) {
-                        Text("Все треки")
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 11, weight: .semibold))
-                    }
-                    .font(LaxifyTypography.subheadline)
-                    .foregroundStyle(LaxifyPalette.accent)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, LaxifyMetrics.screenPadding)
+            // "Все треки" is hidden until its covers load reliably; the screen
+            // and its fullScreenCover above are kept so it can come back.
+            Text("Популярное")
+                .font(LaxifyTypography.title)
+                .foregroundStyle(LaxifyPalette.textPrimary)
+                .padding(.horizontal, LaxifyMetrics.screenPadding)
 
             VStack(spacing: 12) {
                 ForEach(tracks) { song in

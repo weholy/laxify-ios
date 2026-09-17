@@ -64,7 +64,12 @@ BUFFER_REFILL_BELOW = 22
 SERVED_CAP = 600
 
 SEED_LIMIT = 8
+SEED_POOL = 24
 RECENT_EXCLUSION_DAYS = 7
+RECENT_FAVOURITE_HOURS = 24
+
+CARRY_OVER = timedelta(hours=3)
+CARRIED_SERVED = 135
 
 # Yandex limits free skips to a handful an hour. We aren't gating a
 # subscription — the cap only exists so a burst of angry skips doesn't tear the
@@ -126,6 +131,8 @@ class WaveStartIn(BaseModel):
 class WaveNextIn(BaseModel):
     session_id: str
     last_track_id: str | None = None
+    # Rebuild the unplayed tail instead of topping it up.
+    refresh: bool = False
 
 
 class WaveFeedbackIn(BaseModel):
@@ -185,13 +192,22 @@ class HomeResponse(BaseModel):
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-async def _seed_track_ids(session, user_id, *, extra: list[str] | None = None) -> list[str]:
+async def _seed_track_ids(
+    session,
+    user_id,
+    *,
+    extra: list[str] | None = None,
+    rng: random.Random | None = None,
+) -> list[str]:
     """A few strong track ids to grow stations from.
 
     Fewer than before and better chosen: a track the listener actually
     *finished* recently is a far stronger "more like this" signal than a like
     from a year ago, so those come first, then recent likes, then any recent
     play. Session finishes / likes (``extra``) lead.
+
+    With ``rng``, half the places are drawn from further down, so reopening
+    the wave doesn't regrow the same eight stations.
     """
     seeds: list[str] = list(dict.fromkeys(extra or []))
     month_ago = datetime.now(UTC) - timedelta(days=30)
@@ -227,32 +243,66 @@ async def _seed_track_ids(session, user_id, *, extra: list[str] | None = None) -
         )
     ).all()
 
+    candidates: list[str] = []
     for track_id in [*finished, *liked, *played]:
-        if track_id and track_id not in seeds:
-            seeds.append(track_id)
-        if len(seeds) >= SEED_LIMIT:
+        if track_id and track_id not in seeds and track_id not in candidates:
+            candidates.append(track_id)
+
+    room = max(SEED_LIMIT - len(seeds), 0)
+    if rng is None or len(candidates) <= room:
+        return (seeds + candidates)[:SEED_LIMIT]
+
+    fixed = candidates[: room // 2]
+    further = candidates[room // 2 : SEED_POOL]
+    drawn = rng.sample(further, min(room - len(fixed), len(further)))
+    return (seeds + fixed + drawn)[:SEED_LIMIT]
+
+
+# SoundCloud track id -> uploader account id; an upload never changes owner.
+_uploader_of: dict[str, str] = {}
+
+
+async def _uploaders(track_ids: list[str]) -> dict[str, str]:
+    missing = [
+        t for t in dict.fromkeys(track_ids) if t and t.isdigit() and t not in _uploader_of
+    ]
+    for start in range(0, len(missing), 50):
+        try:
+            raws = await soundcloud.tracks(missing[start : start + 50])
+        except SoundCloudError:
             break
+        for raw in raws or []:
+            owner = (raw.get("user") or {}).get("id")
+            if raw.get("id") and owner:
+                _uploader_of[str(raw["id"])] = str(owner)
 
-    return seeds[:SEED_LIMIT]
+    if len(_uploader_of) > 50_000:
+        for stale in list(_uploader_of)[:10_000]:
+            _uploader_of.pop(stale, None)
+
+    return {t: _uploader_of[t] for t in track_ids if t in _uploader_of}
 
 
-async def _taste_artist_ids(session, user_id) -> set[str]:
-    """Artists the listener actually returns to — used to tell familiar from
-    new, and to seed the feed's "new from artists you follow" row."""
-    fav_artists = (
-        await session.scalars(
-            select(TrackSnapshot.artist_id)
-            .join(Favorite, Favorite.track_id == TrackSnapshot.track_id)
-            .where(Favorite.user_id == user_id, TrackSnapshot.artist_id.is_not(None))
+async def _taste_artist_ids(session, user_id) -> list[str]:
+    """SoundCloud account ids of the artists the listener returns to, strongest
+    first. Rows stored with a Spotify artist id are traced to the track's
+    uploader — SoundCloud answers every Spotify id with a 500.
+    """
+    favourites = (
+        await session.execute(
+            select(Favorite.track_id, TrackSnapshot.artist_id)
+            .outerjoin(TrackSnapshot, TrackSnapshot.track_id == Favorite.track_id)
+            .where(Favorite.user_id == user_id)
+            .order_by(desc(Favorite.added_at))
+            .limit(100)
         )
     ).all()
 
-    heard_artists = (
-        await session.scalars(
-            select(ListeningEvent.artist_id)
+    heard = (
+        await session.execute(
+            select(ListeningEvent.track_id, ListeningEvent.artist_id)
             .where(
                 ListeningEvent.user_id == user_id,
-                ListeningEvent.artist_id.is_not(None),
                 ListeningEvent.seconds_played >= 45,
             )
             .order_by(desc(ListeningEvent.played_at))
@@ -260,7 +310,36 @@ async def _taste_artist_ids(session, user_id) -> set[str]:
         )
     ).all()
 
-    return {a for a in list(fav_artists) + list(heard_artists) if a}
+    rows = [(t, a, 3.0) for t, a in favourites] + [(t, a, 1.0) for t, a in heard]
+    unresolved = [t for t, a, _ in rows if t and not (a and a.isdigit())]
+    owners = await _uploaders(list(dict.fromkeys(unresolved))[:150])
+
+    # Scored per artist, not per account: one artist's songs arrive through
+    # many uploaders, which split their score below one-off uploads.
+    artist_score: dict[str, float] = {}
+    artist_accounts: dict[str, dict[str, float]] = {}
+    account_score: dict[str, float] = {}
+    for track_id, artist_id, weight in rows:
+        account = artist_id if artist_id and artist_id.isdigit() else owners.get(track_id)
+        if not account:
+            continue
+        artist = artist_id or account
+        artist_score[artist] = artist_score.get(artist, 0.0) + weight
+        accounts = artist_accounts.setdefault(artist, {})
+        accounts[account] = accounts.get(account, 0.0) + weight
+        account_score[account] = account_score.get(account, 0.0) + weight
+
+    # Main account per artist first; the rest after, so they still count as familiar.
+    ordered: list[str] = []
+    for artist in sorted(artist_score, key=lambda a: artist_score[a], reverse=True):
+        accounts = artist_accounts[artist]
+        main = max(accounts, key=lambda acc: accounts[acc])
+        if main not in ordered:
+            ordered.append(main)
+    for account in sorted(account_score, key=lambda acc: account_score[acc], reverse=True):
+        if account not in ordered:
+            ordered.append(account)
+    return ordered
 
 
 async def _taste_genres(session, user_id) -> list[str]:
@@ -340,9 +419,10 @@ async def _taste_tags(session, user_id) -> list[str]:
     return styles[:8] + languages[:1]
 
 async def _excluded_track_ids(session, user_id) -> set[str]:
-    """Disliked tracks always; tracks played in the last couple of days for
-    freshness — but not the listener's own favourites, which a wave is allowed
-    to bring back round now and then the way Yandex's does."""
+    """Disliked tracks always; tracks played in the last week for freshness —
+    but not the listener's own favourites, which a wave is allowed to bring
+    back round now and then the way Yandex's does. Not within a day of
+    hearing them, though."""
     disliked = set(
         (
             await session.scalars(
@@ -350,17 +430,19 @@ async def _excluded_track_ids(session, user_id) -> set[str]:
             )
         ).all()
     )
-    cutoff = datetime.now(UTC) - timedelta(days=RECENT_EXCLUSION_DAYS)
-    recent = set(
-        (
-            await session.scalars(
-                select(ListeningEvent.track_id).where(
-                    ListeningEvent.user_id == user_id,
-                    ListeningEvent.played_at >= cutoff,
-                )
+    now = datetime.now(UTC)
+    cutoff = now - timedelta(days=RECENT_EXCLUSION_DAYS)
+    favourite_cutoff = now - timedelta(hours=RECENT_FAVOURITE_HOURS)
+    plays = (
+        await session.execute(
+            select(ListeningEvent.track_id, ListeningEvent.played_at).where(
+                ListeningEvent.user_id == user_id,
+                ListeningEvent.played_at >= cutoff,
             )
-        ).all()
-    )
+        )
+    ).all()
+    recent = {track_id for track_id, _ in plays}
+    just_heard = {track_id for track_id, at in plays if at >= favourite_cutoff}
     liked = set(
         (
             await session.scalars(
@@ -368,7 +450,55 @@ async def _excluded_track_ids(session, user_id) -> set[str]:
             )
         ).all()
     )
-    return disliked | (recent - liked)
+    return disliked | (recent - liked) | just_heard
+
+
+_NAME_NOISE = re.compile(r"[\W_]+", re.UNICODE)
+
+
+def _name_key(artist: str | None, title: str | None) -> tuple[str, str]:
+    return (
+        _NAME_NOISE.sub(" ", (artist or "").lower()).strip(),
+        _NAME_NOISE.sub(" ", (title or "").lower()).strip(),
+    )
+
+
+async def _held_back_names(session, excluded: set[str]) -> set[tuple[str, str]]:
+    """Names of held-back tracks. Catches re-uploads the catalogue only names
+    during `_shape`, after `_same_song_ids` has already run."""
+    if not excluded:
+        return set()
+    rows = (
+        await session.execute(
+            select(TrackSnapshot.artist_name, TrackSnapshot.title).where(
+                TrackSnapshot.track_id.in_(list(excluded))
+            )
+        )
+    ).all()
+    return {_name_key(artist, title) for artist, title in rows if artist and title}
+
+
+async def _same_song_ids(session, excluded: set[str], candidates: list[str]) -> set[str]:
+    """Candidates matched to the same Spotify track as something held back —
+    another upload of a song the listener just heard."""
+    if not excluded or not candidates:
+        return set()
+
+    held_back_songs = select(TrackMeta.spotify_id).where(
+        TrackMeta.sc_track_id.in_(list(excluded)),
+        TrackMeta.matched.is_(True),
+        TrackMeta.spotify_id.is_not(None),
+    )
+    return set(
+        (
+            await session.scalars(
+                select(TrackMeta.sc_track_id).where(
+                    TrackMeta.sc_track_id.in_(candidates),
+                    TrackMeta.spotify_id.in_(held_back_songs),
+                )
+            )
+        ).all()
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -425,35 +555,43 @@ async def _discovery_tracks(limit: int, genres: list[str] | None = None) -> list
     return collected[:limit]
 
 
-async def _related_pool(taste_artists: set[str], want: int, *, budget: float = 2.5) -> list[dict]:
+async def _related_pool(
+    taste_artists: list[str],
+    want: int,
+    *,
+    rng: random.Random | None = None,
+    budget: float = 2.5,
+) -> list[dict]:
     """Tracks by artists adjacent to the ones the listener plays.
 
     A track station tends to answer with more of the same artist, so a wave
     built only from stations circles the library. This reaches one step out —
     the artists the source associates with theirs — which is where the
     unfamiliar half of the run comes from.
+
+    ``taste_artists`` is strongest first; the top three always go, the rest
+    and their neighbours are drawn, so each refresh reaches somewhere new.
     """
     if not taste_artists:
         return []
 
+    draw = rng or random.Random()
     sem = asyncio.Semaphore(6)
 
     async def neighbours(artist_id: str) -> list[dict]:
         async with sem:
-            try:
-                related = await soundcloud.related_artists(artist_id, limit=6)
-            except SoundCloudError:
-                return []
-        picks = [str(a["id"]) for a in related if a.get("id")][:3]
-        out: list[dict] = []
-        for other in picks:
-            try:
-                out += await soundcloud.user_tracks(other, limit=5)
-            except SoundCloudError:
-                continue
-        return out
+            related = await soundcloud.related_artists(artist_id, limit=8)
+        ids = [str(a["id"]) for a in related if a.get("id")]
+        picks = draw.sample(ids, min(3, len(ids)))
+        batches = await asyncio.gather(
+            *(soundcloud.user_tracks(other, limit=5) for other in picks),
+            return_exceptions=True,
+        )
+        return [raw for batch in batches if isinstance(batch, list) for raw in batch]
 
-    seeds = list(taste_artists)[:5]
+    seeds = taste_artists[:3]
+    further = taste_artists[3:15]
+    seeds += draw.sample(further, min(2, len(further)))
     tasks = [asyncio.create_task(neighbours(a)) for a in seeds]
     done, pending = await asyncio.wait(tasks, timeout=budget)
     for task in pending:
@@ -733,6 +871,7 @@ async def _shape(
     want: int,
     rng: random.Random,
     taste_tags: list[str] | None = None,
+    exclude_names: set[tuple[str, str]] | None = None,
 ) -> list[CatalogTrack]:
     """The full pipeline from raw pool to a finished run of CatalogTracks.
 
@@ -770,6 +909,14 @@ async def _shape(
     # back rather than shown on trust, which a wave can afford and a search
     # result cannot.
     known = await catalog_meta.spotify_only(tracks, drop_unchecked=True)
+
+    # Suppression is recorded with the displayed (often Spotify) artist id,
+    # which the SoundCloud-id filter at the top never matches.
+    if suppressed_artists:
+        known = [t for t in known if (t.artist_id or "") not in suppressed_artists]
+
+    if exclude_names:
+        known = [t for t in known if _name_key(t.artist_name, t.title) not in exclude_names]
 
     # And one last spread, by the name the listener will actually read.
     # `_spread_artists` above keys on the uploader's account id, but three
@@ -849,24 +996,31 @@ async def _fill(
     settings = sess.settings or dict(DEFAULT_SETTINGS)
     served = set(sess.served or [])
     suppressed = set(sess.suppressed or [])
+    # Not `favored`: it holds artist ids, which make no track station.
     boosted = list(sess.boosted or [])
-    favored = list(sess.favored or [])
 
-    seeds = await _seed_track_ids(db, user_id, extra=boosted + favored)
+    rng = random.Random()
+
+    seeds = await _seed_track_ids(db, user_id, extra=boosted, rng=rng)
+    stations_task = asyncio.create_task(_station_pool(seeds, want * 3))
     exclude = served | await _excluded_track_ids(db, user_id)
-    taste_artists = await _taste_artist_ids(db, user_id)
+    taste_order = await _taste_artist_ids(db, user_id)
+    taste_artists = set(taste_order)
 
-    stations, related = await asyncio.gather(
-        _station_pool(seeds, want * 3),
-        _related_pool(taste_artists, want * 2),
-    )
+    related = await _related_pool(taste_order, want * 2, rng=rng)
+    stations = await stations_task
+
     pool = stations + related
     if len({str(r.get("id")) for r in pool} - exclude) < want:
         pool += await _discovery_tracks(want * 2, genres=await _taste_genres(db, user_id))
     if len({str(r.get("id")) for r in pool} - exclude) < want:
         pool += await _known_pool(db, user_id, want, exclude)
 
-    rng = random.Random(f"{user_id}:{len(sess.served or [])}:{int(time.time() // 900)}")
+    held_back_names = await _held_back_names(db, exclude)
+    exclude |= await _same_song_ids(
+        db, exclude, list({str(r.get("id")) for r in pool if r.get("id")})
+    )
+
     tracks = await _shape(
         pool,
         settings=settings,
@@ -876,6 +1030,7 @@ async def _fill(
         want=want,
         rng=rng,
         taste_tags=await _taste_tags(db, user_id),
+        exclude_names=held_back_names,
     )
     return [t.model_dump() for t in tracks]
 
@@ -892,24 +1047,47 @@ async def _load(db, session_id: str, user_id) -> WaveSession | None:
 
 
 async def _open_session(db, user_id, settings: dict) -> WaveSession:
-    """Replace any running wave with a fresh one and fill its first buffer."""
+    """Replace any running wave with a fresh one and fill its first buffer.
+
+    The app reopens the wave on every visit; within `CARRY_OVER` the old
+    session's skips, boosts and served ids carry over so it doesn't repeat.
+    """
+    previous = (
+        await db.scalars(
+            select(WaveSession)
+            .where(WaveSession.user_id == user_id)
+            .order_by(desc(WaveSession.updated_at))
+            .limit(1)
+        )
+    ).first()
+
+    carried: dict[str, list] = {}
+    if previous is not None and previous.updated_at >= datetime.now(UTC) - CARRY_OVER:
+        carried = {
+            "suppressed": list(previous.suppressed or []),
+            "favored": list(previous.favored or []),
+            "boosted": list(previous.boosted or []),
+            "served": list(previous.served or [])[-CARRIED_SERVED:],
+            "skips": list(previous.skips or []),
+        }
+
     await db.execute(delete(WaveSession).where(WaveSession.user_id == user_id))
     sess = WaveSession(
         user_id=user_id,
         settings=settings,
         queue=[],
         history=[],
-        suppressed=[],
-        favored=[],
-        boosted=[],
-        served=[],
-        skips=[],
+        suppressed=carried.get("suppressed", []),
+        favored=carried.get("favored", []),
+        boosted=carried.get("boosted", []),
+        served=carried.get("served", []),
+        skips=carried.get("skips", []),
     )
     db.add(sess)
     await db.flush()
 
     sess.queue = await _fill(db, user_id, sess, want=BUFFER_TARGET)
-    sess.served = _extend_served([], [t["id"] for t in sess.queue])
+    sess.served = _extend_served(sess.served, [t["id"] for t in sess.queue])
     await db.flush()
     return sess
 
@@ -980,7 +1158,11 @@ async def next_batch(
         if idx >= 0:
             queue = queue[idx + 1 :]
 
-    if len(queue) < BUFFER_REFILL_BELOW:
+    if payload.refresh:
+        sess.served = _extend_served(sess.served, [t["id"] for t in queue])
+        sess.queue = []
+        queue = await _fill(session, user.id, sess, want=BUFFER_TARGET)
+    elif len(queue) < BUFFER_REFILL_BELOW:
         sess.queue = queue
         sess.served = _extend_served(sess.served, [t["id"] for t in queue])
         added = await _fill(session, user.id, sess, want=BUFFER_TARGET - len(queue))
@@ -1039,11 +1221,13 @@ async def wave_feedback(
         dur = payload.duration_seconds or 0
         played = payload.played_seconds or 0
         if payload.track_id and (dur <= 0 or played >= dur * FINISH_SHARE):
-            sess.boosted = list({*(sess.boosted or []), payload.track_id})[-12:]
+            sess.boosted = list(dict.fromkeys([*(sess.boosted or []), payload.track_id]))[-12:]
 
     elif payload.type == "like":
         if target_artist:
-            sess.favored = list({*(sess.favored or []), target_artist})[-12:]
+            sess.favored = list(dict.fromkeys([*(sess.favored or []), target_artist]))[-12:]
+        if payload.track_id:
+            sess.boosted = list(dict.fromkeys([*(sess.boosted or []), payload.track_id]))[-12:]
 
     await session.commit()
     return WaveFeedbackResponse(skips_available=_skips_available(sess.skips or []))
@@ -1141,13 +1325,14 @@ async def build_wave(
     """
     seeds = [seed] if seed else await _seed_track_ids(session, user_id)
     exclude = await _excluded_track_ids(session, user_id) if exclude_recent else set()
-    taste_artists = await _taste_artist_ids(session, user_id)
+    taste_order = await _taste_artist_ids(session, user_id)
+    taste_artists = set(taste_order)
 
     # Stations for what sounds like the seeds, neighbours for what does not —
     # gathered together, since the run needs both halves.
     stations, related = await asyncio.gather(
         _station_pool(seeds, limit * 3),
-        _related_pool(taste_artists, limit * 2),
+        _related_pool(taste_order, limit * 2),
     )
     pool = stations + related
     if len({str(r.get("id")) for r in pool} - exclude) < limit:
@@ -1162,6 +1347,12 @@ async def build_wave(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Не удалось собрать волну, попробуйте позже",
+        )
+
+    held_back_names = await _held_back_names(session, exclude)
+    if exclude:
+        exclude |= await _same_song_ids(
+            session, exclude, list({str(r.get("id")) for r in pool if r.get("id")})
         )
 
     rng = random.Random(f"{user_id}:{int(time.time() // 900)}")
@@ -1179,6 +1370,7 @@ async def build_wave(
         want=limit,
         rng=rng,
         taste_tags=await _taste_tags(session, user_id),
+        exclude_names=held_back_names,
     )
 
     return WaveResponse(
@@ -1369,7 +1561,7 @@ async def _block_playlist_of_the_day(
     tracks = await _shape(
         pool,
         settings=dict(DEFAULT_SETTINGS),
-        taste_artists=await _taste_artist_ids(session, user_id),
+        taste_artists=set(await _taste_artist_ids(session, user_id)),
         exclude_ids=await _excluded_track_ids(session, user_id),
         suppressed_artists=set(),
         want=40,
@@ -1416,7 +1608,7 @@ async def _block_dejavu(session, user_id) -> FeedBlock | None:
 
 async def _block_premiere(session, user_id) -> FeedBlock | None:
     """Recent uploads from the artists the listener keeps coming back to."""
-    artist_ids = list(await _taste_artist_ids(session, user_id))[:6]
+    artist_ids = (await _taste_artist_ids(session, user_id))[:6]
     if not artist_ids:
         return None
 
