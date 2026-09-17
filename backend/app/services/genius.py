@@ -223,6 +223,14 @@ async def _read_page(url: str) -> str | None:
 
     result = "\n".join(lines).strip()
 
+    # The lyrics container currently opens with a contributor count and a
+    # run of language-switcher links ("45 ContributorsTranslationsRomani
+    # zationEnglish") — nothing separates them from each other in the
+    # source, so stripping tags above collapses them into one line that
+    # reads as the start of the words. Real lyrics never open on a bare
+    # number. Verified live against "РАТАТА" — MORGENSHTERN, 2026-09-17.
+    result = re.sub(r"^\d+\s*Contributors?[^\n]*\n?", "", result, count=1)
+
     # A handful of characters means the page had a stub rather than lyrics.
     return result if len(result) > 60 else None
 
