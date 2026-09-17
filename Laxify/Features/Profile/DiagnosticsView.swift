@@ -11,6 +11,7 @@ struct DiagnosticsView: View {
 
     @State private var routes: [String: Bool] = [:]
     @State private var sourceCheck: SourceCheck = .pending
+    @State private var coverCheck: CoverCheck = .pending
     @State private var entries: [RemoteLog.Entry] = []
     @State private var exported: URL?
     @State private var setAside = 0
@@ -21,15 +22,122 @@ struct DiagnosticsView: View {
         case failed(String)
     }
 
+    enum CoverCheck: Equatable {
+        case pending
+        case ok(count: Int, ms: Int)
+        case failed(String)
+    }
+
     var body: some View {
         SettingsPage(title: "Диагностика", status: nil, onBack: onBack) {
             sourceCard
+            coversCard
             routesCard
             setAsideCard
             actions
             logCard
         }
         .task { await refresh() }
+    }
+
+    // MARK: - Covers
+
+    /// The one check the log alone never answered: not "did a request fail"
+    /// but "did a real cover, of the kind already on this device, actually
+    /// decode and land on screen." Run against the listener's own recent
+    /// tracks rather than a fixed url, so it exercises the same hosts and
+    /// sizes the app asks for during ordinary use.
+    private var coversCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Обложки")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(LaxifyPalette.textSecondary)
+                .textCase(.uppercase)
+                .kerning(0.5)
+                .padding(.leading, 4)
+
+            SettingsCard {
+                HStack(spacing: 14) {
+                    statusDot(for: coverCheck == .pending ? nil : isCoversOK)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(coverTitle)
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(LaxifyPalette.textPrimary)
+
+                        Text(coverDetail)
+                            .font(LaxifyTypography.footnote)
+                            .foregroundStyle(LaxifyPalette.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer(minLength: 0)
+                }
+                .padding(16)
+            }
+        }
+    }
+
+    private var isCoversOK: Bool {
+        if case .ok = coverCheck { return true }
+        return false
+    }
+
+    private var coverTitle: String {
+        switch coverCheck {
+        case .pending: "Проверяем…"
+        case .ok: "Обложки загружаются"
+        case .failed: "Обложки не загружаются"
+        }
+    }
+
+    private var coverDetail: String {
+        switch coverCheck {
+        case .pending:
+            "Пробуем реальные обложки из недавнего"
+        case .ok(let count, let ms):
+            "Загружено \(count) из \(count) за \(ms) мс"
+        case .failed(let reason):
+            reason
+        }
+    }
+
+    private func checkCovers() async {
+        let sample = Array(
+            (HomeCache.loadWave() + HomeCache.loadRecommended())
+                .compactMap(\.coverURL)
+                .prefix(3)
+        )
+
+        guard !sample.isEmpty else {
+            withAnimation(.easeOut(duration: 0.25)) {
+                coverCheck = .failed("Нет недавних треков для проверки — откройте любой список и вернитесь")
+            }
+            return
+        }
+
+        let started = ContinuousClock.now
+        var succeeded = 0
+        for url in sample {
+            let sized = CoverImageLoader.variant(of: url, forDisplayWidth: 200)
+            if await CoverImageLoader.shared.image(for: sized) != nil {
+                succeeded += 1
+            }
+        }
+        let elapsed = Int(started.duration(to: .now).milliseconds)
+
+        withAnimation(.easeOut(duration: 0.25)) {
+            coverCheck = succeeded == sample.count
+                ? .ok(count: succeeded, ms: elapsed)
+                : .failed("Загрузилось \(succeeded) из \(sample.count) — проверьте соединение")
+        }
+
+        RemoteLog.shared.timing(
+            "диагностика: обложки",
+            milliseconds: elapsed,
+            category: "diagnostics",
+            context: ["успешно": "\(succeeded)", "всего": "\(sample.count)"]
+        )
     }
 
     // MARK: - Source
@@ -327,6 +435,7 @@ struct DiagnosticsView: View {
 
     private func refresh() async {
         sourceCheck = .pending
+        coverCheck = .pending
         routes = [:]
         setAside = UnplayableStore.hiddenCount
 
@@ -336,10 +445,11 @@ struct DiagnosticsView: View {
         // the wrong impression.
         entries = await RemoteLog.shared.recent()
 
-        // The two checks are independent, so neither waits for the other.
+        // All three checks are independent, so none waits on the others.
         async let source: Void = checkSource()
         async let server: Void = checkRoutes()
-        _ = await (source, server)
+        async let covers: Void = checkCovers()
+        _ = await (source, server, covers)
 
         // Re-read at the end: the checks themselves wrote to the log, and
         // those lines are the interesting ones.
